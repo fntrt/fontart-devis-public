@@ -446,12 +446,18 @@
         return;
       }
 
-      const src = cv.imread(previewCanvas);
+      const workCanvas = document.createElement('canvas');
+      workCanvas.width = sourceImage.width;
+      workCanvas.height = sourceImage.height;
+      const workCtx = workCanvas.getContext('2d');
+      workCtx.drawImage(sourceImage, 0, 0);
+
+      const src = cv.imread(workCanvas);
       const gray = new cv.Mat();
       const blur = new cv.Mat();
-      const binary = new cv.Mat();
-      const contours = new cv.MatVector();
-      const hierarchy = new cv.Mat();
+      const binaryInv = new cv.Mat();
+      const binaryNorm = new cv.Mat();
+      const kernel = cv.Mat.ones(3, 3, cv.CV_8U);
 
       try {
         cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
@@ -460,34 +466,60 @@
         cv.GaussianBlur(gray, blur, new cv.Size(blurK, blurK), 0, 0, cv.BORDER_DEFAULT);
 
         const t = Number(threshRange.value) || 120;
-        cv.threshold(blur, binary, t, 255, cv.THRESH_BINARY_INV + cv.THRESH_OTSU);
+        cv.threshold(blur, binaryInv, t, 255, cv.THRESH_BINARY_INV);
+        cv.threshold(blur, binaryNorm, t, 255, cv.THRESH_BINARY);
 
-        cv.findContours(binary, contours, hierarchy, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE);
+        cv.morphologyEx(binaryInv, binaryInv, cv.MORPH_OPEN, kernel);
+        cv.morphologyEx(binaryInv, binaryInv, cv.MORPH_CLOSE, kernel);
+        cv.morphologyEx(binaryNorm, binaryNorm, cv.MORPH_OPEN, kernel);
+        cv.morphologyEx(binaryNorm, binaryNorm, cv.MORPH_CLOSE, kernel);
 
-        const drawn = src.clone();
-        let totalAreaPx2 = 0;
-        let totalPerimeterPx = 0;
+        function evalBinary(binaryMat) {
+          const localContours = new cv.MatVector();
+          const localHierarchy = new cv.Mat();
+          cv.findContours(binaryMat, localContours, localHierarchy, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE);
 
-        for (let i = 0; i < contours.size(); i++) {
-          const c = contours.get(i);
-          const area = cv.contourArea(c, false);
-          if (area < 120) {
+          const filtered = [];
+          let areaSum = 0;
+          let periSum = 0;
+          for (let i = 0; i < localContours.size(); i++) {
+            const c = localContours.get(i);
+            const area = Math.abs(cv.contourArea(c, false));
+            if (area >= 80) {
+              filtered.push(i);
+              areaSum += area;
+              periSum += cv.arcLength(c, true);
+            }
             c.delete();
-            continue;
           }
-
-          totalAreaPx2 += Math.abs(area);
-          totalPerimeterPx += cv.arcLength(c, true);
-
-          const color = new cv.Scalar(16, 185, 129, 255);
-          cv.drawContours(drawn, contours, i, color, 2, cv.LINE_8, hierarchy, 0);
-          c.delete();
+          return { localContours, localHierarchy, filtered, areaSum, periSum };
         }
 
+        const invEval = evalBinary(binaryInv);
+        const normEval = evalBinary(binaryNorm);
+        const best = invEval.areaSum >= normEval.areaSum ? invEval : normEval;
+
+        if (best.filtered.length === 0) {
+          setStatus('Aucun contour détecté. Essayez: flou 1-3, seuil plus bas, et photo mieux contrastée.', true);
+          invEval.localContours.delete();
+          invEval.localHierarchy.delete();
+          normEval.localContours.delete();
+          normEval.localHierarchy.delete();
+          return;
+        }
+
+        const drawn = src.clone();
+        for (let i = 0; i < best.filtered.length; i++) {
+          const idx = best.filtered[i];
+          const color = new cv.Scalar(16, 185, 129, 255);
+          cv.drawContours(drawn, best.localContours, idx, color, 2, cv.LINE_8, best.localHierarchy, 0);
+        }
         cv.imshow(previewCanvas, drawn);
 
+        const totalAreaPx2 = best.areaSum;
+        const totalPerimeterPx = best.periSum;
+
         if (previewOnly) {
-          drawImageAndPoints(sourceImage);
           setStatus('Prévisualisation contours affichée. Ajustez les curseurs puis confirmez.');
         } else {
           const mmPerPx = 1 / pxPerMm;
@@ -498,11 +530,14 @@
             setStatus('Contours invalides. Ajustez les paramètres puis recommencez.', true);
           } else {
             computeAndDisplayPrices(surfaceMm2, perimeterMm);
-            drawImageAndPoints(sourceImage);
             setStatus('Contours validés et prix calculés.');
           }
         }
 
+        invEval.localContours.delete();
+        invEval.localHierarchy.delete();
+        normEval.localContours.delete();
+        normEval.localHierarchy.delete();
         drawn.delete();
       } catch (err) {
         setStatus(`Erreur traitement: ${err.message || err}`, true);
@@ -510,9 +545,9 @@
         src.delete();
         gray.delete();
         blur.delete();
-        binary.delete();
-        contours.delete();
-        hierarchy.delete();
+        binaryInv.delete();
+        binaryNorm.delete();
+        kernel.delete();
       }
     }
 
@@ -578,5 +613,6 @@
   </script>
 </body>
 </html>
+
 
 
