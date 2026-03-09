@@ -262,6 +262,7 @@
         <div class="inline" style="margin-top: 12px;">
           <button id="previewContoursBtn" class="secondary" type="button">Prévisualiser</button>
           <button id="grayPreviewBtn" class="secondary" type="button">Voir en gris</button>
+          <button id="binaryPreviewBtn" class="secondary" type="button">Voir binaire</button>
           <button id="confirmContoursBtn" type="button">Confirmer contours</button>
         </div>
 
@@ -309,6 +310,7 @@
     const drawRoiBtn = document.getElementById('drawRoiBtn');
     const previewContoursBtn = document.getElementById('previewContoursBtn');
     const grayPreviewBtn = document.getElementById('grayPreviewBtn');
+    const binaryPreviewBtn = document.getElementById('binaryPreviewBtn');
     const confirmContoursBtn = document.getElementById('confirmContoursBtn');
     const pointsInfo = document.getElementById('pointsInfo');
     const statusMsg = document.getElementById('statusMsg');
@@ -478,6 +480,104 @@
       }
     }
 
+
+    function renderBinaryPreview() {
+      if (!sourceImage) {
+        setStatus('Chargez d\'abord une image.', true);
+        return;
+      }
+      if (!cvReady) {
+        setStatus('OpenCV n\'est pas encore chargé. Réessayez dans quelques secondes.', true);
+        return;
+      }
+
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = sourceImage.width;
+      tempCanvas.height = sourceImage.height;
+      const tempCtx = tempCanvas.getContext('2d');
+      tempCtx.drawImage(sourceImage, 0, 0);
+
+      const src = cv.imread(tempCanvas);
+      const gray = new cv.Mat();
+      const blur = new cv.Mat();
+      const bin = new cv.Mat();
+      const rgba = new cv.Mat();
+      const kernel = cv.Mat.ones(3, 3, cv.CV_8U);
+      try {
+        cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+
+        const blurK = Number(blurRange.value) || 3;
+        cv.GaussianBlur(gray, blur, new cv.Size(blurK, blurK), 0, 0, cv.BORDER_DEFAULT);
+
+        const t = Number(threshRange.value) || 120;
+        cv.threshold(blur, bin, t, 255, cv.THRESH_BINARY_INV);
+        cv.morphologyEx(bin, bin, cv.MORPH_OPEN, kernel);
+        cv.morphologyEx(bin, bin, cv.MORPH_CLOSE, kernel);
+
+        if (roiRect) {
+          const r = normalizeRect(roiRect);
+          const x1 = Math.max(0, Math.floor(r.x));
+          const y1 = Math.max(0, Math.floor(r.y));
+          const x2 = Math.min(src.cols - 1, Math.floor(r.x + r.w));
+          const y2 = Math.min(src.rows - 1, Math.floor(r.y + r.h));
+          if (x2 > x1 && y2 > y1) {
+            const mask = cv.Mat.zeros(src.rows, src.cols, cv.CV_8U);
+            cv.rectangle(mask, new cv.Point(x1, y1), new cv.Point(x2, y2), new cv.Scalar(255), -1);
+            cv.bitwise_and(bin, mask, bin);
+            mask.delete();
+          }
+        }
+
+        cv.cvtColor(bin, rgba, cv.COLOR_GRAY2RGBA);
+        cv.imshow(previewCanvas, rgba);
+
+        selectedPoints.forEach((p, i) => {
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, 6, 0, Math.PI * 2);
+          ctx.fillStyle = i === 0 ? '#ef4444' : '#2563eb';
+          ctx.fill();
+          ctx.font = '14px sans-serif';
+          ctx.fillStyle = '#111827';
+          ctx.fillText(String(i + 1), p.x + 8, p.y - 8);
+        });
+
+        if (objectSeed) {
+          ctx.beginPath();
+          ctx.arc(objectSeed.x, objectSeed.y, 7, 0, Math.PI * 2);
+          ctx.strokeStyle = '#a21caf';
+          ctx.lineWidth = 3;
+          ctx.stroke();
+        }
+
+        if (roiRect) {
+          const r = normalizeRect(roiRect);
+          ctx.strokeStyle = '#f97316';
+          ctx.lineWidth = 3;
+          ctx.strokeRect(r.x, r.y, r.w, r.h);
+        }
+
+        if (selectedPoints.length === 2) {
+          ctx.beginPath();
+          ctx.moveTo(selectedPoints[0].x, selectedPoints[0].y);
+          ctx.lineTo(selectedPoints[1].x, selectedPoints[1].y);
+          ctx.strokeStyle = '#f59e0b';
+          ctx.lineWidth = 3;
+          ctx.stroke();
+        }
+
+        pointsInfo.textContent = `${selectedPoints.length} / 2 points sélectionnés`;
+        setStatus('Prévisualisation binaire affichée.');
+      } catch (err) {
+        setStatus(`Erreur binaire: ${err.message || err}`, true);
+      } finally {
+        src.delete();
+        gray.delete();
+        blur.delete();
+        bin.delete();
+        rgba.delete();
+        kernel.delete();
+      }
+    }
     function euclidean(a, b) {
       const dx = a.x - b.x;
       const dy = a.y - b.y;
@@ -871,6 +971,7 @@
     });
     previewContoursBtn.addEventListener('click', () => analyzeContours(true));
     grayPreviewBtn.addEventListener('click', () => renderGrayPreview());
+    binaryPreviewBtn.addEventListener('click', () => renderBinaryPreview());
     confirmContoursBtn.addEventListener('click', () => analyzeContours(false));
 
     [goldRateInput, silverRateInput].forEach(input => {
@@ -888,6 +989,8 @@
   </script>
 </body>
 </html>
+
+
 
 
 
