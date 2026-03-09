@@ -234,6 +234,7 @@
           <button id="resetPointsBtn" class="secondary" type="button">Réinitialiser les points</button>
           <button id="detectBtn" type="button">Détecter les contours</button>
           <button id="selectPieceBtn" class="secondary" type="button">Sélectionner la pièce (clic)</button>
+          <button id="drawRoiBtn" class="secondary" type="button">Dessiner zone pièce</button>
         </div>
 
         <div style="margin-top: 10px;">
@@ -304,6 +305,7 @@
     const resetPointsBtn = document.getElementById('resetPointsBtn');
     const detectBtn = document.getElementById('detectBtn');
     const selectPieceBtn = document.getElementById('selectPieceBtn');
+    const drawRoiBtn = document.getElementById('drawRoiBtn');
     const previewContoursBtn = document.getElementById('previewContoursBtn');
     const confirmContoursBtn = document.getElementById('confirmContoursBtn');
     const pointsInfo = document.getElementById('pointsInfo');
@@ -331,6 +333,9 @@
     let cvReady = false;
     let objectPickMode = false;
     let objectSeed = null;
+    let roiMode = false;
+    let roiStart = null;
+    let roiRect = null;
 
     blurRange.addEventListener('input', () => { blurVal.textContent = blurRange.value; });
     threshRange.addEventListener('input', () => { threshVal.textContent = threshRange.value; });
@@ -338,6 +343,24 @@
     function setStatus(msg, isError = false) {
       statusMsg.textContent = msg;
       statusMsg.classList.toggle('danger', isError);
+    }
+
+    function getCanvasXY(e) {
+      const rect = previewCanvas.getBoundingClientRect();
+      const scaleX = previewCanvas.width / rect.width;
+      const scaleY = previewCanvas.height / rect.height;
+      return {
+        x: (e.clientX - rect.left) * scaleX,
+        y: (e.clientY - rect.top) * scaleY
+      };
+    }
+
+    function normalizeRect(rect) {
+      const x = Math.min(rect.x, rect.x + rect.w);
+      const y = Math.min(rect.y, rect.y + rect.h);
+      const w = Math.abs(rect.w);
+      const h = Math.abs(rect.h);
+      return { x, y, w, h };
     }
 
     function drawImageAndPoints(baseImg) {
@@ -363,6 +386,13 @@
         ctx.strokeStyle = '#a21caf';
         ctx.lineWidth = 3;
         ctx.stroke();
+      }
+
+      if (roiRect) {
+        const r = normalizeRect(roiRect);
+        ctx.strokeStyle = '#f97316';
+        ctx.lineWidth = 3;
+        ctx.strokeRect(r.x, r.y, r.w, r.h);
       }
 
       if (selectedPoints.length === 2) {
@@ -485,6 +515,21 @@
         cv.morphologyEx(binaryInv, binaryInv, cv.MORPH_CLOSE, kernel);
         cv.morphologyEx(binaryNorm, binaryNorm, cv.MORPH_OPEN, kernel);
         cv.morphologyEx(binaryNorm, binaryNorm, cv.MORPH_CLOSE, kernel);
+
+        if (roiRect) {
+          const r = normalizeRect(roiRect);
+          const x1 = Math.max(0, Math.floor(r.x));
+          const y1 = Math.max(0, Math.floor(r.y));
+          const x2 = Math.min(src.cols - 1, Math.floor(r.x + r.w));
+          const y2 = Math.min(src.rows - 1, Math.floor(r.y + r.h));
+          if (x2 > x1 && y2 > y1) {
+            const mask = cv.Mat.zeros(src.rows, src.cols, cv.CV_8U);
+            cv.rectangle(mask, new cv.Point(x1, y1), new cv.Point(x2, y2), new cv.Scalar(255), -1);
+            cv.bitwise_and(binaryInv, mask, binaryInv);
+            cv.bitwise_and(binaryNorm, mask, binaryNorm);
+            mask.delete();
+          }
+        }
 
         function evalBinary(binaryMat) {
           const localContours = new cv.MatVector();
@@ -637,6 +682,9 @@
         pxPerMm = null;
         objectSeed = null;
         objectPickMode = false;
+        roiMode = false;
+        roiStart = null;
+        roiRect = null;
         drawImageAndPoints(sourceImage);
         setStatus('Image chargée. Cliquez sur 2 points de la règle.');
       };
@@ -645,15 +693,16 @@
 
     previewCanvas.addEventListener('click', (e) => {
       if (!sourceImage) return;
-      const rect = previewCanvas.getBoundingClientRect();
-      const scaleX = previewCanvas.width / rect.width;
-      const scaleY = previewCanvas.height / rect.height;
-      const x = (e.clientX - rect.left) * scaleX;
-      const y = (e.clientY - rect.top) * scaleY;
+      if (roiMode) return;
+
+      const { x, y } = getCanvasXY(e);
 
       if (objectPickMode) {
         objectSeed = { x, y };
         objectPickMode = false;
+        roiMode = false;
+        roiStart = null;
+        roiRect = null;
         drawImageAndPoints(sourceImage);
         setStatus('Point pièce sélectionné. Lancez "Prévisualiser".');
         return;
@@ -668,6 +717,38 @@
       }
     });
 
+    previewCanvas.addEventListener('mousedown', (e) => {
+      if (!sourceImage || !roiMode) return;
+      const { x, y } = getCanvasXY(e);
+      roiStart = { x, y };
+      roiRect = { x, y, w: 0, h: 0 };
+      drawImageAndPoints(sourceImage);
+    });
+
+    previewCanvas.addEventListener('mousemove', (e) => {
+      if (!sourceImage || !roiMode || !roiStart) return;
+      const { x, y } = getCanvasXY(e);
+      roiRect = { x: roiStart.x, y: roiStart.y, w: x - roiStart.x, h: y - roiStart.y };
+      drawImageAndPoints(sourceImage);
+    });
+
+    previewCanvas.addEventListener('mouseup', () => {
+      if (!sourceImage || !roiMode || !roiRect) return;
+      const r = normalizeRect(roiRect);
+      if (r.w < 20 || r.h < 20) {
+        roiRect = null;
+        roiStart = null;
+        setStatus('Rectangle trop petit. Redessinez une zone plus large.', true);
+        drawImageAndPoints(sourceImage);
+        return;
+      }
+      roiRect = r;
+      roiStart = null;
+      roiMode = false;
+      drawImageAndPoints(sourceImage);
+      setStatus('Zone pièce enregistrée. Lancez "Prévisualiser".');
+    });
+
     knownDistanceMm.addEventListener('input', () => {
       if (selectedPoints.length === 2) updateScaleFromPoints();
     });
@@ -677,7 +758,10 @@
       pxPerMm = null;
       objectSeed = null;
       objectPickMode = false;
-      drawImageAndPoints(sourceImage);
+        roiMode = false;
+        roiStart = null;
+        roiRect = null;
+        drawImageAndPoints(sourceImage);
       setStatus('Points réinitialisés.');
     });
 
@@ -688,7 +772,19 @@
         return;
       }
       objectPickMode = true;
+      roiMode = false;
+      roiStart = null;
       setStatus('Cliquez directement sur la pièce à analyser (anneau, médaille, etc.).');
+    });
+    drawRoiBtn.addEventListener('click', () => {
+      if (!sourceImage) {
+        setStatus('Chargez d\'abord une image.', true);
+        return;
+      }
+      roiMode = true;
+      roiStart = null;
+      objectPickMode = false;
+      setStatus('Cliquez-glissez pour dessiner un rectangle autour de la pièce.');
     });
     previewContoursBtn.addEventListener('click', () => analyzeContours(true));
     confirmContoursBtn.addEventListener('click', () => analyzeContours(false));
@@ -708,6 +804,11 @@
   </script>
 </body>
 </html>
+
+
+
+
+
 
 
 
