@@ -1,0 +1,582 @@
+﻿<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Devis autonome - Fontart</title>
+  <style>
+    :root {
+      --bg: #f4f5f7;
+      --card: #ffffff;
+      --ink: #1f2937;
+      --muted: #6b7280;
+      --accent: #0f766e;
+      --accent-2: #155e75;
+      --danger: #b91c1c;
+      --line: #d1d5db;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      color: var(--ink);
+      background: radial-gradient(circle at top right, #d9f3ef 0, transparent 45%), var(--bg);
+      line-height: 1.4;
+      padding: 24px;
+    }
+
+    .container {
+      max-width: 1100px;
+      margin: 0 auto;
+      display: grid;
+      gap: 18px;
+    }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 18px;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.05);
+    }
+
+    h1, h2 { margin: 0 0 10px; }
+
+    .hint {
+      color: var(--muted);
+      font-size: 0.92rem;
+      margin-top: 4px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 12px;
+    }
+
+    label {
+      display: block;
+      font-weight: 600;
+      margin-bottom: 5px;
+    }
+
+    input, textarea, select {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 9px 10px;
+      font: inherit;
+      background: #fff;
+    }
+
+    textarea { min-height: 82px; resize: vertical; }
+
+    .inline {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    button {
+      border: 0;
+      border-radius: 8px;
+      padding: 10px 14px;
+      font: inherit;
+      cursor: pointer;
+      background: var(--accent);
+      color: #fff;
+      transition: .2s ease;
+    }
+
+    button:hover { background: var(--accent-2); }
+    button.secondary { background: #475569; }
+    button.secondary:hover { background: #334155; }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: 1.1fr 1fr;
+      gap: 14px;
+    }
+
+    @media (max-width: 900px) {
+      .workspace { grid-template-columns: 1fr; }
+    }
+
+    .canvas-wrap {
+      border: 1px dashed var(--line);
+      border-radius: 12px;
+      padding: 10px;
+      background: #fff;
+    }
+
+    canvas {
+      width: 100%;
+      height: auto;
+      border-radius: 8px;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+    }
+
+    .pill {
+      display: inline-block;
+      padding: 4px 8px;
+      border-radius: 999px;
+      background: #ecfeff;
+      border: 1px solid #bae6fd;
+      font-size: .84rem;
+      color: #075985;
+    }
+
+    .danger { color: var(--danger); font-weight: 600; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 8px;
+      font-size: 0.96rem;
+    }
+
+    th, td {
+      border-bottom: 1px solid #e5e7eb;
+      text-align: left;
+      padding: 10px 8px;
+    }
+
+    th { background: #f8fafc; }
+
+    .kpi {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 10px;
+      margin-top: 8px;
+    }
+
+    .kpi div {
+      border: 1px solid #dbeafe;
+      border-radius: 10px;
+      background: #eff6ff;
+      padding: 8px;
+      font-size: 0.9rem;
+    }
+
+    .status {
+      margin-top: 8px;
+      font-size: 0.93rem;
+      color: #0f172a;
+    }
+
+    .range-line {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="card">
+      <h1>Demande de devis autonome</h1>
+      <p class="hint">Photo obligatoire de la pièce à côté d'une règle graduée. Cliquez ensuite sur 2 points de la règle pour calibrer l'échelle.</p>
+      <div class="grid">
+        <div>
+          <label for="reference">Référence</label>
+          <input id="reference" type="text" placeholder="Ex: FA-00231" />
+        </div>
+        <div>
+          <label for="weight">Poids (g)</label>
+          <input id="weight" type="number" step="0.01" min="0" placeholder="Ex: 12.50" />
+        </div>
+        <div>
+          <label for="metalType">Métal principal</label>
+          <select id="metalType">
+            <option value="gold">Or</option>
+            <option value="silver">Argent</option>
+          </select>
+        </div>
+      </div>
+      <div style="margin-top: 12px;">
+        <label for="description">Description</label>
+        <textarea id="description" placeholder="Description de la pièce"></textarea>
+      </div>
+
+      <div class="grid" style="margin-top: 10px;">
+        <div>
+          <label for="goldRate">Cours de l'or</label>
+          <input id="goldRate" type="number" step="0.0001" min="0" value="68" />
+          <p class="hint">Valeur unitaire utilisée pour D1/D2/D3.</p>
+        </div>
+        <div>
+          <label for="silverRate">Cours de l'argent</label>
+          <input id="silverRate" type="number" step="0.0001" min="0" value="0.8" />
+          <p class="hint">Valeur unitaire utilisée pour Argent 15/20/30.</p>
+        </div>
+        <div>
+          <label for="photoInput">Photo de l'article</label>
+          <input id="photoInput" type="file" accept="image/*" />
+        </div>
+      </div>
+    </div>
+
+    <div class="card workspace">
+      <div>
+        <h2>Calibration & points règle</h2>
+        <span class="pill" id="pointsInfo">0 / 2 points sélectionnés</span>
+        <div class="canvas-wrap" style="margin-top: 8px;">
+          <canvas id="previewCanvas"></canvas>
+        </div>
+
+        <div class="inline" style="margin-top: 10px;">
+          <button id="resetPointsBtn" class="secondary" type="button">Réinitialiser les points</button>
+          <button id="detectBtn" type="button">Détecter les contours</button>
+        </div>
+
+        <div style="margin-top: 10px;">
+          <label for="knownDistanceMm">Distance réelle entre les 2 points (mm)</label>
+          <input id="knownDistanceMm" type="number" min="0" step="0.01" placeholder="Ex: 20" />
+        </div>
+
+        <p class="status" id="statusMsg">Chargez une image pour démarrer.</p>
+      </div>
+
+      <div>
+        <h2>Ajustements contours</h2>
+        <div class="range-line">
+          <label for="blurRange">Flou (bruit)</label>
+          <span id="blurVal">3</span>
+        </div>
+        <input id="blurRange" type="range" min="1" max="15" step="2" value="3" />
+
+        <div class="range-line" style="margin-top: 12px;">
+          <label for="threshRange">Seuil binaire</label>
+          <span id="threshVal">120</span>
+        </div>
+        <input id="threshRange" type="range" min="20" max="240" step="1" value="120" />
+
+        <div class="inline" style="margin-top: 12px;">
+          <button id="previewContoursBtn" class="secondary" type="button">Prévisualiser</button>
+          <button id="confirmContoursBtn" type="button">Confirmer contours</button>
+        </div>
+
+        <p class="hint" style="margin-top: 10px;">Le calcul prend en compte le contour externe et les trous internes détectés (si présents).</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Résultats</h2>
+      <div class="kpi" id="kpiContainer">
+        <div>Surface S: <strong id="surfaceOut">-</strong> mm²</div>
+        <div>Périmètre p: <strong id="perimeterOut">-</strong> mm</div>
+        <div>Hauteur h: <strong id="heightOut">-</strong> mm</div>
+        <div>Surface totale: <strong id="stotalOut">-</strong> mm²</div>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Option</th>
+            <th>Formule</th>
+            <th>Prix</th>
+          </tr>
+        </thead>
+        <tbody id="priceTableBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    window.Module = {
+      onRuntimeInitialized() {
+        window.__cvReadyHook && window.__cvReadyHook();
+      }
+    };
+  </script>
+  <script async src="https://cdn.jsdelivr.net/npm/opencv.js@1.2.1/opencv.min.js"></script>
+  <script>
+    const photoInput = document.getElementById('photoInput');
+    const previewCanvas = document.getElementById('previewCanvas');
+    const ctx = previewCanvas.getContext('2d');
+    const resetPointsBtn = document.getElementById('resetPointsBtn');
+    const detectBtn = document.getElementById('detectBtn');
+    const previewContoursBtn = document.getElementById('previewContoursBtn');
+    const confirmContoursBtn = document.getElementById('confirmContoursBtn');
+    const pointsInfo = document.getElementById('pointsInfo');
+    const statusMsg = document.getElementById('statusMsg');
+
+    const blurRange = document.getElementById('blurRange');
+    const threshRange = document.getElementById('threshRange');
+    const blurVal = document.getElementById('blurVal');
+    const threshVal = document.getElementById('threshVal');
+
+    const knownDistanceMm = document.getElementById('knownDistanceMm');
+    const goldRateInput = document.getElementById('goldRate');
+    const silverRateInput = document.getElementById('silverRate');
+
+    const surfaceOut = document.getElementById('surfaceOut');
+    const perimeterOut = document.getElementById('perimeterOut');
+    const heightOut = document.getElementById('heightOut');
+    const stotalOut = document.getElementById('stotalOut');
+    const priceTableBody = document.getElementById('priceTableBody');
+
+    let sourceImage = null;
+    let selectedPoints = [];
+    let pxPerMm = null;
+    let lastMetrics = null;
+    let cvReady = false;
+
+    blurRange.addEventListener('input', () => { blurVal.textContent = blurRange.value; });
+    threshRange.addEventListener('input', () => { threshVal.textContent = threshRange.value; });
+
+    function setStatus(msg, isError = false) {
+      statusMsg.textContent = msg;
+      statusMsg.classList.toggle('danger', isError);
+    }
+
+    function drawImageAndPoints(baseImg) {
+      if (!baseImg) return;
+      previewCanvas.width = baseImg.width;
+      previewCanvas.height = baseImg.height;
+      ctx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+      ctx.drawImage(baseImg, 0, 0);
+
+      selectedPoints.forEach((p, i) => {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 6, 0, Math.PI * 2);
+        ctx.fillStyle = i === 0 ? '#ef4444' : '#2563eb';
+        ctx.fill();
+        ctx.font = '14px sans-serif';
+        ctx.fillStyle = '#111827';
+        ctx.fillText(String(i + 1), p.x + 8, p.y - 8);
+      });
+
+      if (selectedPoints.length === 2) {
+        ctx.beginPath();
+        ctx.moveTo(selectedPoints[0].x, selectedPoints[0].y);
+        ctx.lineTo(selectedPoints[1].x, selectedPoints[1].y);
+        ctx.strokeStyle = '#f59e0b';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+      }
+
+      pointsInfo.textContent = `${selectedPoints.length} / 2 points sélectionnés`;
+    }
+
+    function euclidean(a, b) {
+      const dx = a.x - b.x;
+      const dy = a.y - b.y;
+      return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    function updateScaleFromPoints() {
+      const distMm = Number(knownDistanceMm.value);
+      if (selectedPoints.length !== 2 || !distMm || distMm <= 0) {
+        pxPerMm = null;
+        return;
+      }
+      const pxDist = euclidean(selectedPoints[0], selectedPoints[1]);
+      if (pxDist <= 0) {
+        pxPerMm = null;
+        return;
+      }
+      pxPerMm = pxDist / distMm;
+      setStatus(`Echelle calibrée: ${pxPerMm.toFixed(4)} px/mm.`);
+    }
+
+    function formatPrice(value) {
+      return new Intl.NumberFormat('fr-FR', {
+        style: 'currency',
+        currency: 'EUR',
+        maximumFractionDigits: 4
+      }).format(value);
+    }
+
+    function renderPriceTable(stotale, goldRate, silverRate) {
+      const lines = [
+        { label: 'Flash + Vernis', formula: 'Stotale × 0.001', value: stotale * 0.001 },
+        { label: 'D1', formula: 'Stotale × 0.002 × cours or', value: stotale * 0.002 * goldRate },
+        { label: 'D2', formula: 'Stotale × 0.003 × cours or', value: stotale * 0.003 * goldRate },
+        { label: 'D3', formula: 'Stotale × 0.004 × cours or', value: stotale * 0.004 * goldRate },
+        { label: 'Argent 15', formula: 'Stotale × 0.002 × cours argent', value: stotale * 0.002 * silverRate },
+        { label: 'Argent 20', formula: 'Stotale × 0.003 × cours argent', value: stotale * 0.003 * silverRate },
+        { label: 'Argent 30', formula: 'Stotale × 0.004 × cours argent', value: stotale * 0.004 * silverRate },
+      ];
+
+      priceTableBody.innerHTML = lines.map(line => `
+        <tr>
+          <td>${line.label}</td>
+          <td>${line.formula}</td>
+          <td>${formatPrice(line.value)}</td>
+        </tr>
+      `).join('');
+    }
+
+    function computeAndDisplayPrices(surfaceMm2, perimeterMm) {
+      const h = 0.0073 / surfaceMm2;
+      const stotale = surfaceMm2 + (h * perimeterMm);
+
+      const goldRate = Number(goldRateInput.value) || 0;
+      const silverRate = Number(silverRateInput.value) || 0;
+
+      surfaceOut.textContent = surfaceMm2.toFixed(3);
+      perimeterOut.textContent = perimeterMm.toFixed(3);
+      heightOut.textContent = h.toExponential(6);
+      stotalOut.textContent = stotale.toFixed(3);
+
+      renderPriceTable(stotale, goldRate, silverRate);
+
+      lastMetrics = { surfaceMm2, perimeterMm, h, stotale, goldRate, silverRate };
+    }
+
+    function analyzeContours(previewOnly = false) {
+      if (!cvReady) {
+        setStatus('OpenCV n\'est pas encore chargé. Réessayez dans quelques secondes.', true);
+        return;
+      }
+      if (!sourceImage) {
+        setStatus('Chargez d\'abord une image.', true);
+        return;
+      }
+      updateScaleFromPoints();
+      if (!pxPerMm) {
+        setStatus('Sélectionnez 2 points de règle et renseignez leur distance réelle en mm.', true);
+        return;
+      }
+
+      const src = cv.imread(previewCanvas);
+      const gray = new cv.Mat();
+      const blur = new cv.Mat();
+      const binary = new cv.Mat();
+      const contours = new cv.MatVector();
+      const hierarchy = new cv.Mat();
+
+      try {
+        cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+
+        const blurK = Number(blurRange.value) || 3;
+        cv.GaussianBlur(gray, blur, new cv.Size(blurK, blurK), 0, 0, cv.BORDER_DEFAULT);
+
+        const t = Number(threshRange.value) || 120;
+        cv.threshold(blur, binary, t, 255, cv.THRESH_BINARY_INV + cv.THRESH_OTSU);
+
+        cv.findContours(binary, contours, hierarchy, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE);
+
+        const drawn = src.clone();
+        let totalAreaPx2 = 0;
+        let totalPerimeterPx = 0;
+
+        for (let i = 0; i < contours.size(); i++) {
+          const c = contours.get(i);
+          const area = cv.contourArea(c, false);
+          if (area < 120) {
+            c.delete();
+            continue;
+          }
+
+          totalAreaPx2 += Math.abs(area);
+          totalPerimeterPx += cv.arcLength(c, true);
+
+          const color = new cv.Scalar(16, 185, 129, 255);
+          cv.drawContours(drawn, contours, i, color, 2, cv.LINE_8, hierarchy, 0);
+          c.delete();
+        }
+
+        cv.imshow(previewCanvas, drawn);
+
+        if (previewOnly) {
+          drawImageAndPoints(sourceImage);
+          setStatus('Prévisualisation contours affichée. Ajustez les curseurs puis confirmez.');
+        } else {
+          const mmPerPx = 1 / pxPerMm;
+          const surfaceMm2 = totalAreaPx2 * mmPerPx * mmPerPx;
+          const perimeterMm = totalPerimeterPx * mmPerPx;
+
+          if (surfaceMm2 <= 0 || perimeterMm <= 0) {
+            setStatus('Contours invalides. Ajustez les paramètres puis recommencez.', true);
+          } else {
+            computeAndDisplayPrices(surfaceMm2, perimeterMm);
+            drawImageAndPoints(sourceImage);
+            setStatus('Contours validés et prix calculés.');
+          }
+        }
+
+        drawn.delete();
+      } catch (err) {
+        setStatus(`Erreur traitement: ${err.message || err}`, true);
+      } finally {
+        src.delete();
+        gray.delete();
+        blur.delete();
+        binary.delete();
+        contours.delete();
+        hierarchy.delete();
+      }
+    }
+
+    photoInput.addEventListener('change', (e) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+
+      const img = new Image();
+      img.onload = () => {
+        sourceImage = img;
+        selectedPoints = [];
+        pxPerMm = null;
+        drawImageAndPoints(sourceImage);
+        setStatus('Image chargée. Cliquez sur 2 points de la règle.');
+      };
+      img.src = URL.createObjectURL(file);
+    });
+
+    previewCanvas.addEventListener('click', (e) => {
+      if (!sourceImage) return;
+      const rect = previewCanvas.getBoundingClientRect();
+      const scaleX = previewCanvas.width / rect.width;
+      const scaleY = previewCanvas.height / rect.height;
+      const x = (e.clientX - rect.left) * scaleX;
+      const y = (e.clientY - rect.top) * scaleY;
+
+      if (selectedPoints.length >= 2) selectedPoints = [];
+      selectedPoints.push({ x, y });
+      drawImageAndPoints(sourceImage);
+
+      if (selectedPoints.length === 2) {
+        updateScaleFromPoints();
+      }
+    });
+
+    knownDistanceMm.addEventListener('input', () => {
+      if (selectedPoints.length === 2) updateScaleFromPoints();
+    });
+
+    resetPointsBtn.addEventListener('click', () => {
+      selectedPoints = [];
+      pxPerMm = null;
+      drawImageAndPoints(sourceImage);
+      setStatus('Points réinitialisés.');
+    });
+
+    detectBtn.addEventListener('click', () => analyzeContours(true));
+    previewContoursBtn.addEventListener('click', () => analyzeContours(true));
+    confirmContoursBtn.addEventListener('click', () => analyzeContours(false));
+
+    [goldRateInput, silverRateInput].forEach(input => {
+      input.addEventListener('input', () => {
+        if (lastMetrics) {
+          renderPriceTable(lastMetrics.stotale, Number(goldRateInput.value) || 0, Number(silverRateInput.value) || 0);
+        }
+      });
+    });
+
+    window.__cvReadyHook = () => {
+      cvReady = true;
+      setStatus('OpenCV chargé. Importez une image pour commencer.');
+    };
+  </script>
+</body>
+</html>
+
+
