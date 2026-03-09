@@ -588,22 +588,34 @@
             c.delete();
           }
 
-          let areaSum = 0;
-          let periSum = 0;
+          // Surface from a filled mask avoids double-edge errors on reflective metal.
+          const objMask = cv.Mat.zeros(src.rows, src.cols, cv.CV_8U);
+          cv.drawContours(objMask, localContours, rootIdx, new cv.Scalar(255), -1, cv.LINE_8, localHierarchy, 0);
           for (let k = 0; k < selected.length; k++) {
             const idx = selected[k];
-            const c = localContours.get(idx);
-            const area = Math.abs(cv.contourArea(c, false));
-            if (idx === rootIdx) {
-              areaSum += area;
-            } else {
-              areaSum -= area;
+            if (idx === rootIdx) continue;
+            cv.drawContours(objMask, localContours, idx, new cv.Scalar(0), -1, cv.LINE_8, localHierarchy, 0);
+          }
+          const areaSum = cv.countNonZero(objMask);
+
+          // Perimeter from the cleaned mask (external + internal holes).
+          const pContours = new cv.MatVector();
+          const pHierarchy = new cv.Mat();
+          cv.findContours(objMask, pContours, pHierarchy, cv.RETR_CCOMP, cv.CHAIN_APPROX_SIMPLE);
+          let periSum = 0;
+          for (let i = 0; i < pContours.size(); i++) {
+            const c = pContours.get(i);
+            const a = Math.abs(cv.contourArea(c, false));
+            if (a >= 10) {
+              periSum += cv.arcLength(c, true);
             }
-            periSum += cv.arcLength(c, true);
             c.delete();
           }
+          pContours.delete();
+          pHierarchy.delete();
+          objMask.delete();
 
-          return { localContours, localHierarchy, selected, areaSum: Math.abs(areaSum), periSum };
+          return { localContours, localHierarchy, selected, areaSum, periSum };
         }
 
         const invEval = evalBinary(binaryInv);
@@ -804,6 +816,7 @@
   </script>
 </body>
 </html>
+
 
 
 
