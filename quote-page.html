@@ -483,8 +483,8 @@
         return;
       }
       updateScaleFromPoints();
-      if (!pxPerMm) {
-        setStatus('Sélectionnez 2 points de règle et renseignez leur distance réelle en mm.', true);
+      if (!previewOnly && !pxPerMm) {
+        setStatus('Sélectionnez 2 points de règle et renseignez leur distance réelle en mm avant la confirmation.', true);
         return;
       }
 
@@ -804,6 +804,7 @@
   </script>
 </body>
 </html>
+
 
 
 
