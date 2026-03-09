@@ -479,27 +479,72 @@
           const localHierarchy = new cv.Mat();
           cv.findContours(binaryMat, localContours, localHierarchy, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE);
 
-          const filtered = [];
-          let areaSum = 0;
-          let periSum = 0;
+          const hData = localHierarchy.data32S;
+          const borderMargin = 3;
+          const minArea = 150;
+          const externalCandidates = [];
+
           for (let i = 0; i < localContours.size(); i++) {
             const c = localContours.get(i);
             const area = Math.abs(cv.contourArea(c, false));
-            if (area >= 80) {
-              filtered.push(i);
-              areaSum += area;
-              periSum += cv.arcLength(c, true);
+            const rect = cv.boundingRect(c);
+            const touchesBorder =
+              rect.x <= borderMargin ||
+              rect.y <= borderMargin ||
+              (rect.x + rect.width) >= (src.cols - borderMargin) ||
+              (rect.y + rect.height) >= (src.rows - borderMargin);
+            const parent = hData[i * 4 + 3];
+            const isExternal = parent === -1;
+
+            if (isExternal && !touchesBorder && area >= minArea) {
+              externalCandidates.push({ idx: i, area });
             }
             c.delete();
           }
-          return { localContours, localHierarchy, filtered, areaSum, periSum };
+
+          if (externalCandidates.length === 0) {
+            return { localContours, localHierarchy, selected: [], areaSum: 0, periSum: 0 };
+          }
+
+          externalCandidates.sort((a, b) => b.area - a.area);
+          const rootIdx = externalCandidates[0].idx;
+
+          function collectDescendants(parentIdx, acc) {
+            for (let i = 0; i < localContours.size(); i++) {
+              if (hData[i * 4 + 3] === parentIdx) {
+                acc.push(i);
+                collectDescendants(i, acc);
+              }
+            }
+          }
+
+          const selected = [rootIdx];
+          collectDescendants(rootIdx, selected);
+
+          let areaSum = 0;
+          let periSum = 0;
+          for (let k = 0; k < selected.length; k++) {
+            const idx = selected[k];
+            const c = localContours.get(idx);
+            const area = Math.abs(cv.contourArea(c, false));
+            const parent = hData[idx * 4 + 3];
+            if (parent === rootIdx) {
+              areaSum -= area;
+            } else {
+              areaSum += area;
+            }
+            periSum += cv.arcLength(c, true);
+            c.delete();
+          }
+
+          return { localContours, localHierarchy, selected, areaSum: Math.abs(areaSum), periSum };
         }
 
         const invEval = evalBinary(binaryInv);
         const normEval = evalBinary(binaryNorm);
         const best = invEval.areaSum >= normEval.areaSum ? invEval : normEval;
 
-        if (best.filtered.length === 0) {
+        if (best.selected.length === 0) {
           setStatus('Aucun contour détecté. Essayez: flou 1-3, seuil plus bas, et photo mieux contrastée.', true);
           invEval.localContours.delete();
           invEval.localHierarchy.delete();
@@ -509,8 +554,8 @@
         }
 
         const drawn = src.clone();
-        for (let i = 0; i < best.filtered.length; i++) {
-          const idx = best.filtered[i];
+        for (let i = 0; i < best.selected.length; i++) {
+          const idx = best.selected[i];
           const color = new cv.Scalar(16, 185, 129, 255);
           cv.drawContours(drawn, best.localContours, idx, color, 2, cv.LINE_8, best.localHierarchy, 0);
         }
@@ -613,6 +658,7 @@
   </script>
 </body>
 </html>
+
 
 
 
