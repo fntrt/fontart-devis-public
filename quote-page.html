@@ -258,6 +258,23 @@
           <span id="threshVal">120</span>
         </div>
         <input id="threshRange" type="range" min="20" max="240" step="1" value="120" />
+ 
+        <div class="inline" style="margin-top: 12px;">
+          <input id="greenBgEnabled" type="checkbox" />
+          <label for="greenBgEnabled" style="margin:0;">Supprimer le fond vert (HSV)</label>
+        </div>
+ 
+        <div class="range-line" style="margin-top: 10px;">
+          <label for="greenHueMin">Teinte verte min (H)</label>
+          <span id="greenHueMinVal">35</span>
+        </div>
+        <input id="greenHueMin" type="range" min="0" max="179" step="1" value="35" />
+ 
+        <div class="range-line" style="margin-top: 10px;">
+          <label for="greenHueMax">Teinte verte max (H)</label>
+          <span id="greenHueMaxVal">85</span>
+        </div>
+        <input id="greenHueMax" type="range" min="0" max="179" step="1" value="85" />
 
         <div class="inline" style="margin-top: 12px;">
           <button id="previewContoursBtn" class="secondary" type="button">Prévisualiser</button>
@@ -319,6 +336,11 @@
     const threshRange = document.getElementById('threshRange');
     const blurVal = document.getElementById('blurVal');
     const threshVal = document.getElementById('threshVal');
+    const greenBgEnabled = document.getElementById('greenBgEnabled');
+    const greenHueMin = document.getElementById('greenHueMin');
+    const greenHueMax = document.getElementById('greenHueMax');
+    const greenHueMinVal = document.getElementById('greenHueMinVal');
+    const greenHueMaxVal = document.getElementById('greenHueMaxVal');
 
     const knownDistanceMm = document.getElementById('knownDistanceMm');
     const goldRateInput = document.getElementById('goldRate');
@@ -343,6 +365,8 @@
 
     blurRange.addEventListener('input', () => { blurVal.textContent = blurRange.value; });
     threshRange.addEventListener('input', () => { threshVal.textContent = threshRange.value; });
+    greenHueMin.addEventListener('input', () => { greenHueMinVal.textContent = greenHueMin.value; });
+    greenHueMax.addEventListener('input', () => { greenHueMaxVal.textContent = greenHueMax.value; });
 
     function setStatus(msg, isError = false) {
       statusMsg.textContent = msg;
@@ -367,6 +391,28 @@
       return { x, y, w, h };
     }
 
+    function applyGreenBackgroundMaskToGray(src, gray) {
+      if (!greenBgEnabled.checked) return;
+
+      const hMin = Number(greenHueMin.value) || 35;
+      const hMax = Number(greenHueMax.value) || 85;
+      const lo = Math.min(hMin, hMax);
+      const hi = Math.max(hMin, hMax);
+
+      const hsv = new cv.Mat();
+      const greenMask = new cv.Mat();
+      try {
+        cv.cvtColor(src, hsv, cv.COLOR_RGBA2RGB);
+        cv.cvtColor(hsv, hsv, cv.COLOR_RGB2HSV);
+        cv.inRange(hsv, new cv.Scalar(lo, 50, 50, 0), new cv.Scalar(hi, 255, 255, 255), greenMask);
+
+        // Paint detected green background in white to reduce false contours.
+        gray.setTo(new cv.Scalar(255), greenMask);
+      } finally {
+        hsv.delete();
+        greenMask.delete();
+      }
+    }
     function drawImageAndPoints(baseImg) {
       if (!baseImg) return;
       previewCanvas.width = baseImg.width;
@@ -505,6 +551,7 @@
       const kernel = cv.Mat.ones(3, 3, cv.CV_8U);
       try {
         cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+        applyGreenBackgroundMaskToGray(src, gray);
 
         const blurK = Number(blurRange.value) || 3;
         cv.GaussianBlur(gray, blur, new cv.Size(blurK, blurK), 0, 0, cv.BORDER_DEFAULT);
@@ -674,6 +721,7 @@
 
       try {
         cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+        applyGreenBackgroundMaskToGray(src, gray);
 
         const blurK = Number(blurRange.value) || 3;
         cv.GaussianBlur(gray, blur, new cv.Size(blurK, blurK), 0, 0, cv.BORDER_DEFAULT);
@@ -989,6 +1037,9 @@
   </script>
 </body>
 </html>
+
+
+
 
 
 
