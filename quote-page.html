@@ -261,6 +261,7 @@
 
         <div class="inline" style="margin-top: 12px;">
           <button id="previewContoursBtn" class="secondary" type="button">Prévisualiser</button>
+          <button id="grayPreviewBtn" class="secondary" type="button">Voir en gris</button>
           <button id="confirmContoursBtn" type="button">Confirmer contours</button>
         </div>
 
@@ -307,6 +308,7 @@
     const selectPieceBtn = document.getElementById('selectPieceBtn');
     const drawRoiBtn = document.getElementById('drawRoiBtn');
     const previewContoursBtn = document.getElementById('previewContoursBtn');
+    const grayPreviewBtn = document.getElementById('grayPreviewBtn');
     const confirmContoursBtn = document.getElementById('confirmContoursBtn');
     const pointsInfo = document.getElementById('pointsInfo');
     const statusMsg = document.getElementById('statusMsg');
@@ -405,6 +407,75 @@
       }
 
       pointsInfo.textContent = `${selectedPoints.length} / 2 points sélectionnés`;
+    }
+
+    function renderGrayPreview() {
+      if (!sourceImage) {
+        setStatus('Chargez d\'abord une image.', true);
+        return;
+      }
+      if (!cvReady) {
+        setStatus('OpenCV n\'est pas encore chargé. Réessayez dans quelques secondes.', true);
+        return;
+      }
+
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = sourceImage.width;
+      tempCanvas.height = sourceImage.height;
+      const tempCtx = tempCanvas.getContext('2d');
+      tempCtx.drawImage(sourceImage, 0, 0);
+
+      const src = cv.imread(tempCanvas);
+      const gray = new cv.Mat();
+      const rgba = new cv.Mat();
+      try {
+        cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+        cv.cvtColor(gray, rgba, cv.COLOR_GRAY2RGBA);
+        cv.imshow(previewCanvas, rgba);
+
+        selectedPoints.forEach((p, i) => {
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, 6, 0, Math.PI * 2);
+          ctx.fillStyle = i === 0 ? '#ef4444' : '#2563eb';
+          ctx.fill();
+          ctx.font = '14px sans-serif';
+          ctx.fillStyle = '#111827';
+          ctx.fillText(String(i + 1), p.x + 8, p.y - 8);
+        });
+
+        if (objectSeed) {
+          ctx.beginPath();
+          ctx.arc(objectSeed.x, objectSeed.y, 7, 0, Math.PI * 2);
+          ctx.strokeStyle = '#a21caf';
+          ctx.lineWidth = 3;
+          ctx.stroke();
+        }
+
+        if (roiRect) {
+          const r = normalizeRect(roiRect);
+          ctx.strokeStyle = '#f97316';
+          ctx.lineWidth = 3;
+          ctx.strokeRect(r.x, r.y, r.w, r.h);
+        }
+
+        if (selectedPoints.length === 2) {
+          ctx.beginPath();
+          ctx.moveTo(selectedPoints[0].x, selectedPoints[0].y);
+          ctx.lineTo(selectedPoints[1].x, selectedPoints[1].y);
+          ctx.strokeStyle = '#f59e0b';
+          ctx.lineWidth = 3;
+          ctx.stroke();
+        }
+
+        pointsInfo.textContent = `${selectedPoints.length} / 2 points sélectionnés`;
+        setStatus('Prévisualisation en niveaux de gris affichée.');
+      } catch (err) {
+        setStatus(`Erreur niveaux de gris: ${err.message || err}`, true);
+      } finally {
+        src.delete();
+        gray.delete();
+        rgba.delete();
+      }
     }
 
     function euclidean(a, b) {
@@ -799,6 +870,7 @@
       setStatus('Cliquez-glissez pour dessiner un rectangle autour de la pièce.');
     });
     previewContoursBtn.addEventListener('click', () => analyzeContours(true));
+    grayPreviewBtn.addEventListener('click', () => renderGrayPreview());
     confirmContoursBtn.addEventListener('click', () => analyzeContours(false));
 
     [goldRateInput, silverRateInput].forEach(input => {
@@ -816,6 +888,7 @@
   </script>
 </body>
 </html>
+
 
 
 
