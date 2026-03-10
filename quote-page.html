@@ -262,23 +262,45 @@
 
       <div>
         <div id="adjustSection" class="hidden">
-          <h2>Ajustements contours</h2>
-          <div class="range-line">
-            <label for="blurRange">Flou (bruit)</label>
-            <span id="blurVal">3</span>
-          </div>
-          <input id="blurRange" type="range" min="1" max="15" step="2" value="3" />
+  <h2>Ajustements contours</h2>
+  <div>
+    <label for="blurType">Type de flou</label>
+    <select id="blurType">
+      <option value="gaussian" selected>Gaussian (rapide)</option>
+      <option value="median">Median (supprime le bruit)</option>
+      <option value="bilateral">Bilateral (conserve les bords)</option>
+    </select>
+  </div>
 
-          <div class="range-line" style="margin-top: 12px;">
-            <label for="threshRange">Seuil binaire</label>
-            <span id="threshVal">120</span>
-          </div>
-          <input id="threshRange" type="range" min="20" max="240" step="1" value="120" />
+  <div class="range-line" style="margin-top: 12px;">
+    <label for="blurRange">Intensité flou</label>
+    <span id="blurVal">3</span>
+  </div>
+  <input id="blurRange" type="range" min="1" max="15" step="2" value="3" />
 
-          <div class="inline" style="margin-top: 12px;">
-            <button id="validateAdjustBtn" type="button">Valider réglages</button>
-          </div>
-        </div>
+  <div class="range-line" style="margin-top: 12px;">
+    <label for="threshRange">Seuil binaire</label>
+    <span id="threshVal">120</span>
+  </div>
+  <input id="threshRange" type="range" min="20" max="240" step="1" value="120" />
+
+  <div class="inline" style="margin-top: 10px;">
+    <input id="adaptiveThresh" type="checkbox" />
+    <label for="adaptiveThresh" style="margin:0;">Seuil adaptatif</label>
+    <input id="otsuThresh" type="checkbox" />
+    <label for="otsuThresh" style="margin:0;">Otsu auto</label>
+  </div>
+
+  <div class="range-line" style="margin-top: 12px;">
+    <label for="morphSize">Nettoyage morphologique</label>
+    <span id="morphVal">3</span>
+  </div>
+  <input id="morphSize" type="range" min="0" max="9" step="2" value="3" />
+
+  <div class="inline" style="margin-top: 12px;">
+    <button id="validateAdjustBtn" type="button">Valider réglages</button>
+  </div>
+</div>
 
         <div id="selectSection" class="hidden">
           <h2>Sélection des contours</h2>
@@ -340,10 +362,15 @@
     const selectSection = document.getElementById('selectSection');
     const statusMsg = document.getElementById('statusMsg');
 
+    const blurType = document.getElementById('blurType');
     const blurRange = document.getElementById('blurRange');
+    const adaptiveThresh = document.getElementById('adaptiveThresh');
+    const otsuThresh = document.getElementById('otsuThresh');
+    const morphSize = document.getElementById('morphSize');
     const threshRange = document.getElementById('threshRange');
     const blurVal = document.getElementById('blurVal');
     const threshVal = document.getElementById('threshVal');
+    const morphVal = document.getElementById('morphVal');
 
     const knownDistanceMm = document.getElementById('knownDistanceMm');
     const goldRateInput = document.getElementById('goldRate');
@@ -372,8 +399,12 @@
     let roiValidated = false;
 
 
-    blurRange.addEventListener('input', () => { blurVal.textContent = blurRange.value; if (sourceImage) renderBinaryPreview(false); });
-    threshRange.addEventListener('input', () => { threshVal.textContent = threshRange.value; if (sourceImage) renderBinaryPreview(false); });
+    blurRange.addEventListener('input', () => { blurVal.textContent = blurRange.value; if (sourceImage && currentStage === 'adjust') renderBinaryPreview(false); });
+    threshRange.addEventListener('input', () => { threshVal.textContent = threshRange.value; if (sourceImage && currentStage === 'adjust') renderBinaryPreview(false); });
+    blurType.addEventListener('change', () => { if (sourceImage && currentStage === 'adjust') renderBinaryPreview(false); });
+    adaptiveThresh.addEventListener('change', () => { if (adaptiveThresh.checked) otsuThresh.checked = false; if (sourceImage && currentStage === 'adjust') renderBinaryPreview(false); });
+    otsuThresh.addEventListener('change', () => { if (otsuThresh.checked) adaptiveThresh.checked = false; if (sourceImage && currentStage === 'adjust') renderBinaryPreview(false); });
+    morphSize.addEventListener('input', () => { morphVal.textContent = morphSize.value; if (sourceImage && currentStage === 'adjust') renderBinaryPreview(false); });
     grabCutEnabled.addEventListener('change', () => { grabCutEnabled.checked = false; setStatus('GrabCut n\'est pas disponible dans cette version d\'OpenCV.js.', true); });
 
     function setStage(stage) {
@@ -598,12 +629,34 @@
         cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
 
         const blurK = Number(blurRange.value) || 3;
-        cv.GaussianBlur(gray, blur, new cv.Size(blurK, blurK), 0, 0, cv.BORDER_DEFAULT);
+        const blurChoice = blurType ? blurType.value : 'gaussian';
+        if (blurChoice === 'median') {
+          const k = Math.max(1, blurK | 1);
+          cv.medianBlur(gray, blur, k);
+        } else if (blurChoice === 'bilateral') {
+          const d = Math.max(1, blurK | 1);
+          cv.bilateralFilter(gray, blur, d, d * 2, d / 2, cv.BORDER_DEFAULT);
+        } else {
+          cv.GaussianBlur(gray, blur, new cv.Size(blurK, blurK), 0, 0, cv.BORDER_DEFAULT);
+        }
 
         const t = Number(threshRange.value) || 120;
-        cv.threshold(blur, bin, t, 255, cv.THRESH_BINARY_INV);
-        cv.morphologyEx(bin, bin, cv.MORPH_OPEN, kernel);
-        cv.morphologyEx(bin, bin, cv.MORPH_CLOSE, kernel);
+        if (adaptiveThresh && adaptiveThresh.checked) {
+          const block = Math.max(3, (blurK * 2 + 1));
+          cv.adaptiveThreshold(blur, bin, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY_INV, block, 2);
+        } else if (otsuThresh && otsuThresh.checked) {
+          cv.threshold(blur, bin, 0, 255, cv.THRESH_BINARY_INV + cv.THRESH_OTSU);
+        } else {
+          cv.threshold(blur, bin, t, 255, cv.THRESH_BINARY_INV);
+        }
+
+        const m = Number(morphSize ? morphSize.value : 3) || 0;
+        if (m >= 1) {
+          const mk = cv.getStructuringElement(cv.MORPH_ELLIPSE, new cv.Size(m, m));
+          cv.morphologyEx(bin, bin, cv.MORPH_OPEN, mk);
+          cv.morphologyEx(bin, bin, cv.MORPH_CLOSE, mk);
+          mk.delete();
+        }
 
         if (roiRect) {
           const r = normalizeRect(roiRect);
@@ -1029,6 +1082,12 @@
   </script>
 </body>
 </html>
+
+
+
+
+
+
 
 
 
