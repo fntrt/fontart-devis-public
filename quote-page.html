@@ -184,7 +184,7 @@
 <body>
   <div class="container">
     <div class="card">
-      <h1>Demande de devis autonome</h1>
+      <h1>Devis pour dorure de bijoux fantaisie par traitement de surface (galvanoplastie)</h1>
       <p class="hint">Photo obligatoire de la pièce à côté d'une règle graduée. Cliquez ensuite sur 2 points de la règle pour calibrer l'échelle.</p>
       <div class="grid">
         <div>
@@ -195,29 +195,19 @@
           <label for="weight">Poids (g)</label>
           <input id="weight" type="number" step="0.01" min="0" placeholder="Ex: 12.50" />
         </div>
-        <div>
-          <label for="metalType">Métal principal</label>
-          <select id="metalType">
-            <option value="gold">Or</option>
-            <option value="silver">Argent</option>
-          </select>
-        </div>
       </div>
       <div style="margin-top: 12px;">
         <label for="description">Description</label>
         <textarea id="description" placeholder="Description de la pièce"></textarea>
       </div>
 
-      <div class="grid" style="margin-top: 10px;">
-        <div>
-          <label for="goldRate">Cours de l'or</label>
-          <input id="goldRate" type="number" step="0.0001" min="0" value="68" />
-          <p class="hint">Valeur unitaire utilisée pour D1/D2/D3.</p>
-        </div>
-        <div>
-          <label for="silverRate">Cours de l'argent</label>
-          <input id="silverRate" type="number" step="0.0001" min="0" value="0.8" />
-          <p class="hint">Valeur unitaire utilisée pour Argent 15/20/30.</p>
+      <div class="grid" style="margin-top: 10px;">        <div>
+          <label for="goldRate">Cours de l'or (EUR/kg)</label>
+          <div class="inline" style="margin-top: 6px;">
+            <input id="goldRate" type="number" step="0.01" min="0" value="0" />
+            <button id="updateGoldBtn" class="secondary" type="button">Mettre à jour</button>
+          </div>
+          <p class="hint" id="goldStatus">Mise à jour automatique depuis le cours spot (EUR/kg).</p>
         </div>
         <div>
           <label for="photoInput">Photo de l'article</label>
@@ -360,7 +350,8 @@
 
     const knownDistanceMm = document.getElementById('knownDistanceMm');
     const goldRateInput = document.getElementById('goldRate');
-    const silverRateInput = document.getElementById('silverRate');
+    const updateGoldBtn = document.getElementById('updateGoldBtn');
+    const goldStatus = document.getElementById('goldStatus');
 
     const surfaceOut = document.getElementById('surfaceOut');
     const perimeterOut = document.getElementById('perimeterOut');
@@ -388,6 +379,8 @@
     let manualCurrent = [];
     let manualIsHole = false;
     let manualDrawing = false;
+
+    const OZ_PER_KG = 32.1507465686;
 
     blurRange.addEventListener('input', () => {
       blurVal.textContent = blurRange.value;
@@ -723,6 +716,32 @@
       setStatus(`Echelle calibrée: ${pxPerMm.toFixed(4)} px/mm.`);
     }
 
+    async function updateGoldRate() {
+      if (!goldStatus) return;
+      goldStatus.textContent = 'Mise à jour du cours de l\'or...';
+      try {
+        const goldResp = await fetch('https://giavang.now/api/prices?type=XAUUSD');
+        if (!goldResp.ok) throw new Error('gold-api');
+        const goldData = await goldResp.json();
+        const entry = goldData?.data?.[0];
+        const usdPerOz = Number(entry?.sell || entry?.buy || entry?.price || entry?.value);
+        if (!usdPerOz) throw new Error('gold-price');
+
+        const fxResp = await fetch('https://api.exchangerate.host/latest?base=USD&symbols=EUR');
+        if (!fxResp.ok) throw new Error('fx');
+        const fxData = await fxResp.json();
+        const usdToEur = Number(fxData?.rates?.EUR);
+        if (!usdToEur) throw new Error('fx-rate');
+
+        const eurPerKg = usdPerOz * usdToEur * OZ_PER_KG;
+        goldRateInput.value = eurPerKg.toFixed(2);
+        const now = new Date();
+        goldStatus.textContent = `Mise à jour le ${now.toLocaleString('fr-FR')}. Source: giavang.now + exchangerate.host.`;
+      } catch (err) {
+        goldStatus.textContent = 'Mise à jour impossible. Saisissez le cours manuellement.';
+      }
+    }
+
     function formatPrice(value) {
       return new Intl.NumberFormat('fr-FR', {
         style: 'currency',
@@ -731,15 +750,12 @@
       }).format(value);
     }
 
-    function renderPriceTable(stotale, goldRate, silverRate) {
+    function renderPriceTable(stotale, goldRate) {
       const lines = [
         { label: 'Flash + Vernis', formula: 'Stotale × 0.001', value: stotale * 0.001 },
         { label: 'D1', formula: 'Stotale × 0.002 × cours or', value: stotale * 0.002 * goldRate },
         { label: 'D2', formula: 'Stotale × 0.003 × cours or', value: stotale * 0.003 * goldRate },
         { label: 'D3', formula: 'Stotale × 0.004 × cours or', value: stotale * 0.004 * goldRate },
-        { label: 'Argent 15', formula: 'Stotale × 0.002 × cours argent', value: stotale * 0.002 * silverRate },
-        { label: 'Argent 20', formula: 'Stotale × 0.003 × cours argent', value: stotale * 0.003 * silverRate },
-        { label: 'Argent 30', formula: 'Stotale × 0.004 × cours argent', value: stotale * 0.004 * silverRate },
       ];
 
       priceTableBody.innerHTML = lines.map(line => `
@@ -756,16 +772,15 @@
       const stotale = surfaceMm2 + (h * perimeterMm);
 
       const goldRate = Number(goldRateInput.value) || 0;
-      const silverRate = Number(silverRateInput.value) || 0;
 
       surfaceOut.textContent = surfaceMm2.toFixed(3);
       perimeterOut.textContent = perimeterMm.toFixed(3);
       heightOut.textContent = h.toExponential(6);
       stotalOut.textContent = stotale.toFixed(3);
 
-      renderPriceTable(stotale, goldRate, silverRate);
+      renderPriceTable(stotale, goldRate);
 
-      lastMetrics = { surfaceMm2, perimeterMm, h, stotale, goldRate, silverRate };
+      lastMetrics = { surfaceMm2, perimeterMm, h, stotale, goldRate };
     }
 
     function analyzeContours(previewOnly = false) {
@@ -1149,14 +1164,14 @@
       setStatus('Contours manuels effacés.');
     });
 
+    updateGoldBtn.addEventListener('click', () => updateGoldRate());
+
     setStage('idle');
 
-    [goldRateInput, silverRateInput].forEach(input => {
-      input.addEventListener('input', () => {
-        if (lastMetrics) {
-          renderPriceTable(lastMetrics.stotale, Number(goldRateInput.value) || 0, Number(silverRateInput.value) || 0);
-        }
-      });
+    goldRateInput.addEventListener('input', () => {
+      if (lastMetrics) {
+        renderPriceTable(lastMetrics.stotale, Number(goldRateInput.value) || 0);
+      }
     });
 
     window.__cvReadyHook = () => {
@@ -1174,9 +1189,19 @@
         drawImageAndPoints(sourceImage);
       }
     };
+
+    updateGoldRate();
   </script>
 </body>
 </html>
+
+
+
+
+
+
+
+
 
 
 
