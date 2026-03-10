@@ -162,7 +162,11 @@
       font-size: 0.9rem;
     }
 
-    .hidden {\n      display: none !important;\n    }\n\n    .status {
+    .hidden {
+      display: none !important;
+    }
+
+    .status {
       margin-top: 8px;
       font-size: 0.93rem;
       color: #0f172a;
@@ -459,6 +463,7 @@
         return;
       }
       if (!cvReady) {
+        drawImageAndPoints(sourceImage);
         setStatus('OpenCV n\'est pas encore chargé. Réessayez dans quelques secondes.', true);
         return;
       }
@@ -571,6 +576,7 @@
         return;
       }
       if (!cvReady) {
+        drawImageAndPoints(sourceImage);
         setStatus('OpenCV n\'est pas encore chargé. Réessayez dans quelques secondes.', true);
         return;
       }
@@ -617,8 +623,6 @@
           grabCutEnabled.checked = false;
           setStatus('GrabCut n\'est pas disponible dans cette version d\'OpenCV.js. Utilisez le ROI + binaire.', true);
         }
-        }
-
         clearBinaryDetection();
         binaryContours = new cv.MatVector();
         binaryHierarchy = new cv.Mat();
@@ -754,6 +758,7 @@
 
     function analyzeContours(previewOnly = false) {
       if (!cvReady) {
+        drawImageAndPoints(sourceImage);
         setStatus('OpenCV n\'est pas encore chargé. Réessayez dans quelques secondes.', true);
         return;
       }
@@ -832,6 +837,9 @@
       if (!file) return;
 
       const img = new Image();
+      img.onerror = () => {
+        setStatus('Impossible de charger l\'image. Essayez un autre fichier.', true);
+      };
       img.onload = () => {
         sourceImage = img;
         selectedPoints = [];
@@ -844,8 +852,17 @@
         selectedContourIndices.clear();
         clearBinaryDetection();
         setStage('scale');
+        // Always show the raw image first (no OpenCV dependency)
+        previewCanvas.width = img.width;
+        previewCanvas.height = img.height;
+        ctx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+        ctx.drawImage(img, 0, 0);
         startScalePick();
-        renderBinaryPreview(false);
+        if (cvReady) {
+          renderBinaryPreview(false);
+        } else {
+          setStatus('Image chargée. OpenCV se charge...');
+        }
       };
       img.src = URL.createObjectURL(file);
     });
@@ -859,7 +876,11 @@
       if (currentStage === 'scale' && scalePickMode) {
         if (selectedPoints.length >= 2) selectedPoints = [];
         selectedPoints.push({ x, y });
-        renderBinaryPreview(true);
+        if (cvReady) {
+          renderBinaryPreview(true);
+        } else {
+          drawImageAndPoints(sourceImage);
+        }
 
         if (selectedPoints.length === 2) {
           updateScaleFromPoints();
@@ -928,7 +949,11 @@
       setStage(sourceImage ? 'scale' : 'idle');
       if (sourceImage) {
         startScalePick();
-        renderBinaryPreview(false);
+        if (cvReady) {
+          renderBinaryPreview(false);
+        } else {
+          drawImageAndPoints(sourceImage);
+        }
       }
       setStatus('Réinitialisé.');
     });
@@ -940,7 +965,11 @@
       }
       setStage('scale');
       startScalePick();
-      renderBinaryPreview(true);
+      if (cvReady) {
+        renderBinaryPreview(true);
+      } else {
+        drawImageAndPoints(sourceImage);
+      }
     });
 
     validateScaleBtn.addEventListener('click', () => {
@@ -951,7 +980,11 @@
       roiValidated = false;
       setStage('roi');
       startRoiPick();
-      renderBinaryPreview(true);
+      if (cvReady) {
+        renderBinaryPreview(true);
+      } else {
+        drawImageAndPoints(sourceImage);
+      }
     });
 
     drawRoiBtn.addEventListener('click', () => {
@@ -970,13 +1003,21 @@
       }
       roiValidated = true;
       setStage('adjust');
-      renderBinaryPreview(true);
+      if (cvReady) {
+        renderBinaryPreview(true);
+      } else {
+        drawImageAndPoints(sourceImage);
+      }
       setStatus('Ajustez flou et seuil, puis validez.');
     });
 
     validateAdjustBtn.addEventListener('click', () => {
       setStage('select');
-      renderBinaryPreview(true);
+      if (cvReady) {
+        renderBinaryPreview(true);
+      } else {
+        drawImageAndPoints(sourceImage);
+      }
       setStatus('Cliquez sur les zones noires à prendre en compte.');
     });
 
@@ -1004,6 +1045,10 @@
   </script>
 </body>
 </html>
+
+
+
+
 
 
 
