@@ -597,6 +597,7 @@
       let bin = new cv.Mat();
       const rgba = new cv.Mat();
       const kernel = cv.Mat.ones(3, 3, cv.CV_8U);
+
       try {
         cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
 
@@ -606,7 +607,29 @@
         const t = Number(threshRange.value) || 120;
         cv.threshold(blur, bin, t, 255, cv.THRESH_BINARY_INV);
         cv.morphologyEx(bin, bin, cv.MORPH_OPEN, kernel);
-        cv.morphologyEx(bin, bin, cv.MORPH_CLOSE, kernel);`r`n`r`n        if (roiRect) {`r`n          const r = normalizeRect(roiRect);`r`n          const x1 = Math.max(0, Math.floor(r.x));`r`n          const y1 = Math.max(0, Math.floor(r.y));`r`n          const x2 = Math.min(src.cols - 1, Math.floor(r.x + r.w));`r`n          const y2 = Math.min(src.rows - 1, Math.floor(r.y + r.h));`r`n          if (x2 > x1 && y2 > y1) {`r`n            const mask = cv.Mat.zeros(src.rows, src.cols, cv.CV_8U);`r`n            cv.rectangle(mask, new cv.Point(x1, y1), new cv.Point(x2, y2), new cv.Scalar(255), -1);`r`n            cv.bitwise_and(bin, mask, bin);`r`n            mask.delete();`r`n          }`r`n        }`r`n`r`n        if (grabCutEnabled.checked) {`r`n          const gMask = buildGrabCutMask(src);`r`n          if (gMask) {`r`n            bin.delete();`r`n            bin = gMask.clone();`r`n          }`r`n        }`r`n        }
+        cv.morphologyEx(bin, bin, cv.MORPH_CLOSE, kernel);
+
+        if (roiRect) {
+          const r = normalizeRect(roiRect);
+          const x1 = Math.max(0, Math.floor(r.x));
+          const y1 = Math.max(0, Math.floor(r.y));
+          const x2 = Math.min(src.cols - 1, Math.floor(r.x + r.w));
+          const y2 = Math.min(src.rows - 1, Math.floor(r.y + r.h));
+          if (x2 > x1 && y2 > y1) {
+            const mask = cv.Mat.zeros(src.rows, src.cols, cv.CV_8U);
+            cv.rectangle(mask, new cv.Point(x1, y1), new cv.Point(x2, y2), new cv.Scalar(255), -1);
+            cv.bitwise_and(bin, mask, bin);
+            mask.delete();
+          }
+        }
+
+        if (grabCutEnabled.checked) {
+          const gMask = buildGrabCutMask(src);
+          if (gMask) {
+            bin.delete();
+            bin = gMask.clone();
+          }
+        }
 
         clearBinaryDetection();
         binaryContours = new cv.MatVector();
@@ -630,15 +653,11 @@
           }
         }
         cv.imshow(previewCanvas, rgba);
-        // Fallback: draw to 2d context if needed
+
         try {
           const imgData = new ImageData(new Uint8ClampedArray(rgba.data), rgba.cols, rgba.rows);
           ctx.putImageData(imgData, 0, 0);
         } catch (e) {}
-
-        if (previewCanvas.width === 0 || previewCanvas.height === 0) {
-          setStatus('Canvas vide: image non chargée ou taille nulle.', true);
-        }
 
         if (roiRect) {
           const r = normalizeRect(roiRect);
@@ -967,6 +986,8 @@
   </script>
 </body>
 </html>
+
+
 
 
 
