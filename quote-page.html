@@ -438,6 +438,10 @@
         ctx.strokeRect(r.x, r.y, r.w, r.h);
       }
 
+      if (pointsInfo) {
+        pointsInfo.textContent = `${selectedPoints.length} / 2 points sélectionnés`;
+      }
+
       if (selectedPoints.length === 2) {
         ctx.beginPath();
         ctx.moveTo(selectedPoints[0].x, selectedPoints[0].y);
@@ -517,7 +521,8 @@
         gray.delete();
         rgba.delete();
       }
-    }\r\n    function clearBinaryDetection() {
+    }
+    function clearBinaryDetection() {
       if (binaryContours) {
         binaryContours.delete();
         binaryContours = null;
@@ -999,6 +1004,8 @@
   </script>
 </body>
 </html>
+
+
 
 
 
