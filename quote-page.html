@@ -720,14 +720,13 @@
       if (!goldStatus) return;
       goldStatus.textContent = 'Mise à jour du cours de l\'or...';
       try {
-        const goldResp = await fetch('https://giavang.now/api/prices?type=XAUUSD');
+        const goldResp = await fetch('https://api.gold-api.com/price/XAU');
         if (!goldResp.ok) throw new Error('gold-api');
         const goldData = await goldResp.json();
-        const entry = goldData?.data?.[0];
-        const usdPerOz = Number(entry?.sell || entry?.buy || entry?.price || entry?.value);
+        const usdPerOz = Number(goldData?.price || goldData?.price_oz || goldData?.priceUsd || goldData?.price_usd);
         if (!usdPerOz) throw new Error('gold-price');
 
-        const fxResp = await fetch('https://api.exchangerate.host/latest?base=USD&symbols=EUR');
+        const fxResp = await fetch('https://open.er-api.com/v6/latest/USD');
         if (!fxResp.ok) throw new Error('fx');
         const fxData = await fxResp.json();
         const usdToEur = Number(fxData?.rates?.EUR);
@@ -736,7 +735,7 @@
         const eurPerKg = usdPerOz * usdToEur * OZ_PER_KG;
         goldRateInput.value = eurPerKg.toFixed(2);
         const now = new Date();
-        goldStatus.textContent = `Mise à jour le ${now.toLocaleString('fr-FR')}. Source: giavang.now + exchangerate.host.`;
+        goldStatus.textContent = `Mise à jour le ${now.toLocaleString('fr-FR')}. Source: gold-api.com + open.er-api.com.`;
       } catch (err) {
         goldStatus.textContent = 'Mise à jour impossible. Saisissez le cours manuellement.';
       }
@@ -1194,6 +1193,8 @@
   </script>
 </body>
 </html>
+
+
 
 
 
