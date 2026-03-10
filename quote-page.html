@@ -263,17 +263,8 @@
       <div>
         <div id="adjustSection" class="hidden">
   <h2>Ajustements contours</h2>
-  <div>
-    <label for="blurType">Type de flou</label>
-    <select id="blurType">
-      <option value="gaussian" selected>Gaussian (rapide)</option>
-      <option value="median">Median (supprime le bruit)</option>
-      <option value="bilateral">Bilateral (conserve les bords)</option>
-    </select>
-  </div>
-
-  <div class="range-line" style="margin-top: 12px;">
-    <label for="blurRange">Intensité flou</label>
+  <div class="range-line">
+    <label for="blurRange">Flou (bruit)</label>
     <span id="blurVal">3</span>
   </div>
   <input id="blurRange" type="range" min="1" max="15" step="2" value="3" />
@@ -284,30 +275,22 @@
   </div>
   <input id="threshRange" type="range" min="20" max="240" step="1" value="120" />
 
-  <div class="inline" style="margin-top: 10px;">
-    <input id="adaptiveThresh" type="checkbox" />
-    <label for="adaptiveThresh" style="margin:0;">Seuil adaptatif</label>
-    <input id="otsuThresh" type="checkbox" />
-    <label for="otsuThresh" style="margin:0;">Otsu auto</label>
-  </div>
-
-  <div class="range-line" style="margin-top: 12px;">
-    <label for="morphSize">Nettoyage morphologique</label>
-    <span id="morphVal">3</span>
-  </div>
-  <input id="morphSize" type="range" min="0" max="9" step="2" value="3" />
-
   <div class="inline" style="margin-top: 12px;">
     <button id="validateAdjustBtn" type="button">Valider réglages</button>
   </div>
 </div>
-
-        <div id="selectSection" class="hidden">
+<div id="selectSection" class="hidden">
           <h2>Sélection des contours</h2>
           <p class="hint">Cliquez sur les zones noires qui correspondent à la pièce pour sélectionner les contours.</p>
           <div class="inline" style="margin-top: 12px;">
             <button id="confirmContoursBtn" type="button">Calculer le prix</button>
           </div>
+          <div class="inline" style="margin-top: 12px;">
+            <button id="manualModeBtn" class="secondary" type="button">Dessiner contour manuel</button>
+            <button id="manualFinishBtn" class="secondary" type="button">Terminer le contour</button>
+            <button id="manualClearBtn" class="secondary" type="button">Effacer contour manuel</button>
+          </div>
+          <p class="hint" id="manualHint" style="display:none;">Mode manuel: cliquez pour poser des points, puis Terminer.</p>
         </div>
       </div>
     </div>
@@ -354,6 +337,10 @@
     const grabCutEnabled = document.getElementById('grabCutEnabled');
     const validateAdjustBtn = document.getElementById('validateAdjustBtn');
     const confirmContoursBtn = document.getElementById('confirmContoursBtn');
+    const manualModeBtn = document.getElementById('manualModeBtn');
+    const manualFinishBtn = document.getElementById('manualFinishBtn');
+    const manualClearBtn = document.getElementById('manualClearBtn');
+    const manualHint = document.getElementById('manualHint');
     const pointsInfo = document.getElementById('pointsInfo');
     const workspaceCard = document.getElementById('workspaceCard');
     const scaleSection = document.getElementById('scaleSection');
@@ -362,15 +349,10 @@
     const selectSection = document.getElementById('selectSection');
     const statusMsg = document.getElementById('statusMsg');
 
-    const blurType = document.getElementById('blurType');
     const blurRange = document.getElementById('blurRange');
-    const adaptiveThresh = document.getElementById('adaptiveThresh');
-    const otsuThresh = document.getElementById('otsuThresh');
-    const morphSize = document.getElementById('morphSize');
     const threshRange = document.getElementById('threshRange');
     const blurVal = document.getElementById('blurVal');
     const threshVal = document.getElementById('threshVal');
-    const morphVal = document.getElementById('morphVal');
 
     const knownDistanceMm = document.getElementById('knownDistanceMm');
     const goldRateInput = document.getElementById('goldRate');
@@ -397,15 +379,22 @@
     let selectedContourIndices = new Set();
     let currentStage = 'idle';
     let roiValidated = false;
+    let manualMode = false;
+    let manualPoints = [];
+    let manualClosed = false;
 
-
-    blurRange.addEventListener('input', () => { blurVal.textContent = blurRange.value; if (sourceImage && currentStage === 'adjust') renderBinaryPreview(false); });
-    threshRange.addEventListener('input', () => { threshVal.textContent = threshRange.value; if (sourceImage && currentStage === 'adjust') renderBinaryPreview(false); });
-    blurType.addEventListener('change', () => { if (sourceImage && currentStage === 'adjust') renderBinaryPreview(false); });
-    adaptiveThresh.addEventListener('change', () => { if (adaptiveThresh.checked) otsuThresh.checked = false; if (sourceImage && currentStage === 'adjust') renderBinaryPreview(false); });
-    otsuThresh.addEventListener('change', () => { if (otsuThresh.checked) adaptiveThresh.checked = false; if (sourceImage && currentStage === 'adjust') renderBinaryPreview(false); });
-    morphSize.addEventListener('input', () => { morphVal.textContent = morphSize.value; if (sourceImage && currentStage === 'adjust') renderBinaryPreview(false); });
-    grabCutEnabled.addEventListener('change', () => { grabCutEnabled.checked = false; setStatus('GrabCut n\'est pas disponible dans cette version d\'OpenCV.js.', true); });
+    blurRange.addEventListener('input', () => {
+      blurVal.textContent = blurRange.value;
+      if (sourceImage && currentStage === 'adjust') renderBinaryPreview(false);
+    });
+    threshRange.addEventListener('input', () => {
+      threshVal.textContent = threshRange.value;
+      if (sourceImage && currentStage === 'adjust') renderBinaryPreview(false);
+    });
+    grabCutEnabled.addEventListener('change', () => {
+      grabCutEnabled.checked = false;
+      setStatus('GrabCut n\'est pas disponible dans cette version d\'OpenCV.js.', true);
+    });
 
     function setStage(stage) {
       currentStage = stage;
@@ -426,6 +415,7 @@
       roiMode = true;
       setStatus('Cliquez-glissez pour dessiner un rectangle autour de la pièce.');
     }
+
     function setStatus(msg, isError = false) {
       statusMsg.textContent = msg;
       statusMsg.classList.toggle('danger', isError);
@@ -448,6 +438,7 @@
       const h = Math.abs(rect.h);
       return { x, y, w, h };
     }
+
     function drawImageAndPoints(baseImg) {
       if (!baseImg) return;
       previewCanvas.width = baseImg.width;
@@ -464,7 +455,6 @@
         ctx.fillStyle = '#111827';
         ctx.fillText(String(i + 1), p.x + 8, p.y - 8);
       });
-
 
       if (roiRect) {
         const r = normalizeRect(roiRect);
@@ -485,79 +475,31 @@
         ctx.lineWidth = 3;
         ctx.stroke();
       }
-
     }
 
-    function renderGrayPreview() {
-      if (!sourceImage) {
-        setStatus('Chargez d\'abord une image.', true);
-        return;
+    function drawManualOverlay() {
+      if (!manualPoints || manualPoints.length === 0) return;
+      ctx.save();
+      ctx.strokeStyle = manualClosed ? '#16a34a' : '#f97316';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(manualPoints[0].x, manualPoints[0].y);
+      for (let i = 1; i < manualPoints.length; i++) {
+        ctx.lineTo(manualPoints[i].x, manualPoints[i].y);
       }
-      if (!cvReady) {
-        drawImageAndPoints(sourceImage);
-        setStatus('OpenCV n\'est pas encore chargé. Réessayez dans quelques secondes.', true);
-        return;
+      if (manualClosed && manualPoints.length >= 3) {
+        ctx.closePath();
       }
-
-      const tempCanvas = document.createElement('canvas');
-      tempCanvas.width = sourceImage.width;
-      tempCanvas.height = sourceImage.height;
-      const tempCtx = tempCanvas.getContext('2d');
-      tempCtx.drawImage(sourceImage, 0, 0);
-
-      const src = cv.imread(tempCanvas);
-      const gray = new cv.Mat();
-      const rgba = new cv.Mat();
-      try {
-        cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
-        cv.cvtColor(gray, rgba, cv.COLOR_GRAY2RGBA);
-        cv.imshow(previewCanvas, rgba);
-        // Fallback: draw to 2d context if needed
-        try {
-          const imgData = new ImageData(new Uint8ClampedArray(rgba.data), rgba.cols, rgba.rows);
-          ctx.putImageData(imgData, 0, 0);
-        } catch (e) {}
-
-        if (previewCanvas.width === 0 || previewCanvas.height === 0) {
-          setStatus('Canvas vide: image non chargée ou taille nulle.', true);
-        }
-
-        selectedPoints.forEach((p, i) => {
-          ctx.beginPath();
-          ctx.arc(p.x, p.y, 6, 0, Math.PI * 2);
-          ctx.fillStyle = i === 0 ? '#ef4444' : '#2563eb';
-          ctx.fill();
-          ctx.font = '14px sans-serif';
-          ctx.fillStyle = '#111827';
-          ctx.fillText(String(i + 1), p.x + 8, p.y - 8);
-        });
-
-
-        if (roiRect) {
-          const r = normalizeRect(roiRect);
-          ctx.strokeStyle = '#f97316';
-          ctx.lineWidth = 3;
-          ctx.strokeRect(r.x, r.y, r.w, r.h);
-        }
-
-        if (selectedPoints.length === 2) {
-          ctx.beginPath();
-          ctx.moveTo(selectedPoints[0].x, selectedPoints[0].y);
-          ctx.lineTo(selectedPoints[1].x, selectedPoints[1].y);
-          ctx.strokeStyle = '#f59e0b';
-          ctx.lineWidth = 3;
-          ctx.stroke();
-        }
-
-        setStatus('Prévisualisation en niveaux de gris affichée.');
-      } catch (err) {
-        setStatus(`Erreur niveaux de gris: ${err.message || err}`, true);
-      } finally {
-        src.delete();
-        gray.delete();
-        rgba.delete();
-      }
+      ctx.stroke();
+      manualPoints.forEach((p, i) => {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
+        ctx.fillStyle = i === 0 ? '#16a34a' : '#f97316';
+        ctx.fill();
+      });
+      ctx.restore();
     }
+
     function clearBinaryDetection() {
       if (binaryContours) {
         binaryContours.delete();
@@ -597,6 +539,7 @@
       }
       return true;
     }
+
     function renderBinaryPreview(keepSelection = false) {
       if (sourceImage) {
         previewCanvas.width = sourceImage.width;
@@ -629,34 +572,12 @@
         cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
 
         const blurK = Number(blurRange.value) || 3;
-        const blurChoice = blurType ? blurType.value : 'gaussian';
-        if (blurChoice === 'median') {
-          const k = Math.max(1, blurK | 1);
-          cv.medianBlur(gray, blur, k);
-        } else if (blurChoice === 'bilateral') {
-          const d = Math.max(1, blurK | 1);
-          cv.bilateralFilter(gray, blur, d, d * 2, d / 2, cv.BORDER_DEFAULT);
-        } else {
-          cv.GaussianBlur(gray, blur, new cv.Size(blurK, blurK), 0, 0, cv.BORDER_DEFAULT);
-        }
+        cv.GaussianBlur(gray, blur, new cv.Size(blurK, blurK), 0, 0, cv.BORDER_DEFAULT);
 
         const t = Number(threshRange.value) || 120;
-        if (adaptiveThresh && adaptiveThresh.checked) {
-          const block = Math.max(3, (blurK * 2 + 1));
-          cv.adaptiveThreshold(blur, bin, 255, cv.ADAPTIVE_THRESH_GAUSSIAN_C, cv.THRESH_BINARY_INV, block, 2);
-        } else if (otsuThresh && otsuThresh.checked) {
-          cv.threshold(blur, bin, 0, 255, cv.THRESH_BINARY_INV + cv.THRESH_OTSU);
-        } else {
-          cv.threshold(blur, bin, t, 255, cv.THRESH_BINARY_INV);
-        }
-
-        const m = Number(morphSize ? morphSize.value : 3) || 0;
-        if (m >= 1) {
-          const mk = cv.getStructuringElement(cv.MORPH_ELLIPSE, new cv.Size(m, m));
-          cv.morphologyEx(bin, bin, cv.MORPH_OPEN, mk);
-          cv.morphologyEx(bin, bin, cv.MORPH_CLOSE, mk);
-          mk.delete();
-        }
+        cv.threshold(blur, bin, t, 255, cv.THRESH_BINARY_INV);
+        cv.morphologyEx(bin, bin, cv.MORPH_OPEN, kernel);
+        cv.morphologyEx(bin, bin, cv.MORPH_CLOSE, kernel);
 
         if (roiRect) {
           const r = normalizeRect(roiRect);
@@ -676,6 +597,7 @@
           grabCutEnabled.checked = false;
           setStatus('GrabCut n\'est pas disponible dans cette version d\'OpenCV.js. Utilisez le ROI + binaire.', true);
         }
+
         clearBinaryDetection();
         binaryContours = new cv.MatVector();
         binaryHierarchy = new cv.Mat();
@@ -730,6 +652,10 @@
           ctx.stroke();
         }
 
+        if (currentStage === 'select') {
+          drawManualOverlay();
+        }
+
         setStatus(`Prévisualisation binaire affichée. Zones sélectionnées: ${selectedContourIndices.size}.`);
       } catch (err) {
         setStatus(`Erreur binaire: ${err.message || err}`, true);
@@ -747,6 +673,24 @@
       const dx = a.x - b.x;
       const dy = a.y - b.y;
       return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    function polygonArea(points) {
+      let area = 0;
+      for (let i = 0; i < points.length; i++) {
+        const j = (i + 1) % points.length;
+        area += points[i].x * points[j].y - points[j].x * points[i].y;
+      }
+      return Math.abs(area) / 2;
+    }
+
+    function polygonPerimeter(points) {
+      let per = 0;
+      for (let i = 0; i < points.length; i++) {
+        const j = (i + 1) % points.length;
+        per += euclidean(points[i], points[j]);
+      }
+      return per;
     }
 
     function updateScaleFromPoints() {
@@ -811,7 +755,6 @@
 
     function analyzeContours(previewOnly = false) {
       if (!cvReady) {
-        drawImageAndPoints(sourceImage);
         setStatus('OpenCV n\'est pas encore chargé. Réessayez dans quelques secondes.', true);
         return;
       }
@@ -829,6 +772,23 @@
       updateScaleFromPoints();
       if (!pxPerMm) {
         setStatus('Sélectionnez 2 points de règle et renseignez leur distance réelle en mm avant la confirmation.', true);
+        return;
+      }
+
+      if (manualMode && manualClosed && manualPoints.length >= 3) {
+        const areaPx2 = polygonArea(manualPoints);
+        const perimeterPx = polygonPerimeter(manualPoints);
+        const mmPerPx = 1 / pxPerMm;
+        const surfaceMm2 = areaPx2 * mmPerPx * mmPerPx;
+        const perimeterMm = perimeterPx * mmPerPx;
+
+        if (surfaceMm2 <= 0 || perimeterMm <= 0) {
+          setStatus('Contour manuel invalide. Ajoutez plus de points ou redessinez.', true);
+          return;
+        }
+
+        computeAndDisplayPrices(surfaceMm2, perimeterMm);
+        setStatus('Contour manuel validé et prix calculés.');
         return;
       }
 
@@ -885,6 +845,7 @@
         objMask.delete();
       }
     }
+
     photoInput.addEventListener('change', (e) => {
       const file = e.target.files?.[0];
       if (!file) return;
@@ -903,9 +864,13 @@
         roiValidated = false;
         scalePickMode = false;
         selectedContourIndices.clear();
+        manualPoints = [];
+        manualClosed = false;
+        manualMode = false;
+        if (manualHint) manualHint.style.display = 'none';
         clearBinaryDetection();
         setStage('scale');
-        // Always show the raw image first (no OpenCV dependency)
+
         previewCanvas.width = img.width;
         previewCanvas.height = img.height;
         ctx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
@@ -936,6 +901,12 @@
       }
 
       if (currentStage === 'select') {
+        if (manualMode) {
+          manualPoints.push({ x, y });
+          manualClosed = false;
+          renderBinaryPreview(true);
+          return;
+        }
         const toggled = toggleContourAt(Math.floor(x), Math.floor(y));
         if (toggled) {
           renderBinaryPreview(true);
@@ -990,6 +961,10 @@
       roiValidated = false;
       scalePickMode = false;
       selectedContourIndices.clear();
+      manualPoints = [];
+      manualClosed = false;
+      manualMode = false;
+      if (manualHint) manualHint.style.display = 'none';
       clearBinaryDetection();
       setStage(sourceImage ? 'scale' : 'idle');
       if (sourceImage) {
@@ -1058,6 +1033,42 @@
 
     confirmContoursBtn.addEventListener('click', () => analyzeContours(false));
 
+    manualModeBtn.addEventListener('click', () => {
+      if (!sourceImage) {
+        setStatus('Chargez d\'abord une image.', true);
+        return;
+      }
+      if (!cvReady) {
+        setStatus('OpenCV n\'est pas encore chargé. Réessayez dans quelques secondes.', true);
+        return;
+      }
+      manualMode = !manualMode;
+      manualHint.style.display = manualMode ? 'block' : 'none';
+      if (!manualMode) {
+        setStatus('Mode manuel désactivé.');
+      } else {
+        setStatus('Mode manuel: cliquez pour poser des points, puis Terminer.');
+      }
+      renderBinaryPreview(true);
+    });
+
+    manualFinishBtn.addEventListener('click', () => {
+      if (!manualMode || manualPoints.length < 3) {
+        setStatus('Ajoutez au moins 3 points avant de terminer.', true);
+        return;
+      }
+      manualClosed = true;
+      renderBinaryPreview(true);
+      setStatus('Contour manuel terminé. Cliquez Calculer le prix.');
+    });
+
+    manualClearBtn.addEventListener('click', () => {
+      manualPoints = [];
+      manualClosed = false;
+      renderBinaryPreview(true);
+      setStatus('Contour manuel effacé.');
+    });
+
     setStage('idle');
 
     [goldRateInput, silverRateInput].forEach(input => {
@@ -1082,6 +1093,25 @@
   </script>
 </body>
 </html>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
