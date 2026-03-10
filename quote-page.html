@@ -259,7 +259,12 @@
           <span id="threshVal">120</span>
         </div>
         <input id="threshRange" type="range" min="20" max="240" step="1" value="120" />
-<div class="inline" style="margin-top: 12px;">
+
+        <div class="inline" style="margin-top: 12px;">
+          <input id="grabCutEnabled" type="checkbox" />
+          <label for="grabCutEnabled" style="margin:0;">Utiliser GrabCut (ROI)</label>
+        </div>
+        <div class="inline" style="margin-top: 12px;">
           <button id="previewContoursBtn" class="secondary" type="button">Prévisualiser</button>
           <button id="grayPreviewBtn" class="secondary" type="button">Voir en gris</button>
           <button id="binaryPreviewBtn" class="secondary" type="button">Voir binaire</button>
@@ -308,6 +313,7 @@
     const scalePickBtn = document.getElementById('scalePickBtn');
     const detectBtn = document.getElementById('detectBtn');
     const drawRoiBtn = document.getElementById('drawRoiBtn');
+    const grabCutEnabled = document.getElementById('grabCutEnabled');
     const previewContoursBtn = document.getElementById('previewContoursBtn');
     const grayPreviewBtn = document.getElementById('grayPreviewBtn');
     const binaryPreviewBtn = document.getElementById('binaryPreviewBtn');
@@ -335,10 +341,12 @@
     let pxPerMm = null;
     let lastMetrics = null;
     let cvReady = false;
-    let objectSeed = null;
     let roiMode = false;
     let roiStart = null;
     let roiRect = null;
+    let imageVersion = 0;
+    let grabMaskCache = null;
+    let grabMaskKey = null;
     let scalePickMode = false;
     let binaryContours = null;
     let binaryHierarchy = null;
@@ -347,6 +355,7 @@
 
     blurRange.addEventListener('input', () => { blurVal.textContent = blurRange.value; if (sourceImage) renderBinaryPreview(false); });
     threshRange.addEventListener('input', () => { threshVal.textContent = threshRange.value; if (sourceImage) renderBinaryPreview(false); });
+    grabCutEnabled.addEventListener('change', () => { clearGrabMaskCache(); if (sourceImage) renderBinaryPreview(true); });
 
     function setStatus(msg, isError = false) {
       statusMsg.textContent = msg;
@@ -385,15 +394,7 @@
         ctx.font = '14px sans-serif';
         ctx.fillStyle = '#111827';
         ctx.fillText(String(i + 1), p.x + 8, p.y - 8);
-      });
-
-      if (objectSeed) {
-        ctx.beginPath();
-        ctx.arc(objectSeed.x, objectSeed.y, 7, 0, Math.PI * 2);
-        ctx.strokeStyle = '#a21caf';
-        ctx.lineWidth = 3;
-        ctx.stroke();
-      }
+      });
 
       if (roiRect) {
         const r = normalizeRect(roiRect);
@@ -446,15 +447,7 @@
           ctx.font = '14px sans-serif';
           ctx.fillStyle = '#111827';
           ctx.fillText(String(i + 1), p.x + 8, p.y - 8);
-        });
-
-        if (objectSeed) {
-          ctx.beginPath();
-          ctx.arc(objectSeed.x, objectSeed.y, 7, 0, Math.PI * 2);
-          ctx.strokeStyle = '#a21caf';
-          ctx.lineWidth = 3;
-          ctx.stroke();
-        }
+        });
 
         if (roiRect) {
           const r = normalizeRect(roiRect);
@@ -484,6 +477,52 @@
     }
 
 
+    function clearGrabMaskCache() {
+      if (grabMaskCache) {
+        grabMaskCache.delete();
+        grabMaskCache = null;
+      }
+      grabMaskKey = null;
+    }
+
+    function buildGrabCutMask(src) {
+      if (!roiRect || !grabCutEnabled.checked) return null;
+      const r = normalizeRect(roiRect);
+      const x = Math.max(0, Math.floor(r.x));
+      const y = Math.max(0, Math.floor(r.y));
+      const w = Math.min(src.cols - x, Math.floor(r.w));
+      const h = Math.min(src.rows - y, Math.floor(r.h));
+      if (w <= 1 || h <= 1) return null;
+
+      const key = `${imageVersion}:${x}:${y}:${w}:${h}`;
+      if (grabMaskCache && grabMaskKey === key) {
+        return grabMaskCache;
+      }
+
+      clearGrabMaskCache();
+      const mask = new cv.Mat(src.rows, src.cols, cv.CV_8U, new cv.Scalar(cv.GC_BGD));
+      const bgdModel = new cv.Mat();
+      const fgdModel = new cv.Mat();
+      try {
+        const rect = new cv.Rect(x, y, w, h);
+        cv.grabCut(src, mask, rect, bgdModel, fgdModel, 3, cv.GC_INIT_WITH_RECT);
+
+        const fg = new cv.Mat();
+        const prFg = new cv.Mat();
+        cv.compare(mask, new cv.Scalar(cv.GC_FGD), fg, cv.CMP_EQ);
+        cv.compare(mask, new cv.Scalar(cv.GC_PR_FGD), prFg, cv.CMP_EQ);
+        cv.bitwise_or(fg, prFg, mask);
+        fg.delete();
+        prFg.delete();
+      } finally {
+        bgdModel.delete();
+        fgdModel.delete();
+      }
+
+      grabMaskCache = mask;
+      grabMaskKey = key;
+      return grabMaskCache;
+    }
     function clearBinaryDetection() {
       if (binaryContours) {
         binaryContours.delete();
@@ -542,7 +581,7 @@
       const src = cv.imread(tempCanvas);
       const gray = new cv.Mat();
       const blur = new cv.Mat();
-      const bin = new cv.Mat();
+      let bin = new cv.Mat();
       const rgba = new cv.Mat();
       const kernel = cv.Mat.ones(3, 3, cv.CV_8U);
       try {
@@ -554,21 +593,7 @@
         const t = Number(threshRange.value) || 120;
         cv.threshold(blur, bin, t, 255, cv.THRESH_BINARY_INV);
         cv.morphologyEx(bin, bin, cv.MORPH_OPEN, kernel);
-        cv.morphologyEx(bin, bin, cv.MORPH_CLOSE, kernel);
-
-        if (roiRect) {
-          const r = normalizeRect(roiRect);
-          const x1 = Math.max(0, Math.floor(r.x));
-          const y1 = Math.max(0, Math.floor(r.y));
-          const x2 = Math.min(src.cols - 1, Math.floor(r.x + r.w));
-          const y2 = Math.min(src.rows - 1, Math.floor(r.y + r.h));
-          if (x2 > x1 && y2 > y1) {
-            const mask = cv.Mat.zeros(src.rows, src.cols, cv.CV_8U);
-            cv.rectangle(mask, new cv.Point(x1, y1), new cv.Point(x2, y2), new cv.Scalar(255), -1);
-            cv.bitwise_and(bin, mask, bin);
-            mask.delete();
-          }
-        }
+        cv.morphologyEx(bin, bin, cv.MORPH_CLOSE, kernel);`r`n`r`n        if (roiRect) {`r`n          const r = normalizeRect(roiRect);`r`n          const x1 = Math.max(0, Math.floor(r.x));`r`n          const y1 = Math.max(0, Math.floor(r.y));`r`n          const x2 = Math.min(src.cols - 1, Math.floor(r.x + r.w));`r`n          const y2 = Math.min(src.rows - 1, Math.floor(r.y + r.h));`r`n          if (x2 > x1 && y2 > y1) {`r`n            const mask = cv.Mat.zeros(src.rows, src.cols, cv.CV_8U);`r`n            cv.rectangle(mask, new cv.Point(x1, y1), new cv.Point(x2, y2), new cv.Scalar(255), -1);`r`n            cv.bitwise_and(bin, mask, bin);`r`n            mask.delete();`r`n          }`r`n        }`r`n`r`n        if (grabCutEnabled.checked) {`r`n          const gMask = buildGrabCutMask(src);`r`n          if (gMask) {`r`n            bin.delete();`r`n            bin = gMask.clone();`r`n          }`r`n        }`r`n        }
 
         clearBinaryDetection();
         binaryContours = new cv.MatVector();
@@ -781,13 +806,15 @@
       const img = new Image();
       img.onload = () => {
         sourceImage = img;
+        imageVersion += 1;
+        clearGrabMaskCache();
         selectedPoints = [];
         pxPerMm = null;
-        objectSeed = null;
         roiMode = false;
         roiStart = null;
         roiRect = null;
         scalePickMode = false;
+        clearGrabMaskCache();
         selectedContourIndices.clear();
         clearBinaryDetection();
         renderBinaryPreview(false);
@@ -862,11 +889,11 @@
     resetPointsBtn.addEventListener('click', () => {
       selectedPoints = [];
       pxPerMm = null;
-      objectSeed = null;
         roiMode = false;
         roiStart = null;
         roiRect = null;
         scalePickMode = false;
+        clearGrabMaskCache();
         selectedContourIndices.clear();
         clearBinaryDetection();
         if (sourceImage) {
@@ -887,7 +914,8 @@
       selectedPoints = [];
       setStatus('Cliquez 2 points sur la règle pour définir l\'échelle.');
       renderBinaryPreview(true);
-    });
+    });
+
     drawRoiBtn.addEventListener('click', () => {
       if (!sourceImage) {
         setStatus('Chargez d\'abord une image.', true);
@@ -917,6 +945,13 @@
   </script>
 </body>
 </html>
+
+
+
+
+
+
+
 
 
 
