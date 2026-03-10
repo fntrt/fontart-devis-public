@@ -162,7 +162,7 @@
       font-size: 0.9rem;
     }
 
-    .status {
+    .hidden {\n      display: none !important;\n    }\n\n    .status {
       margin-top: 8px;
       font-size: 0.93rem;
       color: #0f172a;
@@ -222,56 +222,67 @@
       </div>
     </div>
 
-    <div class="card workspace">
+    <div class="card workspace hidden" id="workspaceCard">
       <div>
         <h2>Calibration & points règle</h2>
-        <span class="pill" id="pointsInfo">0 / 2 points sélectionnés</span>
         <div class="canvas-wrap" style="margin-top: 8px;">
           <canvas id="previewCanvas"></canvas>
         </div>
 
-        <div class="inline" style="margin-top: 10px;">
-          <button id="resetPointsBtn" class="secondary" type="button">Réinitialiser les points</button>
-          <button id="scalePickBtn" class="secondary" type="button">Sélectionner échelle (2 points)</button>
-          <button id="detectBtn" type="button">Détecter les contours</button>
-
-          <button id="drawRoiBtn" class="secondary" type="button">Dessiner zone pièce</button>
+        <div id="scaleSection" style="margin-top: 10px;">
+          <span class="pill" id="pointsInfo">0 / 2 points sélectionnés</span>
+          <div class="inline" style="margin-top: 10px;">
+            <button id="resetPointsBtn" class="secondary" type="button">Réinitialiser</button>
+            <button id="scalePickBtn" class="secondary" type="button">Sélectionner échelle (2 points)</button>
+            <button id="validateScaleBtn" type="button">Valider échelle</button>
+          </div>
+          <div style="margin-top: 10px;">
+            <label for="knownDistanceMm">Distance réelle entre les 2 points (mm)</label>
+            <input id="knownDistanceMm" type="number" min="0" step="0.01" placeholder="Ex: 20" />
+          </div>
         </div>
 
-        <div style="margin-top: 10px;">
-          <label for="knownDistanceMm">Distance réelle entre les 2 points (mm)</label>
-          <input id="knownDistanceMm" type="number" min="0" step="0.01" placeholder="Ex: 20" />
+        <div id="roiSection" class="hidden" style="margin-top: 10px;">
+          <div class="inline" style="margin-top: 10px;">
+            <button id="drawRoiBtn" class="secondary" type="button">Dessiner zone pièce</button>
+            <button id="validateRoiBtn" type="button">Valider zone</button>
+          </div>
+          <div class="inline" style="margin-top: 10px;">
+            <input id="grabCutEnabled" type="checkbox" />
+            <label for="grabCutEnabled" style="margin:0;">Utiliser GrabCut (ROI)</label>
+          </div>
         </div>
 
         <p class="status" id="statusMsg">Chargez une image pour démarrer.</p>
       </div>
 
       <div>
-        <h2>Ajustements contours</h2>
-        <div class="range-line">
-          <label for="blurRange">Flou (bruit)</label>
-          <span id="blurVal">3</span>
-        </div>
-        <input id="blurRange" type="range" min="1" max="15" step="2" value="3" />
+        <div id="adjustSection" class="hidden">
+          <h2>Ajustements contours</h2>
+          <div class="range-line">
+            <label for="blurRange">Flou (bruit)</label>
+            <span id="blurVal">3</span>
+          </div>
+          <input id="blurRange" type="range" min="1" max="15" step="2" value="3" />
 
-        <div class="range-line" style="margin-top: 12px;">
-          <label for="threshRange">Seuil binaire</label>
-          <span id="threshVal">120</span>
-        </div>
-        <input id="threshRange" type="range" min="20" max="240" step="1" value="120" />
+          <div class="range-line" style="margin-top: 12px;">
+            <label for="threshRange">Seuil binaire</label>
+            <span id="threshVal">120</span>
+          </div>
+          <input id="threshRange" type="range" min="20" max="240" step="1" value="120" />
 
-        <div class="inline" style="margin-top: 12px;">
-          <input id="grabCutEnabled" type="checkbox" />
-          <label for="grabCutEnabled" style="margin:0;">Utiliser GrabCut (ROI)</label>
-        </div>
-        <div class="inline" style="margin-top: 12px;">
-          <button id="previewContoursBtn" class="secondary" type="button">Prévisualiser</button>
-          <button id="grayPreviewBtn" class="secondary" type="button">Voir en gris</button>
-          <button id="binaryPreviewBtn" class="secondary" type="button">Voir binaire</button>
-          <button id="confirmContoursBtn" type="button">Confirmer contours</button>
+          <div class="inline" style="margin-top: 12px;">
+            <button id="validateAdjustBtn" type="button">Valider réglages</button>
+          </div>
         </div>
 
-        <p class="hint" style="margin-top: 10px;">Le calcul prend en compte le contour externe et les trous internes détectés (si présents).</p>
+        <div id="selectSection" class="hidden">
+          <h2>Sélection des contours</h2>
+          <p class="hint">Cliquez sur les zones noires qui correspondent à la pièce pour sélectionner les contours.</p>
+          <div class="inline" style="margin-top: 12px;">
+            <button id="confirmContoursBtn" type="button">Calculer le prix</button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -311,14 +322,17 @@
     const ctx = previewCanvas.getContext('2d');
     const resetPointsBtn = document.getElementById('resetPointsBtn');
     const scalePickBtn = document.getElementById('scalePickBtn');
-    const detectBtn = document.getElementById('detectBtn');
+    const validateScaleBtn = document.getElementById('validateScaleBtn');
     const drawRoiBtn = document.getElementById('drawRoiBtn');
+    const validateRoiBtn = document.getElementById('validateRoiBtn');
     const grabCutEnabled = document.getElementById('grabCutEnabled');
-    const previewContoursBtn = document.getElementById('previewContoursBtn');
-    const grayPreviewBtn = document.getElementById('grayPreviewBtn');
-    const binaryPreviewBtn = document.getElementById('binaryPreviewBtn');
+    const validateAdjustBtn = document.getElementById('validateAdjustBtn');
     const confirmContoursBtn = document.getElementById('confirmContoursBtn');
-    const pointsInfo = document.getElementById('pointsInfo');
+    const workspaceCard = document.getElementById('workspaceCard');
+    const scaleSection = document.getElementById('scaleSection');
+    const roiSection = document.getElementById('roiSection');
+    const adjustSection = document.getElementById('adjustSection');
+    const selectSection = document.getElementById('selectSection');
     const statusMsg = document.getElementById('statusMsg');
 
     const blurRange = document.getElementById('blurRange');
@@ -352,11 +366,33 @@
     let binaryHierarchy = null;
     let selectableBinaryIndices = [];
     let selectedContourIndices = new Set();
+    let currentStage = 'idle';
+    let roiValidated = false;
+
 
     blurRange.addEventListener('input', () => { blurVal.textContent = blurRange.value; if (sourceImage) renderBinaryPreview(false); });
     threshRange.addEventListener('input', () => { threshVal.textContent = threshRange.value; if (sourceImage) renderBinaryPreview(false); });
     grabCutEnabled.addEventListener('change', () => { clearGrabMaskCache(); if (sourceImage) renderBinaryPreview(true); });
 
+    function setStage(stage) {
+      currentStage = stage;
+      workspaceCard.classList.toggle('hidden', stage === 'idle');
+      scaleSection.classList.toggle('hidden', stage !== 'scale');
+      roiSection.classList.toggle('hidden', stage !== 'roi');
+      adjustSection.classList.toggle('hidden', stage !== 'adjust');
+      selectSection.classList.toggle('hidden', stage !== 'select');
+    }
+
+    function startScalePick() {
+      scalePickMode = true;
+      selectedPoints = [];
+      setStatus('Cliquez 2 points sur la règle pour définir l\'échelle.');
+    }
+
+    function startRoiPick() {
+      roiMode = true;
+      setStatus('Cliquez-glissez pour dessiner un rectangle autour de la pièce.');
+    }
     function setStatus(msg, isError = false) {
       statusMsg.textContent = msg;
       statusMsg.classList.toggle('danger', isError);
@@ -394,7 +430,8 @@
         ctx.font = '14px sans-serif';
         ctx.fillStyle = '#111827';
         ctx.fillText(String(i + 1), p.x + 8, p.y - 8);
-      });
+      });
+
 
       if (roiRect) {
         const r = normalizeRect(roiRect);
@@ -412,7 +449,6 @@
         ctx.stroke();
       }
 
-      pointsInfo.textContent = `${selectedPoints.length} / 2 points sélectionnés`;
     }
 
     function renderGrayPreview() {
@@ -456,7 +492,8 @@
           ctx.font = '14px sans-serif';
           ctx.fillStyle = '#111827';
           ctx.fillText(String(i + 1), p.x + 8, p.y - 8);
-        });
+        });
+
 
         if (roiRect) {
           const r = normalizeRect(roiRect);
@@ -474,7 +511,6 @@
           ctx.stroke();
         }
 
-        pointsInfo.textContent = `${selectedPoints.length} / 2 points sélectionnés`;
         setStatus('Prévisualisation en niveaux de gris affichée.');
       } catch (err) {
         setStatus(`Erreur niveaux de gris: ${err.message || err}`, true);
@@ -623,7 +659,7 @@
           }
         }
 
-        if (grabCutEnabled.checked) {
+        if (grabCutEnabled.checked && roiValidated) {
           const gMask = buildGrabCutMask(src);
           if (gMask) {
             bin.delete();
@@ -685,7 +721,6 @@
           ctx.stroke();
         }
 
-        pointsInfo.textContent = `${selectedPoints.length} / 2 points sélectionnés`;
         setStatus(`Prévisualisation binaire affichée. Zones sélectionnées: ${selectedContourIndices.size}.`);
       } catch (err) {
         setStatus(`Erreur binaire: ${err.message || err}`, true);
@@ -854,12 +889,13 @@
         roiMode = false;
         roiStart = null;
         roiRect = null;
+        roiValidated = false;
         scalePickMode = false;
-        clearGrabMaskCache();
         selectedContourIndices.clear();
         clearBinaryDetection();
+        setStage('scale');
+        startScalePick();
         renderBinaryPreview(false);
-        setStatus('Image chargée. Vue binaire active. Cliquez sur les zones noires à prendre en compte.');
       };
       img.src = URL.createObjectURL(file);
     });
@@ -870,7 +906,7 @@
 
       const { x, y } = getCanvasXY(e);
 
-      if (scalePickMode) {
+      if (currentStage === 'scale' && scalePickMode) {
         if (selectedPoints.length >= 2) selectedPoints = [];
         selectedPoints.push({ x, y });
         renderBinaryPreview(true);
@@ -878,16 +914,18 @@
         if (selectedPoints.length === 2) {
           updateScaleFromPoints();
           scalePickMode = false;
-          setStatus('Échelle définie. Vous pouvez confirmer le calcul.');
+          setStatus('Échelle définie. Cliquez Valider échelle.');
         }
         return;
       }
 
-      const toggled = toggleContourAt(Math.floor(x), Math.floor(y));
-      if (toggled) {
-        renderBinaryPreview(true);
-      } else {
-        setStatus('Cliquez sur une zone noire de la pièce pour la sélectionner.', true);
+      if (currentStage === 'select') {
+        const toggled = toggleContourAt(Math.floor(x), Math.floor(y));
+        if (toggled) {
+          renderBinaryPreview(true);
+        } else {
+          setStatus('Cliquez sur une zone noire de la pièce pour la sélectionner.', true);
+        }
       }
     });
 
@@ -920,7 +958,7 @@
       roiStart = null;
       roiMode = false;
       drawImageAndPoints(sourceImage);
-      setStatus('Zone pièce enregistrée. Lancez "Prévisualiser".');
+      setStatus('Zone enregistrée. Cliquez Valider zone.');
     });
 
     knownDistanceMm.addEventListener('input', () => {
@@ -930,30 +968,40 @@
     resetPointsBtn.addEventListener('click', () => {
       selectedPoints = [];
       pxPerMm = null;
-        roiMode = false;
-        roiStart = null;
-        roiRect = null;
-        scalePickMode = false;
-        clearGrabMaskCache();
-        selectedContourIndices.clear();
-        clearBinaryDetection();
-        if (sourceImage) {
-          renderBinaryPreview(false);
-        } else {
-          drawImageAndPoints(sourceImage);
-        }
-      setStatus('Points réinitialisés.');
+      roiMode = false;
+      roiStart = null;
+      roiRect = null;
+      roiValidated = false;
+      scalePickMode = false;
+      clearGrabMaskCache();
+      selectedContourIndices.clear();
+      clearBinaryDetection();
+      setStage(sourceImage ? 'scale' : 'idle');
+      if (sourceImage) {
+        startScalePick();
+        renderBinaryPreview(false);
+      }
+      setStatus('Réinitialisé.');
     });
 
-    detectBtn.addEventListener('click', () => analyzeContours(true));
     scalePickBtn.addEventListener('click', () => {
       if (!sourceImage) {
         setStatus('Chargez d\'abord une image.', true);
         return;
       }
-      scalePickMode = true;
-      selectedPoints = [];
-      setStatus('Cliquez 2 points sur la règle pour définir l\'échelle.');
+      setStage('scale');
+      startScalePick();
+      renderBinaryPreview(true);
+    });
+
+    validateScaleBtn.addEventListener('click', () => {
+      if (!pxPerMm) {
+        setStatus('Veuillez sélectionner 2 points et saisir la distance en mm.', true);
+        return;
+      }
+      roiValidated = false;
+      setStage('roi');
+      startRoiPick();
       renderBinaryPreview(true);
     });
 
@@ -962,14 +1010,30 @@
         setStatus('Chargez d\'abord une image.', true);
         return;
       }
-      roiMode = true;
-      roiStart = null;
-      setStatus('Cliquez-glissez pour dessiner un rectangle autour de la pièce.');
+      setStage('roi');
+      startRoiPick();
     });
-    previewContoursBtn.addEventListener('click', () => analyzeContours(true));
-    grayPreviewBtn.addEventListener('click', () => renderBinaryPreview(true));
-    binaryPreviewBtn.addEventListener('click', () => renderBinaryPreview(true));
+
+    validateRoiBtn.addEventListener('click', () => {
+      if (!roiRect) {
+        setStatus('Dessinez un rectangle autour de la pièce.', true);
+        return;
+      }
+      roiValidated = true;
+      setStage('adjust');
+      renderBinaryPreview(true);
+      setStatus('Ajustez flou et seuil, puis validez.');
+    });
+
+    validateAdjustBtn.addEventListener('click', () => {
+      setStage('select');
+      renderBinaryPreview(true);
+      setStatus('Cliquez sur les zones noires à prendre en compte.');
+    });
+
     confirmContoursBtn.addEventListener('click', () => analyzeContours(false));
+
+    setStage('idle');
 
     [goldRateInput, silverRateInput].forEach(input => {
       input.addEventListener('input', () => {
@@ -981,11 +1045,33 @@
 
     window.__cvReadyHook = () => {
       cvReady = true;
-      setStatus('OpenCV chargé. Importez une image pour commencer.');
+      if (!sourceImage) {
+        setStatus('OpenCV chargé. Importez une image pour commencer.');
+      } else {
+        renderBinaryPreview(false);
+      }
     };
   </script>
 </body>
 </html>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
