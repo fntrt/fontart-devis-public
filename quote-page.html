@@ -249,7 +249,7 @@
           </div>
           <div class="inline" style="margin-top: 10px;">
             <input id="grabCutEnabled" type="checkbox" />
-            <label for="grabCutEnabled" style="margin:0;">Utiliser GrabCut (ROI)</label>
+            <label for="grabCutEnabled" style="margin:0;">GrabCut indisponible (OpenCV.js CDN)</label>
           </div>
         </div>
 
@@ -358,9 +358,6 @@
     let roiMode = false;
     let roiStart = null;
     let roiRect = null;
-    let imageVersion = 0;
-    let grabMaskCache = null;
-    let grabMaskKey = null;
     let scalePickMode = false;
     let binaryContours = null;
     let binaryHierarchy = null;
@@ -372,7 +369,7 @@
 
     blurRange.addEventListener('input', () => { blurVal.textContent = blurRange.value; if (sourceImage) renderBinaryPreview(false); });
     threshRange.addEventListener('input', () => { threshVal.textContent = threshRange.value; if (sourceImage) renderBinaryPreview(false); });
-    grabCutEnabled.addEventListener('change', () => { clearGrabMaskCache(); if (sourceImage) renderBinaryPreview(true); });
+    grabCutEnabled.addEventListener('change', () => { grabCutEnabled.checked = false; setStatus('GrabCut n\'est pas disponible dans cette version d\'OpenCV.js.', true); });
 
     function setStage(stage) {
       currentStage = stage;
@@ -519,56 +516,7 @@
         gray.delete();
         rgba.delete();
       }
-    }
-
-
-    function clearGrabMaskCache() {
-      if (grabMaskCache) {
-        grabMaskCache.delete();
-        grabMaskCache = null;
-      }
-      grabMaskKey = null;
-    }
-
-    function buildGrabCutMask(src) {
-      if (!roiRect || !grabCutEnabled.checked) return null;
-      const r = normalizeRect(roiRect);
-      const x = Math.max(0, Math.floor(r.x));
-      const y = Math.max(0, Math.floor(r.y));
-      const w = Math.min(src.cols - x, Math.floor(r.w));
-      const h = Math.min(src.rows - y, Math.floor(r.h));
-      if (w <= 1 || h <= 1) return null;
-
-      const key = `${imageVersion}:${x}:${y}:${w}:${h}`;
-      if (grabMaskCache && grabMaskKey === key) {
-        return grabMaskCache;
-      }
-
-      clearGrabMaskCache();
-      const mask = new cv.Mat(src.rows, src.cols, cv.CV_8U, new cv.Scalar(cv.GC_BGD));
-      const bgdModel = new cv.Mat();
-      const fgdModel = new cv.Mat();
-      try {
-        const rect = new cv.Rect(x, y, w, h);
-        cv.grabCut(src, mask, rect, bgdModel, fgdModel, 3, cv.GC_INIT_WITH_RECT);
-
-        const fg = new cv.Mat();
-        const prFg = new cv.Mat();
-        cv.compare(mask, new cv.Scalar(cv.GC_FGD), fg, cv.CMP_EQ);
-        cv.compare(mask, new cv.Scalar(cv.GC_PR_FGD), prFg, cv.CMP_EQ);
-        cv.bitwise_or(fg, prFg, mask);
-        fg.delete();
-        prFg.delete();
-      } finally {
-        bgdModel.delete();
-        fgdModel.delete();
-      }
-
-      grabMaskCache = mask;
-      grabMaskKey = key;
-      return grabMaskCache;
-    }
-    function clearBinaryDetection() {
+    }\r\n    function clearBinaryDetection() {
       if (binaryContours) {
         binaryContours.delete();
         binaryContours = null;
@@ -659,12 +607,10 @@
           }
         }
 
-        if (grabCutEnabled.checked && roiValidated) {
-          const gMask = buildGrabCutMask(src);
-          if (gMask) {
-            bin.delete();
-            bin = gMask.clone();
-          }
+        if (grabCutEnabled.checked) {
+          grabCutEnabled.checked = false;
+          setStatus('GrabCut n\'est pas disponible dans cette version d\'OpenCV.js. Utilisez le ROI + binaire.', true);
+        }
         }
 
         clearBinaryDetection();
@@ -882,8 +828,6 @@
       const img = new Image();
       img.onload = () => {
         sourceImage = img;
-        imageVersion += 1;
-        clearGrabMaskCache();
         selectedPoints = [];
         pxPerMm = null;
         roiMode = false;
@@ -973,7 +917,6 @@
       roiRect = null;
       roiValidated = false;
       scalePickMode = false;
-      clearGrabMaskCache();
       selectedContourIndices.clear();
       clearBinaryDetection();
       setStage(sourceImage ? 'scale' : 'idle');
@@ -1044,6 +987,7 @@
     });
 
     window.__cvReadyHook = () => {
+      if (grabCutEnabled) { grabCutEnabled.disabled = true; }
       cvReady = true;
       if (!sourceImage) {
         setStatus('OpenCV chargé. Importez une image pour commencer.');
@@ -1054,6 +998,8 @@
   </script>
 </body>
 </html>
+
+
 
 
 
