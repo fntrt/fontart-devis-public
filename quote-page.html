@@ -563,6 +563,10 @@
       return true;
     }
     function renderBinaryPreview(keepSelection = false) {
+      if (sourceImage) {
+        previewCanvas.width = sourceImage.width;
+        previewCanvas.height = sourceImage.height;
+      }
       if (!sourceImage) {
         setStatus('Chargez d\'abord une image.', true);
         return;
@@ -945,6 +949,7 @@
   </script>
 </body>
 </html>
+
 
 
 
