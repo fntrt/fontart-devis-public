@@ -438,6 +438,15 @@
         cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
         cv.cvtColor(gray, rgba, cv.COLOR_GRAY2RGBA);
         cv.imshow(previewCanvas, rgba);
+        // Fallback: draw to 2d context if needed
+        try {
+          const imgData = new ImageData(new Uint8ClampedArray(rgba.data), rgba.cols, rgba.rows);
+          ctx.putImageData(imgData, 0, 0);
+        } catch (e) {}
+
+        if (previewCanvas.width === 0 || previewCanvas.height === 0) {
+          setStatus('Canvas vide: image non chargée ou taille nulle.', true);
+        }
 
         selectedPoints.forEach((p, i) => {
           ctx.beginPath();
@@ -621,6 +630,15 @@
           }
         }
         cv.imshow(previewCanvas, rgba);
+        // Fallback: draw to 2d context if needed
+        try {
+          const imgData = new ImageData(new Uint8ClampedArray(rgba.data), rgba.cols, rgba.rows);
+          ctx.putImageData(imgData, 0, 0);
+        } catch (e) {}
+
+        if (previewCanvas.width === 0 || previewCanvas.height === 0) {
+          setStatus('Canvas vide: image non chargée ou taille nulle.', true);
+        }
 
         if (roiRect) {
           const r = normalizeRect(roiRect);
@@ -949,6 +967,7 @@
   </script>
 </body>
 </html>
+
 
 
 
