@@ -333,6 +333,98 @@
     </div>
   </div>
 
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.10.0/firebase-app.js";
+    import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/12.10.0/firebase-auth.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyCw6QvFgOLMyfzvuBtoA7E-GVwo-jDA5C4",
+      authDomain: "devis-dorure.firebaseapp.com",
+      projectId: "devis-dorure",
+      storageBucket: "devis-dorure.firebasestorage.app",
+      messagingSenderId: "47596669965",
+      appId: "1:47596669965:web:64eabaefd9f73042b39944"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+
+    const authGate = document.getElementById('authGate');
+    const appContainer = document.getElementById('appContainer');
+    const authEmail = document.getElementById('authEmail');
+    const authPassword = document.getElementById('authPassword');
+    const signInBtn = document.getElementById('authSignInBtn');
+    const signUpBtn = document.getElementById('authSignUpBtn');
+    const signOutBtn = document.getElementById('authSignOutBtn');
+    const authStatus = document.getElementById('authStatus');
+    const authBar = document.getElementById('authBar');
+    const authUser = document.getElementById('authUser');
+
+    function setAuthStatus(msg, isError = false) {
+      if (!authStatus) return;
+      authStatus.textContent = msg;
+      authStatus.classList.toggle('danger', isError);
+    }
+
+    function getEmail() {
+      return (authEmail?.value || '').trim();
+    }
+
+    function getPassword() {
+      return authPassword?.value || '';
+    }
+
+    signInBtn?.addEventListener('click', async () => {
+      const email = getEmail();
+      const password = getPassword();
+      if (!email || !password) {
+        setAuthStatus('Merci de saisir email et mot de passe.', true);
+        return;
+      }
+      try {
+        await signInWithEmailAndPassword(auth, email, password);
+      } catch (err) {
+        setAuthStatus(err?.message || 'Connexion impossible. Vérifiez vos identifiants.', true);
+      }
+    });
+
+    signUpBtn?.addEventListener('click', async () => {
+      const email = getEmail();
+      const password = getPassword();
+      if (!email || !password) {
+        setAuthStatus('Merci de saisir email et mot de passe.', true);
+        return;
+      }
+      if (password.length < 6) {
+        setAuthStatus('Le mot de passe doit contenir au moins 6 caractères.', true);
+        return;
+      }
+      try {
+        await createUserWithEmailAndPassword(auth, email, password);
+      } catch (err) {
+        setAuthStatus(err?.message || 'Création du compte impossible. Utilisez un autre email.', true);
+      }
+    });
+
+    signOutBtn?.addEventListener('click', async () => {
+      await signOut(auth);
+    });
+
+    onAuthStateChanged(auth, (user) => {
+      if (user) {
+        appContainer?.classList.remove('hidden');
+        authGate?.classList.add('hidden');
+        if (authBar) authBar.style.display = 'flex';
+        if (authUser) authUser.textContent = user.email || '';
+      } else {
+        appContainer?.classList.add('hidden');
+        authGate?.classList.remove('hidden');
+        if (authBar) authBar.style.display = 'none';
+        setAuthStatus('Veuillez vous connecter.');
+      }
+    });
+  </script>
+
   <script>
     window.Module = {
       onRuntimeInitialized() {
@@ -1227,6 +1319,8 @@
   </script>
 </body>
 </html>
+
+
 
 
 
