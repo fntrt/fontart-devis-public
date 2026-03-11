@@ -777,7 +777,7 @@
     function computeAndDisplayPrices(surfaceMm2, perimeterMm) {
       const weight = Number(document.getElementById('weight').value) || 0;
       const h = weight / (0.0073 * surfaceMm2);
-      const stotale = surfaceMm2 + (h * perimeterMm);
+      const stotale = surfaceMm2 * 2 + (h * perimeterMm);
 
       const goldRate = Number(goldRateInput.value) || 0;
 
@@ -1204,6 +1204,7 @@
   </script>
 </body>
 </html>
+
 
 
 
