@@ -654,9 +654,10 @@
         ctx.lineWidth = 2;
 
         selectableBinaryIndices.forEach(idx => {
+          if (!selectedContourIndices.has(idx)) return;
           const contour = binaryContours[idx];
           if (!contour || contour.points.length < 3) return;
-          ctx.strokeStyle = selectedContourIndices.has(idx) ? '#ef4444' : '#16a34a';
+          ctx.strokeStyle = '#ef4444';
           ctx.beginPath();
           ctx.moveTo(contour.points[0].x, contour.points[0].y);
           for (let i = 1; i < contour.points.length; i++) {
@@ -1202,6 +1203,7 @@
   </script>
 </body>
 </html>
+
 
 
 
