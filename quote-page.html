@@ -350,6 +350,7 @@
 
     const knownDistanceMm = document.getElementById('knownDistanceMm');
     const goldRateInput = document.getElementById('goldRate');
+    const weightInput = document.getElementById('weight');
     const updateGoldBtn = document.getElementById('updateGoldBtn');
     const goldStatus = document.getElementById('goldStatus');
 
@@ -390,6 +391,12 @@
     threshRange.addEventListener('input', () => {
       threshVal.textContent = threshRange.value;
       if (sourceImage && currentStage === 'adjust') renderBinaryPreview(false);
+    });
+    weightInput.addEventListener('change', () => {
+      const raw = weightInput.value.trim();
+      if (raw.includes(',')) {
+        weightInput.value = raw.replace(',', '.');
+      }
     });
     grabCutEnabled.addEventListener('change', () => {
       grabCutEnabled.checked = false;
@@ -744,6 +751,43 @@
         const now = new Date();
         const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
         const yStr = yesterday.toISOString().slice(0, 10);
+        const url = 'https://prices.lbma.org.uk/json/gold_am.json';
+        const data = await fetchJson(url);
+        if (!Array.isArray(data)) throw new Error('lbma');
+
+        let eurPerOz = null;
+        for (let i = data.length - 1; i >= 0; i--) {
+          const row = data[i];
+          const dateStr = (row.d || row.date || '').slice(0, 10);
+          if (dateStr <= yStr) {
+            const values = row.v || row.value || [];
+            const eur = Number(values[2]);
+            if (eur) {
+              eurPerOz = eur;
+              break;
+            }
+          }
+        }
+        if (!eurPerOz) throw new Error('value');
+
+        const eurPerKg = eurPerOz * OZ_PER_KG;
+        goldRateInput.value = eurPerKg.toFixed(2);
+        localStorage.setItem('lastGoldRateEurKg', goldRateInput.value);
+      } catch (err) {
+        const cached = localStorage.getItem('lastGoldRateEurKg');
+        if (cached) goldRateInput.value = cached;
+      }
+    } catch (err) {
+            const proxyUrl = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(url);
+            const res = await fetch(proxyUrl);
+            if (!res.ok) throw new Error('proxy');
+            return await res.json();
+          }
+        };
+
+        const now = new Date();
+        const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+        const yStr = yesterday.toISOString().slice(0, 10);
         const url = 'https://api.db.nomics.world/v22/series/LBMA/gold_D/gold_D_EUR_AM?observations=10';
         const data = await fetchJson(url);
         const series = data?.series?.[0];
@@ -777,19 +821,21 @@
 
     function hasRequiredInputs() {
       const ref = document.getElementById('reference').value.trim();
-      const weightRaw = document.getElementById('weight').value.trim();
-      const weight = Number(weightRaw.replace(',', '.'));
+      const weightRaw = weightInput.value.trim();
+      const weightParsed = Number(weightRaw.replace(',', '.'));
       const desc = document.getElementById('description').value.trim();
-      return ref.length > 0 && desc.length > 0 && weight > 0;
-    }        if (!Array.isArray(periods) || !Array.isArray(values)) throw new Error('obs');
+      return ref.length > 0 && desc.length > 0 && weightRaw.length > 0 && (Number.isFinite(weightParsed) ? weightParsed > 0 : true);
+    }
 
-        let eurPerOz = null;
-        for (let i = periods.length - 1; i >= 0; i--) {
-          if (periods[i] <= yStr) {
-            eurPerOz = Number(values[i]);
-            break;
-          }
-        }
+    function getMissingFields() {
+      const missing = [];
+      if (document.getElementById('reference').value.trim().length === 0) missing.push('référence');
+      const wRaw = weightInput.value.trim();
+      const wParsed = Number(wRaw.replace(',', '.'));
+      if (wRaw.length === 0 || (Number.isFinite(wParsed) && wParsed <= 0)) missing.push('poids');
+      if (document.getElementById('description').value.trim().length === 0) missing.push('description');
+      return missing;
+    }        }
         if (!eurPerOz) throw new Error('value');
 
         const eurPerKg = eurPerOz * OZ_PER_KG;
@@ -954,7 +1000,8 @@
       if (!file) return;
 
       if (!hasRequiredInputs()) {
-        setStatus('Référence, poids et description sont obligatoires avant de charger une image.', true);
+        const missing = getMissingFields();
+        setStatus("Champs obligatoires manquants: " + missing.join(", ") + ".", true);
         photoInput.value = '';
         return;
       }
@@ -1263,6 +1310,10 @@
   </script>
 </body>
 </html>
+
+
+
+
 
 
 
