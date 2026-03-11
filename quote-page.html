@@ -569,11 +569,21 @@
       const display = new cv.Mat();
       cv.bitwise_not(binary, display);
 
+      const fullDisplay = new cv.Mat(src.rows, src.cols, cv.CV_8UC1, new cv.Scalar(255));
+      if (roiOffset.x !== 0 || roiOffset.y !== 0 || display.rows !== fullDisplay.rows || display.cols !== fullDisplay.cols) {
+        const roi = fullDisplay.roi(new cv.Rect(roiOffset.x, roiOffset.y, display.cols, display.rows));
+        display.copyTo(roi);
+        roi.delete();
+      } else {
+        display.copyTo(fullDisplay);
+      }
+
       if (roiMat !== src) roiMat.delete();
       src.delete();
       gray.delete();
+      display.delete();
 
-      return { binary, display, offsetX: roiOffset.x, offsetY: roiOffset.y };
+      return { binary, display: fullDisplay, offsetX: roiOffset.x, offsetY: roiOffset.y };
     }
 
     function computeBinaryContours() {
@@ -1192,6 +1202,7 @@
   </script>
 </body>
 </html>
+
 
 
 
