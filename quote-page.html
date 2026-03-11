@@ -1,4 +1,4 @@
-Ôªø<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="fr">
 <head>
   <meta charset="UTF-8" />
@@ -185,10 +185,10 @@
   <div class="container">
     <div class="card">
       <h1>Devis pour dorure de bijoux fantaisie par traitement de surface (galvanoplastie)</h1>
-      <p class="hint">Photo obligatoire de la pi√®ce √† c√¥t√© d'une r√®gle gradu√©e. Cliquez ensuite sur 2 points de la r√®gle pour calibrer l'√©chelle.</p>
+      <p class="hint">Photo obligatoire de la piËce ‡ cÙtÈ d'une rËgle graduÈe. Cliquez ensuite sur 2 points de la rËgle pour calibrer l'Èchelle.</p>
       <div class="grid">
         <div>
-          <label for="reference">R√©f√©rence</label>
+          <label for="reference">RÈfÈrence</label>
           <input id="reference" type="text" required placeholder="Ex: FA-00231" />
         </div>
         <div>
@@ -198,14 +198,14 @@
       </div>
       <div style="margin-top: 12px;">
         <label for="description">Description</label>
-        <textarea id="description" required placeholder="Description de la pi√®ce"></textarea>
+        <textarea id="description" required placeholder="Description de la piËce"></textarea>
       </div>
 
       <div class="grid" style="margin-top: 10px;">        <div>
           <label for="goldRate">Cours de l'or (EUR/kg)</label>
           <div class="inline" style="margin-top: 6px;">
             <input id="goldRate" type="number" readonly step="0.01" min="0" value="0" />
-            <button id="updateGoldBtn" class="secondary" type="button">Mettre √† jour</button>
+            <button id="updateGoldBtn" class="secondary" type="button">Mettre ‡ jour</button>
           </div>
           <p class="hint" id="goldStatus" style="display:none;"></p>
         </div>
@@ -218,27 +218,27 @@
 
     <div class="card workspace hidden" id="workspaceCard">
       <div>
-        <h2>Calibration & points r√®gle</h2>
+        <h2>Calibration & points rËgle</h2>
         <div class="canvas-wrap" style="margin-top: 8px;">
           <canvas id="previewCanvas"></canvas>
         </div>
 
         <div id="scaleSection" style="margin-top: 10px;">
-          <span class="pill" id="pointsInfo">0 / 2 points s√©lectionn√©s</span>
+          <span class="pill" id="pointsInfo">0 / 2 points sÈlectionnÈs</span>
           <div class="inline" style="margin-top: 10px;">
-            <button id="resetPointsBtn" class="secondary" type="button">R√©initialiser</button>
-            <button id="scalePickBtn" class="secondary" type="button">S√©lectionner √©chelle (2 points)</button>
-            <button id="validateScaleBtn" type="button">Valider √©chelle</button>
+            <button id="resetPointsBtn" class="secondary" type="button">RÈinitialiser</button>
+            <button id="scalePickBtn" class="secondary" type="button">SÈlectionner Èchelle (2 points)</button>
+            <button id="validateScaleBtn" type="button">Valider Èchelle</button>
           </div>
           <div style="margin-top: 10px;">
-            <label for="knownDistanceMm">Distance r√©elle entre les 2 points (mm)</label>
+            <label for="knownDistanceMm">Distance rÈelle entre les 2 points (mm)</label>
             <input id="knownDistanceMm" type="number" min="0" step="0.01" placeholder="Ex: 20" />
           </div>
         </div>
 
         <div id="roiSection" class="hidden" style="margin-top: 10px;">
           <div class="inline" style="margin-top: 10px;">
-            <button id="drawRoiBtn" class="secondary" type="button">Dessiner zone pi√®ce</button>
+            <button id="drawRoiBtn" class="secondary" type="button">Dessiner zone piËce</button>
             <button id="validateRoiBtn" type="button">Valider zone</button>
           </div>
           <div class="inline" style="margin-top: 10px;">
@@ -247,7 +247,7 @@
           </div>
         </div>
 
-        <p class="status" id="statusMsg">Chargez une image pour d√©marrer.</p>
+        <p class="status" id="statusMsg">Chargez une image pour dÈmarrer.</p>
       </div>
 
       <div>
@@ -266,12 +266,12 @@
   <input id="threshRange" type="range" min="20" max="240" step="1" value="120" />
 
   <div class="inline" style="margin-top: 12px;">
-    <button id="validateAdjustBtn" type="button">Valider r√©glages</button>
+    <button id="validateAdjustBtn" type="button">Valider rÈglages</button>
   </div>
 </div>
 <div id="selectSection" class="hidden">
-          <h2>S√©lection des contours</h2>
-          <p class="hint">Cliquez sur les zones noires qui correspondent √† la pi√®ce pour s√©lectionner les contours.</p>
+          <h2>SÈlection des contours</h2>
+          <p class="hint">Cliquez sur les zones noires qui correspondent ‡ la piËce pour sÈlectionner les contours.</p>
           <div class="inline" style="margin-top: 12px;">
             <button id="confirmContoursBtn" type="button">Calculer le prix</button>
           </div>
@@ -282,18 +282,18 @@
             <button id="manualHoleBtn" class="secondary" type="button">Contour trou: Non</button>
             <button id="manualClearBtn" class="secondary" type="button">Effacer tout</button>
           </div>
-          <p class="hint" id="manualHint" style="display:none;">Mode manuel: maintenez la souris pour dessiner (lasso). Utilisez "Contour trou" pour les per√ßages.</p>
+          <p class="hint" id="manualHint" style="display:none;">Mode manuel: maintenez la souris pour dessiner (lasso). Utilisez "Contour trou" pour les perÁages.</p>
         </div>
       </div>
     </div>
 
     <div class="card hidden" id="resultsCard">
-      <h2>R√©sultats</h2>
+      <h2>RÈsultats</h2>
       <div class="kpi" id="kpiContainer">
-        <div>Surface S: <strong id="surfaceOut">-</strong> mm¬≤</div>
-        <div>P√©rim√®tre p: <strong id="perimeterOut">-</strong> mm</div>
+        <div>Surface S: <strong id="surfaceOut">-</strong> mm≤</div>
+        <div>PÈrimËtre p: <strong id="perimeterOut">-</strong> mm</div>
         <div>Hauteur h: <strong id="heightOut">-</strong> mm</div>
-        <div>Surface totale: <strong id="stotalOut">-</strong> mm¬≤</div>
+        <div>Surface totale: <strong id="stotalOut">-</strong> mm≤</div>
       </div>
 
       <table>
@@ -317,7 +317,7 @@
     };
   </script>
   <script async src="https://cdn.jsdelivr.net/npm/opencv.js@1.2.1/opencv.min.js"></script>
-  <script>
+    <script>
     const photoInput = document.getElementById('photoInput');
     const previewCanvas = document.getElementById('previewCanvas');
     const ctx = previewCanvas.getContext('2d');
@@ -350,6 +350,8 @@
 
     const knownDistanceMm = document.getElementById('knownDistanceMm');
     const goldRateInput = document.getElementById('goldRate');
+    const referenceInput = document.getElementById('reference');
+    const descriptionInput = document.getElementById('description');
     const weightInput = document.getElementById('weight');
     const updateGoldBtn = document.getElementById('updateGoldBtn');
     const goldStatus = document.getElementById('goldStatus');
@@ -361,17 +363,19 @@
     const priceTableBody = document.getElementById('priceTableBody');
     const resultsCard = document.getElementById('resultsCard');
 
+    const tempCanvas = document.createElement('canvas');
+    const tempCtx = tempCanvas.getContext('2d');
+
     let sourceImage = null;
     let selectedPoints = [];
     let pxPerMm = null;
-    let lastMetrics = null;
     let cvReady = false;
     let roiMode = false;
     let roiStart = null;
     let roiRect = null;
     let scalePickMode = false;
-    let binaryContours = null;
-    let binaryHierarchy = null;
+    let binaryContours = [];
+    let binaryHierarchy = [];
     let selectableBinaryIndices = [];
     let selectedContourIndices = new Set();
     let currentStage = 'idle';
@@ -382,26 +386,15 @@
     let manualIsHole = false;
     let manualDrawing = false;
 
+    const MIN_CONTOUR_AREA = 200;
     const OZ_PER_KG = 32.1507465686;
 
-    blurRange.addEventListener('input', () => {
-      blurVal.textContent = blurRange.value;
-      if (sourceImage && currentStage === 'adjust') renderBinaryPreview(false);
-    });
-    threshRange.addEventListener('input', () => {
-      threshVal.textContent = threshRange.value;
-      if (sourceImage && currentStage === 'adjust') renderBinaryPreview(false);
-    });
-    weightInput.addEventListener('change', () => {
-      const raw = weightInput.value.trim();
-      if (raw.includes(',')) {
-        weightInput.value = raw.replace(',', '.');
+    window.__cvReadyHook = () => {
+      cvReady = true;
+      if (sourceImage && (currentStage === 'adjust' || currentStage === 'select')) {
+        renderCurrent();
       }
-    });
-    grabCutEnabled.addEventListener('change', () => {
-      grabCutEnabled.checked = false;
-      setStatus('GrabCut n\'est pas disponible dans cette version d\'OpenCV.js.', true);
-    });
+    };
 
     function setStage(stage) {
       currentStage = stage;
@@ -412,20 +405,30 @@
       selectSection.classList.toggle('hidden', stage !== 'select');
     }
 
-    function startScalePick() {
-      scalePickMode = true;
-      selectedPoints = [];
-      setStatus('Cliquez 2 points sur la r√®gle pour d√©finir l\'√©chelle.');
-    }
-
-    function startRoiPick() {
-      roiMode = true;
-      setStatus('Cliquez-glissez pour dessiner un rectangle autour de la pi√®ce.');
-    }
-
     function setStatus(msg, isError = false) {
       statusMsg.textContent = msg;
       statusMsg.classList.toggle('danger', isError);
+    }
+
+    function parseWeight() {
+      const raw = weightInput.value.trim().replace(',', '.');
+      if (weightInput.value !== raw) weightInput.value = raw;
+      const value = Number(raw);
+      return Number.isFinite(value) ? value : null;
+    }
+
+    function hasRequiredInputs() {
+      const missing = [];
+      if (!referenceInput.value.trim()) missing.push('rÈfÈrence');
+      if (!descriptionInput.value.trim()) missing.push('description');
+      const weight = parseWeight();
+      if (!weight || weight <= 0) missing.push('poids');
+      return { ok: missing.length === 0, missing };
+    }
+
+    function updateStartAvailability() {
+      const { ok } = hasRequiredInputs();
+      photoInput.disabled = !ok;
     }
 
     function getCanvasXY(e) {
@@ -471,7 +474,7 @@
       }
 
       if (pointsInfo) {
-        pointsInfo.textContent = `${selectedPoints.length} / 2 points s√©lectionn√©s`;
+        pointsInfo.textContent = `${selectedPoints.length} / 2 points sÈlectionnÈs`;
       }
 
       if (selectedPoints.length === 2) {
@@ -492,7 +495,7 @@
       ctx.lineCap = 'round';
 
       manualContours.forEach(contour => {
-        ctx.strokeStyle = contour.isHole ? '#ef4444' : '#16a34a';
+        ctx.strokeStyle = contour.isHole ? '#2563eb' : '#16a34a';
         ctx.beginPath();
         ctx.moveTo(contour.points[0].x, contour.points[0].y);
         for (let i = 1; i < contour.points.length; i++) {
@@ -503,7 +506,7 @@
       });
 
       if (manualCurrent.length) {
-        ctx.strokeStyle = manualIsHole ? '#ef4444' : '#f97316';
+        ctx.strokeStyle = manualIsHole ? '#2563eb' : '#f97316';
         ctx.beginPath();
         ctx.moveTo(manualCurrent[0].x, manualCurrent[0].y);
         for (let i = 1; i < manualCurrent.length; i++) {
@@ -514,647 +517,335 @@
       ctx.restore();
     }
 
-    function renderManualPreview() {
+    function renderNormalPreview() {
       if (!sourceImage) return;
       drawImageAndPoints(sourceImage);
-      drawManualOverlay();
+      if (currentStage === 'select' && manualMode) {
+        drawManualOverlay();
+      }
     }
 
-    function clearBinaryDetection() {
-      if (binaryContours) {
-        binaryContours.delete();
-        binaryContours = null;
+    function buildBinary() {
+      if (!cvReady || !sourceImage) return null;
+      const blur = parseInt(blurRange.value, 10) || 1;
+      const thresh = parseInt(threshRange.value, 10) || 120;
+
+      const src = cv.imread(tempCanvas);
+      let roiOffset = { x: 0, y: 0 };
+      let roiMat = src;
+
+      if (roiValidated && roiRect) {
+        const r = normalizeRect(roiRect);
+        const rx = Math.max(0, Math.min(src.cols - 1, Math.round(r.x)));
+        const ry = Math.max(0, Math.min(src.rows - 1, Math.round(r.y)));
+        const rw = Math.max(1, Math.min(src.cols - rx, Math.round(r.w)));
+        const rh = Math.max(1, Math.min(src.rows - ry, Math.round(r.h)));
+        roiOffset = { x: rx, y: ry };
+        roiMat = src.roi(new cv.Rect(rx, ry, rw, rh));
       }
-      if (binaryHierarchy) {
-        binaryHierarchy.delete();
-        binaryHierarchy = null;
+
+      const gray = new cv.Mat();
+      cv.cvtColor(roiMat, gray, cv.COLOR_RGBA2GRAY);
+
+      if (blur > 1) {
+        const k = blur % 2 === 1 ? blur : blur + 1;
+        cv.GaussianBlur(gray, gray, new cv.Size(k, k), 0);
       }
-      selectableBinaryIndices = [];
+
+      const binary = new cv.Mat();
+      cv.threshold(gray, binary, thresh, 255, cv.THRESH_BINARY);
+      const whitePixels = cv.countNonZero(binary);
+      if (whitePixels > binary.rows * binary.cols * 0.7) {
+        cv.bitwise_not(binary, binary);
+      }
+
+      const display = new cv.Mat();
+      cv.bitwise_not(binary, display);
+
+      if (roiMat !== src) roiMat.delete();
+      src.delete();
+      gray.delete();
+
+      return { binary, display, offsetX: roiOffset.x, offsetY: roiOffset.y };
     }
 
-    function toggleContourAt(x, y) {
-      if (!binaryContours || selectableBinaryIndices.length === 0) return false;
+    function computeBinaryContours() {
+      const result = buildBinary();
+      if (!result) return false;
 
-      let bestIdx = -1;
-      let bestArea = Number.POSITIVE_INFINITY;
-      for (let i = 0; i < selectableBinaryIndices.length; i++) {
-        const idx = selectableBinaryIndices[i];
-        const c = binaryContours.get(idx);
-        const inside = cv.pointPolygonTest(c, new cv.Point(x, y), false) >= 0;
-        if (inside) {
-          const a = Math.abs(cv.contourArea(c, false));
-          if (a < bestArea) {
-            bestArea = a;
-            bestIdx = idx;
-          }
+      const contours = new cv.MatVector();
+      const hierarchy = new cv.Mat();
+      cv.findContours(result.binary, contours, hierarchy, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE);
+
+      const data = [];
+      const hData = hierarchy.data32S || [];
+      for (let i = 0; i < contours.size(); i++) {
+        const contour = contours.get(i);
+        const area = Math.abs(cv.contourArea(contour));
+        const perimeter = cv.arcLength(contour, true);
+        const points = [];
+        for (let j = 0; j < contour.data32S.length; j += 2) {
+          points.push({
+            x: contour.data32S[j] + result.offsetX,
+            y: contour.data32S[j + 1] + result.offsetY
+          });
         }
-        c.delete();
+        const base = i * 4;
+        data.push({
+          index: i,
+          points,
+          area,
+          perimeter,
+          next: hData[base] ?? -1,
+          prev: hData[base + 1] ?? -1,
+          child: hData[base + 2] ?? -1,
+          parent: hData[base + 3] ?? -1
+        });
+        contour.delete();
       }
 
-      if (bestIdx === -1) return false;
-      if (selectedContourIndices.has(bestIdx)) {
-        selectedContourIndices.delete(bestIdx);
-      } else {
-        selectedContourIndices.add(bestIdx);
-      }
+      binaryContours = data;
+      binaryHierarchy = data.map(item => ({
+        next: item.next,
+        prev: item.prev,
+        child: item.child,
+        parent: item.parent
+      }));
+
+      selectableBinaryIndices = data
+        .filter(item => item.parent === -1 && item.area >= MIN_CONTOUR_AREA)
+        .map(item => item.index);
+
+      result.binary.delete();
+      result.display.delete();
+      contours.delete();
+      hierarchy.delete();
+
       return true;
     }
 
-    function renderBinaryPreview(keepSelection = false) {
-      if (sourceImage) {
-        previewCanvas.width = sourceImage.width;
-        previewCanvas.height = sourceImage.height;
-      }
-      if (!sourceImage) {
-        setStatus('Chargez d\'abord une image.', true);
-        return;
-      }
-      if (!cvReady) {
-        drawImageAndPoints(sourceImage);
-        setStatus('OpenCV n\'est pas encore charg√©. R√©essayez dans quelques secondes.', true);
-        return;
-      }
+    function renderBinaryPreview() {
+      const result = buildBinary();
+      if (!result) return;
 
-      const tempCanvas = document.createElement('canvas');
-      tempCanvas.width = sourceImage.width;
-      tempCanvas.height = sourceImage.height;
-      const tempCtx = tempCanvas.getContext('2d');
-      tempCtx.drawImage(sourceImage, 0, 0);
+      previewCanvas.width = sourceImage.width;
+      previewCanvas.height = sourceImage.height;
+      cv.imshow(previewCanvas, result.display);
 
-      const src = cv.imread(tempCanvas);
-      const gray = new cv.Mat();
-      const blur = new cv.Mat();
-      let bin = new cv.Mat();
-      const rgba = new cv.Mat();
-      const kernel = cv.Mat.ones(3, 3, cv.CV_8U);
+      if (currentStage === 'select' && binaryContours.length) {
+        ctx.save();
+        ctx.lineWidth = 2;
 
-      try {
-        cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
-
-        const blurK = Number(blurRange.value) || 3;
-        cv.GaussianBlur(gray, blur, new cv.Size(blurK, blurK), 0, 0, cv.BORDER_DEFAULT);
-
-        const t = Number(threshRange.value) || 120;
-        cv.threshold(blur, bin, t, 255, cv.THRESH_BINARY_INV);
-        cv.morphologyEx(bin, bin, cv.MORPH_OPEN, kernel);
-        cv.morphologyEx(bin, bin, cv.MORPH_CLOSE, kernel);
-
-        if (roiRect) {
-          const r = normalizeRect(roiRect);
-          const x1 = Math.max(0, Math.floor(r.x));
-          const y1 = Math.max(0, Math.floor(r.y));
-          const x2 = Math.min(src.cols - 1, Math.floor(r.x + r.w));
-          const y2 = Math.min(src.rows - 1, Math.floor(r.y + r.h));
-          if (x2 > x1 && y2 > y1) {
-            const mask = cv.Mat.zeros(src.rows, src.cols, cv.CV_8U);
-            cv.rectangle(mask, new cv.Point(x1, y1), new cv.Point(x2, y2), new cv.Scalar(255), -1);
-            cv.bitwise_and(bin, mask, bin);
-            mask.delete();
-          }
-        }
-
-        if (grabCutEnabled.checked) {
-          grabCutEnabled.checked = false;
-          setStatus('GrabCut n\'est pas disponible dans cette version d\'OpenCV.js. Utilisez le ROI + binaire.', true);
-        }
-
-        clearBinaryDetection();
-        binaryContours = new cv.MatVector();
-        binaryHierarchy = new cv.Mat();
-        cv.findContours(bin, binaryContours, binaryHierarchy, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE);
-
-        selectableBinaryIndices = [];
-        for (let i = 0; i < binaryContours.size(); i++) {
-          const c = binaryContours.get(i);
-          const area = Math.abs(cv.contourArea(c, false));
-          if (area >= 80) selectableBinaryIndices.push(i);
-          c.delete();
-        }
-
-        if (!keepSelection) selectedContourIndices.clear();
-
-        cv.cvtColor(bin, rgba, cv.COLOR_GRAY2RGBA);
-        const hData = binaryHierarchy ? binaryHierarchy.data32S : null;
-        for (const idx of selectedContourIndices) {
-          if (idx < 0 || idx >= binaryContours.size()) continue;
-          cv.drawContours(rgba, binaryContours, idx, new cv.Scalar(239, 68, 68, 255), 2, cv.LINE_8, binaryHierarchy, 0);
-          if (hData) {
-            for (let j = 0; j < binaryContours.size(); j++) {
-              if (hData[j * 4 + 3] === idx) {
-                // Visualise les trous internes en bleu
-                cv.drawContours(rgba, binaryContours, j, new cv.Scalar(59, 130, 246, 180), -1, cv.LINE_8, binaryHierarchy, 0);
-                cv.drawContours(rgba, binaryContours, j, new cv.Scalar(59, 130, 246, 255), 2, cv.LINE_8, binaryHierarchy, 0);
-              }
-            }
-          }
-        }
-        cv.imshow(previewCanvas, rgba);
-
-        try {
-          const imgData = new ImageData(new Uint8ClampedArray(rgba.data), rgba.cols, rgba.rows);
-          ctx.putImageData(imgData, 0, 0);
-        } catch (e) {}
-
-        if (roiRect) {
-          const r = normalizeRect(roiRect);
-          ctx.strokeStyle = '#f97316';
-          ctx.lineWidth = 3;
-          ctx.strokeRect(r.x, r.y, r.w, r.h);
-        }
-
-        selectedPoints.forEach((p, i) => {
+        selectableBinaryIndices.forEach(idx => {
+          const contour = binaryContours[idx];
+          if (!contour || contour.points.length < 3) return;
+          ctx.strokeStyle = selectedContourIndices.has(idx) ? '#ef4444' : '#16a34a';
           ctx.beginPath();
-          ctx.arc(p.x, p.y, 6, 0, Math.PI * 2);
-          ctx.fillStyle = i === 0 ? '#ef4444' : '#2563eb';
-          ctx.fill();
-          ctx.font = '14px sans-serif';
-          ctx.fillStyle = '#111827';
-          ctx.fillText(String(i + 1), p.x + 8, p.y - 8);
+          ctx.moveTo(contour.points[0].x, contour.points[0].y);
+          for (let i = 1; i < contour.points.length; i++) {
+            ctx.lineTo(contour.points[i].x, contour.points[i].y);
+          }
+          ctx.closePath();
+          ctx.stroke();
         });
 
-        if (selectedPoints.length === 2) {
-          ctx.beginPath();
-          ctx.moveTo(selectedPoints[0].x, selectedPoints[0].y);
-          ctx.lineTo(selectedPoints[1].x, selectedPoints[1].y);
-          ctx.strokeStyle = '#f59e0b';
-          ctx.lineWidth = 3;
-          ctx.stroke();
-        }
+        selectedContourIndices.forEach(idx => {
+          const holes = getHoleIndicesFor(idx);
+          holes.forEach(hIdx => {
+            const hole = binaryContours[hIdx];
+            if (!hole || hole.points.length < 3) return;
+            ctx.strokeStyle = '#2563eb';
+            ctx.beginPath();
+            ctx.moveTo(hole.points[0].x, hole.points[0].y);
+            for (let i = 1; i < hole.points.length; i++) {
+              ctx.lineTo(hole.points[i].x, hole.points[i].y);
+            }
+            ctx.closePath();
+            ctx.stroke();
+          });
+        });
+        ctx.restore();
+        setStatus(`PrÈvisualisation binaire affichÈe. Zones sÈlectionnÈes: ${selectedContourIndices.size}.`);
+      } else if (currentStage === 'adjust') {
+        setStatus('PrÈvisualisation binaire affichÈe. Ajustez les curseurs puis validez.');
+      }
 
-        setStatus(`Pr√©visualisation binaire affich√©e. Zones s√©lectionn√©es: ${selectedContourIndices.size}.`);
-      } catch (err) {
-        setStatus(`Erreur binaire: ${err.message || err}`, true);
-      } finally {
-        src.delete();
-        gray.delete();
-        blur.delete();
-        bin.delete();
-        rgba.delete();
-        kernel.delete();
+      result.display.delete();
+      result.binary.delete();
+    }
+
+    function renderCurrent() {
+      if (!sourceImage) return;
+      if ((currentStage === 'adjust' || currentStage === 'select') && !manualMode) {
+        renderBinaryPreview();
+      } else {
+        renderNormalPreview();
       }
     }
 
-    function euclidean(a, b) {
-      const dx = a.x - b.x;
-      const dy = a.y - b.y;
-      return Math.sqrt(dx * dx + dy * dy);
+    function startScalePick() {
+      scalePickMode = true;
+      selectedPoints = [];
+      setStatus('Cliquez 2 points sur la rËgle pour dÈfinir l\'Èchelle.');
+      renderNormalPreview();
+    }
+
+    function startRoiPick() {
+      roiMode = true;
+      setStatus('Cliquez-glissez pour dessiner un rectangle autour de la piËce.');
+      renderNormalPreview();
+    }
+
+    function pointInPolygon(points, x, y) {
+      let inside = false;
+      for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+        const xi = points[i].x, yi = points[i].y;
+        const xj = points[j].x, yj = points[j].y;
+        const intersect = ((yi > y) !== (yj > y)) &&
+          (x < (xj - xi) * (y - yi) / (yj - yi + 0.000001) + xi);
+        if (intersect) inside = !inside;
+      }
+      return inside;
+    }
+
+    function findExternalContourAt(x, y) {
+      let hit = null;
+      selectableBinaryIndices.forEach(idx => {
+        const contour = binaryContours[idx];
+        if (!contour || contour.points.length < 3) return;
+        if (pointInPolygon(contour.points, x, y)) {
+          if (!hit || contour.area < hit.area) {
+            hit = contour;
+          }
+        }
+      });
+      return hit ? hit.index : null;
+    }
+
+    function getHoleIndicesFor(idx) {
+      const result = [];
+      if (!binaryHierarchy[idx]) return result;
+      let child = binaryHierarchy[idx].child;
+      while (child !== -1 && child !== undefined) {
+        result.push(child);
+        const inner = getHoleIndicesFor(child);
+        result.push(...inner);
+        child = binaryHierarchy[child]?.next ?? -1;
+      }
+      return result;
     }
 
     function polygonArea(points) {
-      let area = 0;
-      for (let i = 0; i < points.length; i++) {
-        const j = (i + 1) % points.length;
-        area += points[i].x * points[j].y - points[j].x * points[i].y;
+      let sum = 0;
+      for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+        sum += (points[j].x * points[i].y - points[i].x * points[j].y);
       }
-      return Math.abs(area) / 2;
+      return Math.abs(sum) / 2;
     }
 
     function polygonPerimeter(points) {
-      let per = 0;
+      let sum = 0;
       for (let i = 0; i < points.length; i++) {
-        const j = (i + 1) % points.length;
-        per += euclidean(points[i], points[j]);
+        const next = points[(i + 1) % points.length];
+        const dx = points[i].x - next.x;
+        const dy = points[i].y - next.y;
+        sum += Math.hypot(dx, dy);
       }
-      return per;
+      return sum;
     }
 
-    function updateScaleFromPoints() {
-      const distMm = Number(knownDistanceMm.value);
-      if (selectedPoints.length !== 2 || !distMm || distMm <= 0) {
-        pxPerMm = null;
-        return;
-      }
-      const pxDist = euclidean(selectedPoints[0], selectedPoints[1]);
-      if (pxDist <= 0) {
-        pxPerMm = null;
-        return;
-      }
-      pxPerMm = pxDist / distMm;
-      setStatus(`Echelle calibr√©e: ${pxPerMm.toFixed(4)} px/mm.`);
-    }
-
-    async function updateGoldRate() {
-      try {
-        const fetchJson = async (url) => {
-          try {
-            const res = await fetch(url);
-            if (!res.ok) throw new Error('net');
-            return await res.json();
-          } catch (err) {
-            const proxyUrl = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(url);
-            const res = await fetch(proxyUrl);
-            if (!res.ok) throw new Error('proxy');
-            return await res.json();
-          }
-        };
-
-        const now = new Date();
-        const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
-        const yStr = yesterday.toISOString().slice(0, 10);
-        const url = 'https://prices.lbma.org.uk/json/gold_am.json';
-        const data = await fetchJson(url);
-        if (!Array.isArray(data)) throw new Error('lbma');
-
-        let eurPerOz = null;
-        for (let i = data.length - 1; i >= 0; i--) {
-          const row = data[i];
-          const dateStr = (row.d || row.date || '').slice(0, 10);
-          if (dateStr <= yStr) {
-            const values = row.v || row.value || [];
-            const eur = Number(values[2]);
-            if (eur) {
-              eurPerOz = eur;
-              break;
-            }
-          }
-        }
-        if (!eurPerOz) throw new Error('value');
-
-        const eurPerKg = eurPerOz * OZ_PER_KG;
-        goldRateInput.value = eurPerKg.toFixed(2);
-        localStorage.setItem('lastGoldRateEurKg', goldRateInput.value);
-      } catch (err) {
-        const cached = localStorage.getItem('lastGoldRateEurKg');
-        if (cached) goldRateInput.value = cached;
-      }
-    } catch (err) {
-            const proxyUrl = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(url);
-            const res = await fetch(proxyUrl);
-            if (!res.ok) throw new Error('proxy');
-            return await res.json();
-          }
-        };
-
-        const now = new Date();
-        const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
-        const yStr = yesterday.toISOString().slice(0, 10);
-        const url = 'https://api.db.nomics.world/v22/series/LBMA/gold_D/gold_D_EUR_AM?observations=10';
-        const data = await fetchJson(url);
-        const series = data?.series?.[0];
-        const obs = series?.observations || {};
-
-        let periods = obs.period || obs.periods || obs.time || obs.index;
-        let values = obs.value || obs.values;
-        if (!Array.isArray(periods) && obs && typeof obs === 'object') {
-          periods = Object.keys(obs);
-          values = Object.values(obs);
-        }
-        if (!Array.isArray(periods) || !Array.isArray(values)) throw new Error('obs');
-
-        let eurPerOz = null;
-        for (let i = periods.length - 1; i >= 0; i--) {
-          if (periods[i] <= yStr) {
-            eurPerOz = Number(values[i]);
-            break;
-          }
-        }
-        if (!eurPerOz) throw new Error('value');
-
-        const eurPerKg = eurPerOz * OZ_PER_KG;
-        goldRateInput.value = eurPerKg.toFixed(2);
-        localStorage.setItem('lastGoldRateEurKg', goldRateInput.value);
-      } catch (err) {
-        const cached = localStorage.getItem('lastGoldRateEurKg');
-        if (cached) goldRateInput.value = cached;
-      }
-    }
-
-    function hasRequiredInputs() {
-      const ref = document.getElementById('reference').value.trim();
-      const weightRaw = weightInput.value.trim();
-      const weightParsed = Number(weightRaw.replace(',', '.'));
-      const desc = document.getElementById('description').value.trim();
-      return ref.length > 0 && desc.length > 0 && weightRaw.length > 0 && (Number.isFinite(weightParsed) ? weightParsed > 0 : true);
-    }
-
-    function getMissingFields() {
-      const missing = [];
-      if (document.getElementById('reference').value.trim().length === 0) missing.push('r√©f√©rence');
-      const wRaw = weightInput.value.trim();
-      const wParsed = Number(wRaw.replace(',', '.'));
-      if (wRaw.length === 0 || (Number.isFinite(wParsed) && wParsed <= 0)) missing.push('poids');
-      if (document.getElementById('description').value.trim().length === 0) missing.push('description');
-      return missing;
-    }        }
-        if (!eurPerOz) throw new Error('value');
-
-        const eurPerKg = eurPerOz * OZ_PER_KG;
-        goldRateInput.value = eurPerKg.toFixed(2);
-      } catch (err) {
-        // silence: on laisse la valeur actuelle
-      }
-    } catch (err) {
-        
-      }
-    }
-
-    function formatPrice(value) {
-      return new Intl.NumberFormat('fr-FR', {
-        style: 'currency',
-        currency: 'EUR',
-        maximumFractionDigits: 4
-      }).format(value);
-    }
-
-    function renderPriceTable(stotale, goldRate) {
-      const lines = [
-        { label: 'Flash + Vernis', formula: 'Stotale √ó 0.001', value: stotale * 0.001 },
-        { label: 'D1', formula: 'Stotale √ó 0.002 √ó cours or', value: stotale * 0.002 * goldRate },
-        { label: 'D2', formula: 'Stotale √ó 0.003 √ó cours or', value: stotale * 0.003 * goldRate },
-        { label: 'D3', formula: 'Stotale √ó 0.004 √ó cours or', value: stotale * 0.004 * goldRate },
-      ];
-
-      priceTableBody.innerHTML = lines.map(line => `
-        <tr>
-          <td>${line.label}</td>
-          <td>${line.formula}</td>
-          <td>${formatPrice(line.value)}</td>
-        </tr>
-      `).join('');
-    }
-
-    function computeAndDisplayPrices(surfaceMm2, perimeterMm) {
-      const weight = Number(document.getElementById('weight').value) || 0;
-      const h = weight / (0.0073 * surfaceMm2);
-      const stotale = surfaceMm2 * 2 + (h * perimeterMm);
-
-      const goldRate = Number(goldRateInput.value) || 0;
-
-      surfaceOut.textContent = surfaceMm2.toFixed(3);
-      perimeterOut.textContent = perimeterMm.toFixed(3);
-      heightOut.textContent = h.toExponential(6);
-      stotalOut.textContent = stotale.toFixed(3);
-
-      renderPriceTable(stotale, goldRate);
-
-      if (resultsCard) resultsCard.classList.remove('hidden');
-      lastMetrics = { surfaceMm2, perimeterMm, h, stotale, goldRate };
-    }
-
-    function analyzeContours(previewOnly = false) {
-      if (!cvReady) {
-        setStatus('OpenCV n\'est pas encore charg√©. R√©essayez dans quelques secondes.', true);
-        return;
-      }
-      if (!sourceImage) {
-        setStatus('Chargez d\'abord une image.', true);
-        return;
-      }
-
-      if (manualMode) {
-        renderManualPreview();
-      } else {
-        renderBinaryPreview(true);
-      }
-      if (previewOnly) {
-        setStatus('Cliquez sur les zones noires de la pi√®ce pour s√©lectionner les contours, puis confirmez.');
-        return;
-      }
-
-      updateScaleFromPoints();
-      if (!pxPerMm) {
-        setStatus('S√©lectionnez 2 points de r√®gle et renseignez leur distance r√©elle en mm avant la confirmation.', true);
-        return;
-      }
+    function computeMetricsFromSelection() {
+      let areaPx = 0;
+      let perimeterPx = 0;
 
       if (manualContours.length > 0) {
-        let areaPx2 = 0;
-        let perimeterPx = 0;
         manualContours.forEach(contour => {
-          const a = polygonArea(contour.points);
-          const p = polygonPerimeter(contour.points);
-          areaPx2 += contour.isHole ? -a : a;
-          perimeterPx += p;
-        });
-
-        const mmPerPx = 1 / pxPerMm;
-        const surfaceMm2 = areaPx2 * mmPerPx * mmPerPx;
-        const perimeterMm = perimeterPx * mmPerPx;
-
-        if (surfaceMm2 <= 0 || perimeterMm <= 0) {
-          setStatus('Contours manuels invalides. Ajoutez plus de points ou redessinez.', true);
-          return;
-        }
-
-        computeAndDisplayPrices(surfaceMm2, perimeterMm);
-        setStatus('Contours manuels valid√©s et prix calcul√©s.');
-        return;
-      }
-
-      if (!binaryContours || selectedContourIndices.size === 0) {
-        setStatus('Aucune zone s√©lectionn√©e. Cliquez sur les zones noires de la pi√®ce.', true);
-        return;
-      }
-
-      const objMask = cv.Mat.zeros(previewCanvas.height, previewCanvas.width, cv.CV_8U);
-      const hData = binaryHierarchy ? binaryHierarchy.data32S : null;
-
-      try {
-        for (const idx of selectedContourIndices) {
-          if (idx < 0 || idx >= binaryContours.size()) continue;
-          cv.drawContours(objMask, binaryContours, idx, new cv.Scalar(255), -1, cv.LINE_8, binaryHierarchy, 0);
-          if (hData) {
-            for (let j = 0; j < binaryContours.size(); j++) {
-              if (hData[j * 4 + 3] === idx) {
-                cv.drawContours(objMask, binaryContours, j, new cv.Scalar(0), -1, cv.LINE_8, binaryHierarchy, 0);
-              }
-            }
+          const area = polygonArea(contour.points);
+          const perim = polygonPerimeter(contour.points);
+          if (contour.isHole) {
+            areaPx -= area;
+          } else {
+            areaPx += area;
           }
-        }
-
-        const areaPx2 = cv.countNonZero(objMask);
-        const perContours = new cv.MatVector();
-        const perHierarchy = new cv.Mat();
-        cv.findContours(objMask, perContours, perHierarchy, cv.RETR_CCOMP, cv.CHAIN_APPROX_SIMPLE);
-
-        let perimeterPx = 0;
-        for (let i = 0; i < perContours.size(); i++) {
-          const cPer = perContours.get(i);
-          const a = Math.abs(cv.contourArea(cPer, false));
-          if (a >= 10) perimeterPx += cv.arcLength(cPer, true);
-          cPer.delete();
-        }
-        perContours.delete();
-        perHierarchy.delete();
-
-        const mmPerPx = 1 / pxPerMm;
-        const surfaceMm2 = areaPx2 * mmPerPx * mmPerPx;
-        const perimeterMm = perimeterPx * mmPerPx;
-
-        if (surfaceMm2 <= 0 || perimeterMm <= 0) {
-          setStatus('Contours invalides. Ajustez les param√®tres ou la s√©lection.', true);
-          return;
-        }
-
-        computeAndDisplayPrices(surfaceMm2, perimeterMm);
-        setStatus('Contours valid√©s et prix calcul√©s.');
-      } catch (err) {
-        setStatus(`Erreur traitement: ${err.message || err}`, true);
-      } finally {
-        objMask.delete();
+          perimeterPx += perim;
+        });
+        return { areaPx, perimeterPx, count: manualContours.length };
       }
+
+      selectedContourIndices.forEach(idx => {
+        const contour = binaryContours[idx];
+        if (!contour) return;
+        areaPx += contour.area;
+        perimeterPx += contour.perimeter;
+        const holes = getHoleIndicesFor(idx);
+        holes.forEach(hIdx => {
+          const hole = binaryContours[hIdx];
+          if (!hole) return;
+          areaPx -= hole.area;
+          perimeterPx += hole.perimeter;
+        });
+      });
+
+      return { areaPx, perimeterPx, count: selectedContourIndices.size };
     }
 
-    photoInput.addEventListener('change', (e) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
-
-      if (!hasRequiredInputs()) {
-        const missing = getMissingFields();
-        setStatus("Champs obligatoires manquants: " + missing.join(", ") + ".", true);
-        photoInput.value = '';
+    function computeAndDisplayPrices() {
+      if (!pxPerMm) {
+        setStatus('DÈfinissez l\'Èchelle avant de calculer.', true);
         return;
       }
 
-      const img = new Image();
-      img.onerror = () => {
-        setStatus('Impossible de charger l\'image. Essayez un autre fichier.', true);
-      };
-      img.onload = () => {
-        sourceImage = img;
-        selectedPoints = [];
-        pxPerMm = null;
-        roiMode = false;
-        roiStart = null;
-        roiRect = null;
-        roiValidated = false;
-        scalePickMode = false;
-        selectedContourIndices.clear();
-        manualContours = [];
-        manualCurrent = [];
-        manualIsHole = false;
-        manualDrawing = false;
-        manualMode = false;
-        if (manualHint) manualHint.style.display = 'none';
-        if (manualHoleBtn) manualHoleBtn.textContent = 'Contour trou: Non';
-        clearBinaryDetection();
-        setStage('scale');
-
-        previewCanvas.width = img.width;
-        previewCanvas.height = img.height;
-        ctx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
-        ctx.drawImage(img, 0, 0);
-        startScalePick();
-        setStatus(cvReady ? 'Image charg√©e. S√©lectionnez 2 points sur la r√®gle.' : 'Image charg√©e. OpenCV se charge...');
-      };
-      img.src = URL.createObjectURL(file);
-    });
-
-    previewCanvas.addEventListener('click', (e) => {
-      if (!sourceImage) return;
-      if (roiMode) return;
-
-      const { x, y } = getCanvasXY(e);
-
-      if (currentStage === 'scale' && scalePickMode) {
-        if (selectedPoints.length >= 2) selectedPoints = [];
-        selectedPoints.push({ x, y });
-        drawImageAndPoints(sourceImage);
-
-        if (selectedPoints.length === 2) {
-          updateScaleFromPoints();
-          scalePickMode = false;
-          setStatus('√âchelle d√©finie. Cliquez Valider √©chelle.');
-        }
+      const weight = parseWeight();
+      if (!weight || weight <= 0) {
+        setStatus('Poids invalide.', true);
         return;
       }
 
-      if (currentStage === 'select' && !manualMode) {
-        const toggled = toggleContourAt(Math.floor(x), Math.floor(y));
-        if (toggled) {
-          renderBinaryPreview(true);
-        } else {
-          setStatus('Cliquez sur la zone noire de la pi√®ce (ext√©rieur). Les trous internes seront d√©duits automatiquement.', true);
-        }
-      }
-    });
-
-    previewCanvas.addEventListener('mousedown', (e) => {
-      if (!sourceImage) return;
-      const { x, y } = getCanvasXY(e);
-
-      if (roiMode) {
-        roiStart = { x, y };
-        roiRect = { x, y, w: 0, h: 0 };
-        drawImageAndPoints(sourceImage);
+      const metrics = computeMetricsFromSelection();
+      if (metrics.count === 0) {
+        setStatus('SÈlectionnez au moins un contour.', true);
         return;
       }
 
-      if (currentStage === 'select' && manualMode) {
-        manualDrawing = true;
-        manualCurrent = [{ x, y }];
-        renderManualPreview();
-      }
-    });
+      const surfaceMm2 = metrics.areaPx / (pxPerMm * pxPerMm);
+      const perimeterMm = metrics.perimeterPx / pxPerMm;
+      const h = weight / (0.0073 * surfaceMm2);
+      const stotale = surfaceMm2 * 2 + (h * perimeterMm);
+      const goldRate = Number(goldRateInput.value) || 0;
 
-    previewCanvas.addEventListener('mousemove', (e) => {
-      if (!sourceImage) return;
-      const { x, y } = getCanvasXY(e);
+      surfaceOut.textContent = surfaceMm2.toFixed(2);
+      perimeterOut.textContent = perimeterMm.toFixed(2);
+      heightOut.textContent = h.toFixed(4);
+      stotalOut.textContent = stotale.toFixed(2);
 
-      if (roiMode && roiStart) {
-        roiRect = { x: roiStart.x, y: roiStart.y, w: x - roiStart.x, h: y - roiStart.y };
-        drawImageAndPoints(sourceImage);
-        return;
-      }
+      const prices = [
+        { label: 'Flash + Vernis', formula: `${stotale.toFixed(2)} x 0.001`, price: stotale * 0.001 },
+        { label: 'D1', formula: `${stotale.toFixed(2)} x 0.002 x ${goldRate.toFixed(2)}`, price: stotale * 0.002 * goldRate },
+        { label: 'D2', formula: `${stotale.toFixed(2)} x 0.003 x ${goldRate.toFixed(2)}`, price: stotale * 0.003 * goldRate },
+        { label: 'D3', formula: `${stotale.toFixed(2)} x 0.004 x ${goldRate.toFixed(2)}`, price: stotale * 0.004 * goldRate }
+      ];
 
-      if (currentStage === 'select' && manualMode && manualDrawing) {
-        const last = manualCurrent[manualCurrent.length - 1];
-        const dx = x - last.x;
-        const dy = y - last.y;
-        if (dx * dx + dy * dy > 4) {
-          manualCurrent.push({ x, y });
-          renderManualPreview();
-        }
-      }
-    });
+      priceTableBody.innerHTML = '';
+      prices.forEach(row => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${row.label}</td><td>${row.formula}</td><td>${row.price.toFixed(2)} Ä</td>`;
+        priceTableBody.appendChild(tr);
+      });
 
-    previewCanvas.addEventListener('mouseup', () => {
-      if (!sourceImage) return;
+      resultsCard.classList.remove('hidden');
+      setStatus('Calcul terminÈ.');
+    }
 
-      if (roiMode && roiRect) {
-        const r = normalizeRect(roiRect);
-        if (r.w < 20 || r.h < 20) {
-          roiRect = null;
-          roiStart = null;
-          setStatus('Rectangle trop petit. Redessinez une zone plus large.', true);
-          drawImageAndPoints(sourceImage);
-          return;
-        }
-        roiRect = r;
-        roiStart = null;
-        roiMode = false;
-        drawImageAndPoints(sourceImage);
-        setStatus('Zone enregistr√©e. Cliquez Valider zone.');
-        return;
-      }
-
-      if (currentStage === 'select' && manualMode && manualDrawing) {
-        manualDrawing = false;
-        if (manualCurrent.length >= 3) {
-          manualContours.push({ points: manualCurrent, isHole: manualIsHole });
-          manualCurrent = [];
-          renderManualPreview();
-          setStatus(manualIsHole ? 'Contour trou ajout√©.' : 'Contour ajout√©.');
-        } else {
-          manualCurrent = [];
-          renderManualPreview();
-          setStatus('Contour trop court. Maintenez la souris pour dessiner.', true);
-        }
-      }
-    });
-
-    knownDistanceMm.addEventListener('input', () => {
-      if (selectedPoints.length === 2) updateScaleFromPoints();
-    });
-
-    resetPointsBtn.addEventListener('click', () => {
+    function resetWorkflowForImage() {
       selectedPoints = [];
       pxPerMm = null;
-      roiMode = false;
-      roiStart = null;
       roiRect = null;
       roiValidated = false;
+      roiMode = false;
       scalePickMode = false;
+      binaryContours = [];
+      binaryHierarchy = [];
+      selectableBinaryIndices = [];
       selectedContourIndices.clear();
       manualContours = [];
       manualCurrent = [];
@@ -1163,89 +854,202 @@
       manualMode = false;
       if (manualHint) manualHint.style.display = 'none';
       if (manualHoleBtn) manualHoleBtn.textContent = 'Contour trou: Non';
-      clearBinaryDetection();
-      setStage(sourceImage ? 'scale' : 'idle');
-      if (sourceImage) {
-        startScalePick();
-        drawImageAndPoints(sourceImage);
+      resultsCard.classList.add('hidden');
+    }
+
+    function loadImageFromFile(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const img = new Image();
+          img.onload = () => resolve(img);
+          img.onerror = reject;
+          img.src = reader.result;
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    }
+
+    async function fetchJson(url) {
+      const tryFetch = async (target) => {
+        const response = await fetch(target, { cache: 'no-store' });
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        return response.json();
+      };
+      try {
+        return await tryFetch(url);
+      } catch (err) {
+        try {
+          return await tryFetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`);
+        } catch (err2) {
+          return await tryFetch(`https://r.jina.ai/http://${url.replace(/^https?:\/\//, '')}`);
+        }
       }
-      if (resultsCard) resultsCard.classList.add('hidden');
-      setStatus('R√©initialis√©.');
+    }
+
+    function selectLbmaFixing(data) {
+      if (!Array.isArray(data)) return null;
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      const cutoff = yesterday.toISOString().slice(0, 10);
+      let best = null;
+      data.forEach(row => {
+        if (!row || !row.d || !row.v || row.v.length < 3) return;
+        if (row.d <= cutoff) {
+          if (!best || row.d > best.d) best = row;
+        }
+      });
+      return best;
+    }
+
+    async function updateGoldRate() {
+      const cacheKey = 'goldRateEurKg';
+      const cacheTsKey = 'goldRateEurKgTs';
+      const url = 'https://prices.lbma.org.uk/json/gold_am.json';
+      try {
+        const data = await fetchJson(url);
+        const row = selectLbmaFixing(data);
+        if (!row) throw new Error('No fixing');
+        const eurPerOz = Number(row.v[2]);
+        if (!Number.isFinite(eurPerOz)) throw new Error('Bad value');
+        const eurPerKg = eurPerOz * OZ_PER_KG;
+        goldRateInput.value = eurPerKg.toFixed(2);
+        localStorage.setItem(cacheKey, eurPerKg.toFixed(2));
+        localStorage.setItem(cacheTsKey, row.d);
+      } catch (err) {
+        const cached = localStorage.getItem(cacheKey);
+        if (cached) {
+          goldRateInput.value = cached;
+        }
+      }
+    }
+
+    blurRange.addEventListener('input', () => {
+      blurVal.textContent = blurRange.value;
+      if (sourceImage && currentStage === 'adjust') renderBinaryPreview();
+    });
+    threshRange.addEventListener('input', () => {
+      threshVal.textContent = threshRange.value;
+      if (sourceImage && currentStage === 'adjust') renderBinaryPreview();
+    });
+
+    referenceInput.addEventListener('input', updateStartAvailability);
+    descriptionInput.addEventListener('input', updateStartAvailability);
+    weightInput.addEventListener('input', updateStartAvailability);
+    weightInput.addEventListener('change', () => parseWeight());
+
+    grabCutEnabled.addEventListener('change', () => {
+      grabCutEnabled.checked = false;
+      setStatus('GrabCut n\'est pas disponible dans cette version d\'OpenCV.js.', true);
+    });
+
+    photoInput.addEventListener('change', async (e) => {
+      const { ok, missing } = hasRequiredInputs();
+      if (!ok) {
+        setStatus(`Champs obligatoires manquants: ${missing.join(', ')}.`, true);
+        photoInput.value = '';
+        return;
+      }
+      const file = e.target.files[0];
+      if (!file) return;
+      try {
+        sourceImage = await loadImageFromFile(file);
+        tempCanvas.width = sourceImage.width;
+        tempCanvas.height = sourceImage.height;
+        tempCtx.clearRect(0, 0, tempCanvas.width, tempCanvas.height);
+        tempCtx.drawImage(sourceImage, 0, 0);
+        resetWorkflowForImage();
+        setStage('scale');
+        setStatus('Cliquez 2 points sur la rËgle pour calibrer l\'Èchelle.');
+        renderNormalPreview();
+      } catch (err) {
+        setStatus('Impossible de charger l\'image.', true);
+      }
+    });
+
+    resetPointsBtn.addEventListener('click', () => {
+      selectedPoints = [];
+      pxPerMm = null;
+      renderNormalPreview();
+      setStatus('Points rÈinitialisÈs.');
     });
 
     scalePickBtn.addEventListener('click', () => {
       if (!sourceImage) {
-        setStatus('Chargez d\'abord une image.', true);
+        setStatus('Chargez une image pour dÈmarrer.', true);
         return;
       }
-      setStage('scale');
       startScalePick();
-      drawImageAndPoints(sourceImage);
     });
 
     validateScaleBtn.addEventListener('click', () => {
-      if (!pxPerMm) {
-        setStatus('Veuillez s√©lectionner 2 points et saisir la distance en mm.', true);
+      if (selectedPoints.length !== 2) {
+        setStatus('SÈlectionnez deux points sur la rËgle.', true);
         return;
       }
-      roiValidated = false;
+      const dist = Number(knownDistanceMm.value);
+      if (!Number.isFinite(dist) || dist <= 0) {
+        setStatus('Entrez une distance rÈelle valide.', true);
+        return;
+      }
+      const dx = selectedPoints[0].x - selectedPoints[1].x;
+      const dy = selectedPoints[0].y - selectedPoints[1].y;
+      const pixelLength = Math.hypot(dx, dy);
+      pxPerMm = pixelLength / dist;
       setStage('roi');
-      startRoiPick();
-      drawImageAndPoints(sourceImage);
+      setStatus('Dessinez un rectangle autour de la piËce.');
+      renderNormalPreview();
     });
 
     drawRoiBtn.addEventListener('click', () => {
-      if (!sourceImage) {
-        setStatus('Chargez d\'abord une image.', true);
-        return;
-      }
-      setStage('roi');
+      if (!sourceImage) return;
       startRoiPick();
     });
 
     validateRoiBtn.addEventListener('click', () => {
-      if (!roiRect) {
-        setStatus('Dessinez un rectangle autour de la pi√®ce.', true);
+      if (!roiRect || normalizeRect(roiRect).w < 2 || normalizeRect(roiRect).h < 2) {
+        setStatus('Dessinez une zone valide autour de la piËce.', true);
         return;
       }
       roiValidated = true;
+      roiMode = false;
       setStage('adjust');
-      if (cvReady) {
-        renderBinaryPreview(true);
-        setStatus('Ajustez flou et seuil, puis validez.');
-      } else {
-        setStatus('OpenCV n\'est pas encore charg√©. R√©essayez dans quelques secondes.', true);
-        drawImageAndPoints(sourceImage);
-      }
+      renderBinaryPreview();
     });
 
     validateAdjustBtn.addEventListener('click', () => {
-      setStage('select');
-      if (cvReady) {
-        renderBinaryPreview(true);
-        setStatus('Cliquez sur les zones noires √† prendre en compte.');
-      } else {
-        setStatus('OpenCV n\'est pas encore charg√©. R√©essayez dans quelques secondes.', true);
-        drawImageAndPoints(sourceImage);
-      }
-    });
-
-    confirmContoursBtn.addEventListener('click', () => analyzeContours(false));
-
-    manualModeBtn.addEventListener('click', () => {
-      if (!sourceImage) {
-        setStatus('Chargez d\'abord une image.', true);
+      if (!cvReady) {
+        setStatus('OpenCV.js est en cours de chargement.', true);
         return;
       }
+      if (!computeBinaryContours()) {
+        setStatus('Aucun contour dÈtectÈ.', true);
+        return;
+      }
+      selectedContourIndices.clear();
+      setStage('select');
+      manualMode = false;
+      if (manualHint) manualHint.style.display = 'none';
+      renderBinaryPreview();
+    });
+
+    confirmContoursBtn.addEventListener('click', () => {
+      computeAndDisplayPrices();
+    });
+
+    manualModeBtn.addEventListener('click', () => {
+      if (currentStage !== 'select') return;
       manualMode = !manualMode;
       manualHint.style.display = manualMode ? 'block' : 'none';
       if (!manualMode) {
-        setStatus('Mode manuel d√©sactiv√©.');
-        if (cvReady) renderBinaryPreview(true);
-      } else {
-        setStatus('Mode manuel: maintenez la souris pour dessiner (lasso).');
-        renderManualPreview();
+        manualCurrent = [];
+        manualDrawing = false;
+        renderBinaryPreview();
+        return;
       }
+      setStatus('Mode manuel activÈ. Dessinez le contour sur la photo.');
+      renderNormalPreview();
     });
 
     manualFinishBtn.addEventListener('click', () => {
@@ -1255,20 +1059,23 @@
       }
       manualContours.push({ points: manualCurrent, isHole: manualIsHole });
       manualCurrent = [];
-      renderManualPreview();
-      setStatus(manualIsHole ? 'Contour trou ajout√©.' : 'Contour ajout√©.');
+      manualDrawing = false;
+      setStatus(manualIsHole ? 'Contour trou ajoutÈ.' : 'Contour ajoutÈ.');
+      renderNormalPreview();
     });
 
     manualNewBtn.addEventListener('click', () => {
+      if (!manualMode) return;
       manualCurrent = [];
-      renderManualPreview();
-      setStatus('Nouveau contour: dessinez un nouveau lasso.');
+      manualDrawing = false;
+      setStatus('Nouveau contour prÍt.');
+      renderNormalPreview();
     });
 
     manualHoleBtn.addEventListener('click', () => {
       manualIsHole = !manualIsHole;
       manualHoleBtn.textContent = manualIsHole ? 'Contour trou: Oui' : 'Contour trou: Non';
-      setStatus(manualIsHole ? 'Mode trou activ√©.' : 'Mode trou d√©sactiv√©.');
+      setStatus(manualIsHole ? 'Mode trou activÈ.' : 'Mode trou dÈsactivÈ.');
     });
 
     manualClearBtn.addEventListener('click', () => {
@@ -1276,40 +1083,110 @@
       manualCurrent = [];
       manualIsHole = false;
       manualHoleBtn.textContent = 'Contour trou: Non';
-      renderManualPreview();
-      setStatus('Contours manuels effac√©s.');
+      setStatus('Contours manuels effacÈs.');
+      renderNormalPreview();
     });
 
-    updateGoldBtn.addEventListener('click', () => updateGoldRate());
+    previewCanvas.addEventListener('click', (e) => {
+      if (!sourceImage) return;
+      const { x, y } = getCanvasXY(e);
 
-    setStage('idle');
-
-    goldRateInput.addEventListener('input', () => {
-      if (lastMetrics) {
-        renderPriceTable(lastMetrics.stotale, Number(goldRateInput.value) || 0);
-      }
-    });
-
-    window.__cvReadyHook = () => {
-      if (grabCutEnabled) { grabCutEnabled.disabled = true; }
-      cvReady = true;
-      if (!sourceImage) {
-        setStatus('OpenCV charg√©. Importez une image pour commencer.');
-      } else if (currentStage === 'adjust' || currentStage === 'select') {
-        if (manualMode) {
-          renderManualPreview();
-        } else {
-          renderBinaryPreview(false);
+      if (currentStage === 'scale' && scalePickMode) {
+        if (selectedPoints.length < 2) {
+          selectedPoints.push({ x, y });
+          renderNormalPreview();
         }
-      } else {
-        drawImageAndPoints(sourceImage);
+        return;
       }
-    };
 
+      if (currentStage === 'select' && !manualMode) {
+        const hit = findExternalContourAt(x, y);
+        if (hit !== null) {
+          if (selectedContourIndices.has(hit)) {
+            selectedContourIndices.delete(hit);
+          } else {
+            selectedContourIndices.add(hit);
+          }
+          renderBinaryPreview();
+        }
+      }
+    });
+
+    previewCanvas.addEventListener('mousedown', (e) => {
+      if (!sourceImage) return;
+      const { x, y } = getCanvasXY(e);
+
+      if (currentStage === 'roi' && roiMode) {
+        roiStart = { x, y };
+        roiRect = { x, y, w: 0, h: 0 };
+        renderNormalPreview();
+      }
+
+      if (currentStage === 'select' && manualMode) {
+        manualDrawing = true;
+        manualCurrent = [{ x, y }];
+      }
+    });
+
+    previewCanvas.addEventListener('mousemove', (e) => {
+      if (!sourceImage) return;
+      const { x, y } = getCanvasXY(e);
+
+      if (currentStage === 'roi' && roiMode && roiStart) {
+        roiRect = { x: roiStart.x, y: roiStart.y, w: x - roiStart.x, h: y - roiStart.y };
+        renderNormalPreview();
+        return;
+      }
+
+      if (currentStage === 'select' && manualMode && manualDrawing) {
+        const last = manualCurrent[manualCurrent.length - 1];
+        if (Math.hypot(x - last.x, y - last.y) > 2) {
+          manualCurrent.push({ x, y });
+          renderNormalPreview();
+        }
+      }
+    });
+
+    previewCanvas.addEventListener('mouseup', (e) => {
+      if (!sourceImage) return;
+      if (currentStage === 'roi' && roiMode) {
+        roiMode = false;
+        roiStart = null;
+        renderNormalPreview();
+      }
+
+      if (currentStage === 'select' && manualMode && manualDrawing) {
+        manualDrawing = false;
+        if (manualCurrent.length >= 3) {
+          manualContours.push({ points: manualCurrent, isHole: manualIsHole });
+          manualCurrent = [];
+          setStatus(manualIsHole ? 'Contour trou ajoutÈ.' : 'Contour ajoutÈ.');
+          renderNormalPreview();
+        } else {
+          manualCurrent = [];
+        }
+      }
+    });
+
+    previewCanvas.addEventListener('mouseleave', () => {
+      if (currentStage === 'select' && manualMode && manualDrawing) {
+        manualDrawing = false;
+      }
+    });
+
+    updateGoldBtn.addEventListener('click', () => {
+      updateGoldRate();
+    });
+
+    updateStartAvailability();
+    setStage('idle');
+    setStatus('Chargez une image pour dÈmarrer.');
     updateGoldRate();
   </script>
 </body>
 </html>
+
+
 
 
 
