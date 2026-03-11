@@ -626,9 +626,18 @@
         if (!keepSelection) selectedContourIndices.clear();
 
         cv.cvtColor(bin, rgba, cv.COLOR_GRAY2RGBA);
+        const hData = binaryHierarchy ? binaryHierarchy.data32S : null;
         for (const idx of selectedContourIndices) {
-          if (idx >= 0 && idx < binaryContours.size()) {
-            cv.drawContours(rgba, binaryContours, idx, new cv.Scalar(239, 68, 68, 255), 2, cv.LINE_8, binaryHierarchy, 0);
+          if (idx < 0 || idx >= binaryContours.size()) continue;
+          cv.drawContours(rgba, binaryContours, idx, new cv.Scalar(239, 68, 68, 255), 2, cv.LINE_8, binaryHierarchy, 0);
+          if (hData) {
+            for (let j = 0; j < binaryContours.size(); j++) {
+              if (hData[j * 4 + 3] === idx) {
+                // Visualise les trous internes en bleu
+                cv.drawContours(rgba, binaryContours, j, new cv.Scalar(59, 130, 246, 180), -1, cv.LINE_8, binaryHierarchy, 0);
+                cv.drawContours(rgba, binaryContours, j, new cv.Scalar(59, 130, 246, 255), 2, cv.LINE_8, binaryHierarchy, 0);
+              }
+            }
           }
         }
         cv.imshow(previewCanvas, rgba);
@@ -949,7 +958,7 @@
         if (toggled) {
           renderBinaryPreview(true);
         } else {
-          setStatus('Cliquez sur une zone noire de la pièce pour la sélectionner.', true);
+          setStatus('Cliquez sur la zone noire de la pièce (extérieur). Les trous internes seront déduits automatiquement.', true);
         }
       }
     });
@@ -1194,6 +1203,8 @@
   </script>
 </body>
 </html>
+
+
 
 
 
