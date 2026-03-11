@@ -195,6 +195,49 @@
         <input id="authPassword" type="password" autocomplete="current-password" placeholder="Votre mot de passe" />
       </div>
     </div>
+
+    <div class="grid" style="margin-top: 10px;">
+      <div>
+        <label for="authCompany">Raison sociale</label>
+        <input id="authCompany" type="text" placeholder="Nom de la société" />
+      </div>
+      <div>
+        <label for="authLastName">Nom</label>
+        <input id="authLastName" type="text" placeholder="Nom" />
+      </div>
+      <div>
+        <label for="authFirstName">Prénom</label>
+        <input id="authFirstName" type="text" placeholder="Prénom" />
+      </div>
+      <div>
+        <label for="authAddress">Adresse</label>
+        <input id="authAddress" type="text" placeholder="Adresse complète" />
+      </div>
+      <div>
+        <label for="authPhone">Téléphone</label>
+        <input id="authPhone" type="tel" placeholder="Téléphone" />
+      </div>
+      <div>
+        <label for="authSiret">SIRET</label>
+        <input id="authSiret" type="text" placeholder="SIRET" />
+      </div>
+      <div>
+        <label for="authVat">N° TVA</label>
+        <input id="authVat" type="text" placeholder="Numéro de TVA" />
+      </div>
+    </div>
+
+    <div class="inline" style="margin-top: 12px;">
+      <button id="authSignInBtn" type="button">Se connecter</button>
+      <button id="authSignUpBtn" class="secondary" type="button">Créer un compte</button>
+    </div>
+    <p class="status" id="authStatus">Veuillez vous connecter.</p>
+  </div>
+      <div>
+        <label for="authPassword">Mot de passe</label>
+        <input id="authPassword" type="password" autocomplete="current-password" placeholder="Votre mot de passe" />
+      </div>
+    </div>
     <div class="inline" style="margin-top: 12px;">
       <button id="authSignInBtn" type="button">Se connecter</button>
       <button id="authSignUpBtn" class="secondary" type="button">Créer un compte</button>
@@ -335,7 +378,8 @@
 
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/12.10.0/firebase-app.js";
-    import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/12.10.0/firebase-auth.js";
+    import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, updateProfile } from "https://www.gstatic.com/firebasejs/12.10.0/firebase-auth.js";
+    import { getFirestore, doc, setDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.10.0/firebase-firestore.js";
 
     const firebaseConfig = {
       apiKey: "AIzaSyCw6QvFgOLMyfzvuBtoA7E-GVwo-jDA5C4",
@@ -353,6 +397,13 @@
     const appContainer = document.getElementById('appContainer');
     const authEmail = document.getElementById('authEmail');
     const authPassword = document.getElementById('authPassword');
+    const authCompany = document.getElementById('authCompany');
+    const authLastName = document.getElementById('authLastName');
+    const authFirstName = document.getElementById('authFirstName');
+    const authAddress = document.getElementById('authAddress');
+    const authPhone = document.getElementById('authPhone');
+    const authSiret = document.getElementById('authSiret');
+    const authVat = document.getElementById('authVat');
     const signInBtn = document.getElementById('authSignInBtn');
     const signUpBtn = document.getElementById('authSignUpBtn');
     const signOutBtn = document.getElementById('authSignOutBtn');
@@ -391,16 +442,53 @@
     signUpBtn?.addEventListener('click', async () => {
       const email = getEmail();
       const password = getPassword();
-      if (!email || !password) {
-        setAuthStatus('Merci de saisir email et mot de passe.', true);
+      const company = authCompany?.value.trim() || '';
+      const lastName = authLastName?.value.trim() || '';
+      const firstName = authFirstName?.value.trim() || '';
+      const address = authAddress?.value.trim() || '';
+      const phone = authPhone?.value.trim() || '';
+      const siret = authSiret?.value.trim() || '';
+      const vat = authVat?.value.trim() || '';
+
+      const missing = [];
+      if (!company) missing.push('raison sociale');
+      if (!lastName) missing.push('nom');
+      if (!firstName) missing.push('prénom');
+      if (!address) missing.push('adresse');
+      if (!email) missing.push('email');
+      if (!phone) missing.push('téléphone');
+      if (!siret) missing.push('siret');
+      if (!vat) missing.push('n° TVA');
+      if (!password) missing.push('mot de passe');
+
+      if (missing.length) {
+        setAuthStatus(`Champs obligatoires manquants: ${missing.join(', ')}.`, true);
         return;
       }
+
       if (password.length < 6) {
         setAuthStatus('Le mot de passe doit contenir au moins 6 caractères.', true);
         return;
       }
+
       try {
-        await createUserWithEmailAndPassword(auth, email, password);
+        const credential = await createUserWithEmailAndPassword(auth, email, password);
+        const user = credential.user;
+        const displayName = `${firstName} ${lastName}`.trim();
+        if (displayName) {
+          await updateProfile(user, { displayName });
+        }
+        await setDoc(doc(db, 'users', user.uid), {
+          email,
+          company,
+          lastName,
+          firstName,
+          address,
+          phone,
+          siret,
+          vat,
+          createdAt: serverTimestamp()
+        });
       } catch (err) {
         setAuthStatus(err?.message || 'Création du compte impossible. Utilisez un autre email.', true);
       }
@@ -1319,6 +1407,11 @@
   </script>
 </body>
 </html>
+
+
+
+
+
 
 
 
