@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+ï»¿<!DOCTYPE html>
 <html lang="fr">
 <head>
   <meta charset="UTF-8" />
@@ -185,10 +185,10 @@
   <div class="container">
     <div class="card">
       <h1>Devis pour dorure de bijoux fantaisie par traitement de surface (galvanoplastie)</h1>
-      <p class="hint">Photo obligatoire de la pièce à côté d'une règle graduée. Cliquez ensuite sur 2 points de la règle pour calibrer l'échelle.</p>
+      <p class="hint">Photo obligatoire de la piÃ¨ce Ã  cÃ´tÃ© d'une rÃ¨gle graduÃ©e. Cliquez ensuite sur 2 points de la rÃ¨gle pour calibrer l'Ã©chelle.</p>
       <div class="grid">
         <div>
-          <label for="reference">Référence</label>
+          <label for="reference">RÃ©fÃ©rence</label>
           <input id="reference" type="text" required placeholder="Ex: FA-00231" />
         </div>
         <div>
@@ -198,14 +198,14 @@
       </div>
       <div style="margin-top: 12px;">
         <label for="description">Description</label>
-        <textarea id="description" required placeholder="Description de la pièce"></textarea>
+        <textarea id="description" required placeholder="Description de la piÃ¨ce"></textarea>
       </div>
 
       <div class="grid" style="margin-top: 10px;">        <div>
           <label for="goldRate">Cours de l'or (EUR/kg)</label>
           <div class="inline" style="margin-top: 6px;">
             <input id="goldRate" type="number" readonly step="0.01" min="0" value="0" />
-            <button id="updateGoldBtn" class="secondary" type="button">Mettre à jour</button>
+            <button id="updateGoldBtn" class="secondary" type="button">Mettre Ã  jour</button>
           </div>
           <p class="hint" id="goldStatus" style="display:none;"></p>
         </div>
@@ -218,27 +218,27 @@
 
     <div class="card workspace hidden" id="workspaceCard">
       <div>
-        <h2>Calibration & points règle</h2>
+        <h2>Calibration & points rÃ¨gle</h2>
         <div class="canvas-wrap" style="margin-top: 8px;">
           <canvas id="previewCanvas"></canvas>
         </div>
 
         <div id="scaleSection" style="margin-top: 10px;">
-          <span class="pill" id="pointsInfo">0 / 2 points sélectionnés</span>
+          <span class="pill" id="pointsInfo">0 / 2 points sÃ©lectionnÃ©s</span>
           <div class="inline" style="margin-top: 10px;">
-            <button id="resetPointsBtn" class="secondary" type="button">Réinitialiser</button>
-            <button id="scalePickBtn" class="secondary" type="button">Sélectionner échelle (2 points)</button>
-            <button id="validateScaleBtn" type="button">Valider échelle</button>
+            <button id="resetPointsBtn" class="secondary" type="button">RÃ©initialiser</button>
+            <button id="scalePickBtn" class="secondary" type="button">SÃ©lectionner Ã©chelle (2 points)</button>
+            <button id="validateScaleBtn" type="button">Valider Ã©chelle</button>
           </div>
           <div style="margin-top: 10px;">
-            <label for="knownDistanceMm">Distance réelle entre les 2 points (mm)</label>
+            <label for="knownDistanceMm">Distance rÃ©elle entre les 2 points (mm)</label>
             <input id="knownDistanceMm" type="number" min="0" step="0.01" placeholder="Ex: 20" />
           </div>
         </div>
 
         <div id="roiSection" class="hidden" style="margin-top: 10px;">
           <div class="inline" style="margin-top: 10px;">
-            <button id="drawRoiBtn" class="secondary" type="button">Dessiner zone pièce</button>
+            <button id="drawRoiBtn" class="secondary" type="button">Dessiner zone piÃ¨ce</button>
             <button id="validateRoiBtn" type="button">Valider zone</button>
           </div>
           <div class="inline" style="margin-top: 10px;">
@@ -247,7 +247,7 @@
           </div>
         </div>
 
-        <p class="status" id="statusMsg">Chargez une image pour démarrer.</p>
+        <p class="status" id="statusMsg">Chargez une image pour dÃ©marrer.</p>
       </div>
 
       <div>
@@ -266,12 +266,12 @@
   <input id="threshRange" type="range" min="20" max="240" step="1" value="120" />
 
   <div class="inline" style="margin-top: 12px;">
-    <button id="validateAdjustBtn" type="button">Valider réglages</button>
+    <button id="validateAdjustBtn" type="button">Valider rÃ©glages</button>
   </div>
 </div>
 <div id="selectSection" class="hidden">
-          <h2>Sélection des contours</h2>
-          <p class="hint">Cliquez sur les zones noires qui correspondent à la pièce pour sélectionner les contours.</p>
+          <h2>SÃ©lection des contours</h2>
+          <p class="hint">Cliquez sur les zones noires qui correspondent Ã  la piÃ¨ce pour sÃ©lectionner les contours.</p>
           <div class="inline" style="margin-top: 12px;">
             <button id="confirmContoursBtn" type="button">Calculer le prix</button>
           </div>
@@ -282,18 +282,18 @@
             <button id="manualHoleBtn" class="secondary" type="button">Contour trou: Non</button>
             <button id="manualClearBtn" class="secondary" type="button">Effacer tout</button>
           </div>
-          <p class="hint" id="manualHint" style="display:none;">Mode manuel: maintenez la souris pour dessiner (lasso). Utilisez "Contour trou" pour les perçages.</p>
+          <p class="hint" id="manualHint" style="display:none;">Mode manuel: maintenez la souris pour dessiner (lasso). Utilisez "Contour trou" pour les perÃ§ages.</p>
         </div>
       </div>
     </div>
 
     <div class="card hidden" id="resultsCard">
-      <h2>Résultats</h2>
+      <h2>RÃ©sultats</h2>
       <div class="kpi" id="kpiContainer">
-        <div>Surface S: <strong id="surfaceOut">-</strong> mm²</div>
-        <div>Périmètre p: <strong id="perimeterOut">-</strong> mm</div>
+        <div>Surface S: <strong id="surfaceOut">-</strong> mmÂ²</div>
+        <div>PÃ©rimÃ¨tre p: <strong id="perimeterOut">-</strong> mm</div>
         <div>Hauteur h: <strong id="heightOut">-</strong> mm</div>
-        <div>Surface totale: <strong id="stotalOut">-</strong> mm²</div>
+        <div>Surface totale: <strong id="stotalOut">-</strong> mmÂ²</div>
       </div>
 
       <table>
@@ -403,6 +403,13 @@
       roiSection.classList.toggle('hidden', stage !== 'roi');
       adjustSection.classList.toggle('hidden', stage !== 'adjust');
       selectSection.classList.toggle('hidden', stage !== 'select');
+      if (sourceImage) {
+        if ((stage === 'adjust' || stage === 'select') && !manualMode) {
+          renderBinaryPreview();
+        } else {
+          renderNormalPreview();
+        }
+      }
     }
 
     function setStatus(msg, isError = false) {
@@ -419,7 +426,7 @@
 
     function hasRequiredInputs() {
       const missing = [];
-      if (!referenceInput.value.trim()) missing.push('référence');
+      if (!referenceInput.value.trim()) missing.push('rÃ©fÃ©rence');
       if (!descriptionInput.value.trim()) missing.push('description');
       const weight = parseWeight();
       if (!weight || weight <= 0) missing.push('poids');
@@ -474,7 +481,7 @@
       }
 
       if (pointsInfo) {
-        pointsInfo.textContent = `${selectedPoints.length} / 2 points sélectionnés`;
+        pointsInfo.textContent = `${selectedPoints.length} / 2 points sÃ©lectionnÃ©s`;
       }
 
       if (selectedPoints.length === 2) {
@@ -665,9 +672,9 @@
           });
         });
         ctx.restore();
-        setStatus(`Prévisualisation binaire affichée. Zones sélectionnées: ${selectedContourIndices.size}.`);
+        setStatus(`PrÃ©visualisation binaire affichÃ©e. Zones sÃ©lectionnÃ©es: ${selectedContourIndices.size}.`);
       } else if (currentStage === 'adjust') {
-        setStatus('Prévisualisation binaire affichée. Ajustez les curseurs puis validez.');
+        setStatus('PrÃ©visualisation binaire affichÃ©e. Ajustez les curseurs puis validez.');
       }
 
       result.display.delete();
@@ -686,13 +693,13 @@
     function startScalePick() {
       scalePickMode = true;
       selectedPoints = [];
-      setStatus('Cliquez 2 points sur la règle pour définir l\'échelle.');
+      setStatus('Cliquez 2 points sur la rÃ¨gle pour dÃ©finir l\'Ã©chelle.');
       renderNormalPreview();
     }
 
     function startRoiPick() {
       roiMode = true;
-      setStatus('Cliquez-glissez pour dessiner un rectangle autour de la pièce.');
+      setStatus('Cliquez-glissez pour dessiner un rectangle autour de la piÃ¨ce.');
       renderNormalPreview();
     }
 
@@ -791,7 +798,7 @@
 
     function computeAndDisplayPrices() {
       if (!pxPerMm) {
-        setStatus('Définissez l\'échelle avant de calculer.', true);
+        setStatus('DÃ©finissez l\'Ã©chelle avant de calculer.', true);
         return;
       }
 
@@ -803,7 +810,7 @@
 
       const metrics = computeMetricsFromSelection();
       if (metrics.count === 0) {
-        setStatus('Sélectionnez au moins un contour.', true);
+        setStatus('SÃ©lectionnez au moins un contour.', true);
         return;
       }
 
@@ -828,12 +835,12 @@
       priceTableBody.innerHTML = '';
       prices.forEach(row => {
         const tr = document.createElement('tr');
-        tr.innerHTML = `<td>${row.label}</td><td>${row.formula}</td><td>${row.price.toFixed(2)} €</td>`;
+        tr.innerHTML = `<td>${row.label}</td><td>${row.formula}</td><td>${row.price.toFixed(2)} â‚¬</td>`;
         priceTableBody.appendChild(tr);
       });
 
       resultsCard.classList.remove('hidden');
-      setStatus('Calcul terminé.');
+      setStatus('Calcul terminÃ©.');
     }
 
     function resetWorkflowForImage() {
@@ -961,7 +968,7 @@
         tempCtx.drawImage(sourceImage, 0, 0);
         resetWorkflowForImage();
         setStage('scale');
-        setStatus('Cliquez 2 points sur la règle pour calibrer l\'échelle.');
+        setStatus('Cliquez 2 points sur la rÃ¨gle pour calibrer l\'Ã©chelle.');
         renderNormalPreview();
       } catch (err) {
         setStatus('Impossible de charger l\'image.', true);
@@ -972,12 +979,12 @@
       selectedPoints = [];
       pxPerMm = null;
       renderNormalPreview();
-      setStatus('Points réinitialisés.');
+      setStatus('Points rÃ©initialisÃ©s.');
     });
 
     scalePickBtn.addEventListener('click', () => {
       if (!sourceImage) {
-        setStatus('Chargez une image pour démarrer.', true);
+        setStatus('Chargez une image pour dÃ©marrer.', true);
         return;
       }
       startScalePick();
@@ -985,12 +992,12 @@
 
     validateScaleBtn.addEventListener('click', () => {
       if (selectedPoints.length !== 2) {
-        setStatus('Sélectionnez deux points sur la règle.', true);
+        setStatus('SÃ©lectionnez deux points sur la rÃ¨gle.', true);
         return;
       }
       const dist = Number(knownDistanceMm.value);
       if (!Number.isFinite(dist) || dist <= 0) {
-        setStatus('Entrez une distance réelle valide.', true);
+        setStatus('Entrez une distance rÃ©elle valide.', true);
         return;
       }
       const dx = selectedPoints[0].x - selectedPoints[1].x;
@@ -998,7 +1005,7 @@
       const pixelLength = Math.hypot(dx, dy);
       pxPerMm = pixelLength / dist;
       setStage('roi');
-      setStatus('Dessinez un rectangle autour de la pièce.');
+      setStatus('Dessinez un rectangle autour de la piÃ¨ce.');
       renderNormalPreview();
     });
 
@@ -1009,7 +1016,7 @@
 
     validateRoiBtn.addEventListener('click', () => {
       if (!roiRect || normalizeRect(roiRect).w < 2 || normalizeRect(roiRect).h < 2) {
-        setStatus('Dessinez une zone valide autour de la pièce.', true);
+        setStatus('Dessinez une zone valide autour de la piÃ¨ce.', true);
         return;
       }
       roiValidated = true;
@@ -1024,7 +1031,7 @@
         return;
       }
       if (!computeBinaryContours()) {
-        setStatus('Aucun contour détecté.', true);
+        setStatus('Aucun contour dÃ©tectÃ©.', true);
         return;
       }
       selectedContourIndices.clear();
@@ -1048,7 +1055,7 @@
         renderBinaryPreview();
         return;
       }
-      setStatus('Mode manuel activé. Dessinez le contour sur la photo.');
+      setStatus('Mode manuel activÃ©. Dessinez le contour sur la photo.');
       renderNormalPreview();
     });
 
@@ -1060,7 +1067,7 @@
       manualContours.push({ points: manualCurrent, isHole: manualIsHole });
       manualCurrent = [];
       manualDrawing = false;
-      setStatus(manualIsHole ? 'Contour trou ajouté.' : 'Contour ajouté.');
+      setStatus(manualIsHole ? 'Contour trou ajoutÃ©.' : 'Contour ajoutÃ©.');
       renderNormalPreview();
     });
 
@@ -1068,14 +1075,14 @@
       if (!manualMode) return;
       manualCurrent = [];
       manualDrawing = false;
-      setStatus('Nouveau contour prêt.');
+      setStatus('Nouveau contour prÃªt.');
       renderNormalPreview();
     });
 
     manualHoleBtn.addEventListener('click', () => {
       manualIsHole = !manualIsHole;
       manualHoleBtn.textContent = manualIsHole ? 'Contour trou: Oui' : 'Contour trou: Non';
-      setStatus(manualIsHole ? 'Mode trou activé.' : 'Mode trou désactivé.');
+      setStatus(manualIsHole ? 'Mode trou activÃ©.' : 'Mode trou dÃ©sactivÃ©.');
     });
 
     manualClearBtn.addEventListener('click', () => {
@@ -1083,7 +1090,7 @@
       manualCurrent = [];
       manualIsHole = false;
       manualHoleBtn.textContent = 'Contour trou: Non';
-      setStatus('Contours manuels effacés.');
+      setStatus('Contours manuels effacÃ©s.');
       renderNormalPreview();
     });
 
@@ -1160,7 +1167,7 @@
         if (manualCurrent.length >= 3) {
           manualContours.push({ points: manualCurrent, isHole: manualIsHole });
           manualCurrent = [];
-          setStatus(manualIsHole ? 'Contour trou ajouté.' : 'Contour ajouté.');
+          setStatus(manualIsHole ? 'Contour trou ajoutÃ©.' : 'Contour ajoutÃ©.');
           renderNormalPreview();
         } else {
           manualCurrent = [];
@@ -1180,11 +1187,13 @@
 
     updateStartAvailability();
     setStage('idle');
-    setStatus('Chargez une image pour démarrer.');
+    setStatus('Chargez une image pour dÃ©marrer.');
     updateGoldRate();
   </script>
 </body>
 </html>
+
+
 
 
 
