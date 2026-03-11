@@ -728,13 +728,24 @@
 
     async function updateGoldRate() {
       try {
+        const fetchJson = async (url) => {
+          try {
+            const res = await fetch(url);
+            if (!res.ok) throw new Error('net');
+            return await res.json();
+          } catch (err) {
+            const proxyUrl = 'https://api.allorigins.win/raw?url=' + encodeURIComponent(url);
+            const res = await fetch(proxyUrl);
+            if (!res.ok) throw new Error('proxy');
+            return await res.json();
+          }
+        };
+
         const now = new Date();
         const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
         const yStr = yesterday.toISOString().slice(0, 10);
         const url = 'https://api.db.nomics.world/v22/series/LBMA/gold_D/gold_D_EUR_AM?observations=10';
-        const resp = await fetch(url);
-        if (!resp.ok) throw new Error('lbma');
-        const data = await resp.json();
+        const data = await fetchJson(url);
         const series = data?.series?.[0];
         const obs = series?.observations || {};
 
@@ -744,10 +755,30 @@
           periods = Object.keys(obs);
           values = Object.values(obs);
         }
+        if (!Array.isArray(periods) || !Array.isArray(values)) throw new Error('obs');
+
+        let eurPerOz = null;
+        for (let i = periods.length - 1; i >= 0; i--) {
+          if (periods[i] <= yStr) {
+            eurPerOz = Number(values[i]);
+            break;
+          }
+        }
+        if (!eurPerOz) throw new Error('value');
+
+        const eurPerKg = eurPerOz * OZ_PER_KG;
+        goldRateInput.value = eurPerKg.toFixed(2);
+        localStorage.setItem('lastGoldRateEurKg', goldRateInput.value);
+      } catch (err) {
+        const cached = localStorage.getItem('lastGoldRateEurKg');
+        if (cached) goldRateInput.value = cached;
+      }
+    }
 
     function hasRequiredInputs() {
       const ref = document.getElementById('reference').value.trim();
-      const weight = Number(document.getElementById('weight').value);
+      const weightRaw = document.getElementById('weight').value.trim();
+      const weight = Number(weightRaw.replace(',', '.'));
       const desc = document.getElementById('description').value.trim();
       return ref.length > 0 && desc.length > 0 && weight > 0;
     }        if (!Array.isArray(periods) || !Array.isArray(values)) throw new Error('obs');
@@ -1232,6 +1263,8 @@
   </script>
 </body>
 </html>
+
+
 
 
 
