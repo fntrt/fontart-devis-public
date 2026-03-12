@@ -233,17 +233,6 @@
     </div>
     <p class="status" id="authStatus">Veuillez vous connecter.</p>
   </div>
-      <div>
-        <label for="authPassword">Mot de passe</label>
-        <input id="authPassword" type="password" autocomplete="current-password" placeholder="Votre mot de passe" />
-      </div>
-    </div>
-    <div class="inline" style="margin-top: 12px;">
-      <button id="authSignInBtn" type="button">Se connecter</button>
-      <button id="authSignUpBtn" class="secondary" type="button">Créer un compte</button>
-    </div>
-    <p class="status" id="authStatus">Veuillez vous connecter.</p>
-  </div>
 
   <div class="container hidden" id="appContainer">
     <div class="card">
@@ -271,10 +260,18 @@
       <div class="grid" style="margin-top: 10px;">        <div>
           <label for="goldRate">Cours de l'or (EUR/kg)</label>
           <div class="inline" style="margin-top: 6px;">
-            <input id="goldRate" type="number" readonly step="0.01" min="0" value="0" />
+            <input id="goldRate" type="number" step="0.01" min="0" value="0" placeholder="EUR/kg" />
             <button id="updateGoldBtn" class="secondary" type="button">Mettre à jour</button>
           </div>
           <p class="hint" id="goldStatus" style="display:none;"></p>
+        </div>
+        <div>
+          <label for="silverRate">Cours de l'argent (EUR/kg)</label>
+          <div class="inline" style="margin-top: 6px;">
+            <input id="silverRate" type="number" step="0.01" min="0" value="0" placeholder="EUR/kg" />
+            <button id="updateSilverBtn" class="secondary" type="button">Mettre à jour</button>
+          </div>
+          <p class="hint" id="silverStatus" style="display:none;"></p>
         </div>
         <div>
           <label for="photoInput">Photo de l'article</label>
@@ -460,22 +457,25 @@
       if (!phone) missing.push('téléphone');
       if (!siret) missing.push('siret');
       if (!vat) missing.push('n° TVA');
-      if (!password) missing.push('mot de passe');
+      if (!password && !auth.currentUser) missing.push('mot de passe');
 
       if (missing.length) {
         setAuthStatus(`Champs obligatoires manquants: ${missing.join(', ')}.`, true);
         return;
       }
 
-      if (password.length < 6) {
+      if (!auth.currentUser && password.length < 6) {
         setAuthStatus('Le mot de passe doit contenir au moins 6 caractères.', true);
         return;
       }
 
       try {
-        setAuthStatus('Création du compte en cours...');
-        const credential = await createUserWithEmailAndPassword(auth, email, password);
-        const user = credential.user;
+        setAuthStatus(auth.currentUser ? 'Enregistrement du profil...' : 'Création du compte en cours...');
+        let user = auth.currentUser;
+        if (!user) {
+          const credential = await createUserWithEmailAndPassword(auth, email, password);
+          user = credential.user;
+        }
         const displayName = `${firstName} ${lastName}`.trim();
         if (displayName) {
           await updateProfile(user, { displayName });
@@ -519,10 +519,12 @@
             authGate?.classList.add('hidden');
             if (authBar) authBar.style.display = 'flex';
             if (authUser) authUser.textContent = user.email || '';
+            if (signUpBtn) signUpBtn.textContent = 'Créer un compte';
           } else {
             appContainer?.classList.add('hidden');
             authGate?.classList.remove('hidden');
-            setAuthStatus('Profil incomplet. Merci de recréer le compte.', true);
+            if (signUpBtn) signUpBtn.textContent = 'Enregistrer le profil';
+            setAuthStatus('Profil incomplet. Merci de compléter les champs puis cliquer sur "Enregistrer le profil".', true);
           }
         } catch (err) {
           appContainer?.classList.add('hidden');
@@ -1054,6 +1056,8 @@
       const h = weight / (0.0073 * surfaceMm2);
       const stotale = surfaceMm2 * 2 + (h * perimeterMm);
       const goldRate = Number(goldRateInput.value) || 0;
+      const silverRateInput = document.getElementById('silverRate');
+      const silverRate = Number(silverRateInput?.value) || 0;
 
       surfaceOut.textContent = surfaceMm2.toFixed(2);
       perimeterOut.textContent = perimeterMm.toFixed(2);
@@ -1061,10 +1065,13 @@
       stotalOut.textContent = stotale.toFixed(2);
 
       const prices = [
-        { label: 'Flash + Vernis', formula: `${stotale.toFixed(2)} x 0.001`, price: stotale * 0.001 },
-        { label: 'D1', formula: `${stotale.toFixed(2)} x 0.002 x ${goldRate.toFixed(2)}`, price: stotale * 0.002 * goldRate },
-        { label: 'D2', formula: `${stotale.toFixed(2)} x 0.003 x ${goldRate.toFixed(2)}`, price: stotale * 0.003 * goldRate },
-        { label: 'D3', formula: `${stotale.toFixed(2)} x 0.004 x ${goldRate.toFixed(2)}`, price: stotale * 0.004 * goldRate }
+        { label: 'Flash + Vernis', formula: `${stotale.toFixed(2)} × 0.001`, price: stotale * 0.001 },
+        { label: 'D1 (or)', formula: `${stotale.toFixed(2)} × 0.002 × ${goldRate.toFixed(2)}`, price: stotale * 0.002 * goldRate },
+        { label: 'D2 (or)', formula: `${stotale.toFixed(2)} × 0.003 × ${goldRate.toFixed(2)}`, price: stotale * 0.003 * goldRate },
+        { label: 'D3 (or)', formula: `${stotale.toFixed(2)} × 0.004 × ${goldRate.toFixed(2)}`, price: stotale * 0.004 * goldRate },
+        { label: 'Argent 15', formula: `${stotale.toFixed(2)} × 0.002 × ${silverRate.toFixed(2)}`, price: stotale * 0.002 * silverRate },
+        { label: 'Argent 20', formula: `${stotale.toFixed(2)} × 0.003 × ${silverRate.toFixed(2)}`, price: stotale * 0.003 * silverRate },
+        { label: 'Argent 30', formula: `${stotale.toFixed(2)} × 0.004 × ${silverRate.toFixed(2)}`, price: stotale * 0.004 * silverRate },
       ];
 
       priceTableBody.innerHTML = '';
@@ -1150,6 +1157,8 @@
       const cacheTsKey = 'goldRateEurKgTs';
       const url = 'https://prices.lbma.org.uk/json/gold_am.json';
       try {
+        goldStatus.textContent = 'Récupération du cours…';
+        goldStatus.style.display = 'block';
         const data = await fetchJson(url);
         const row = selectLbmaFixing(data);
         if (!row) throw new Error('No fixing');
@@ -1157,12 +1166,56 @@
         if (!Number.isFinite(eurPerOz)) throw new Error('Bad value');
         const eurPerKg = eurPerOz * OZ_PER_KG;
         goldRateInput.value = eurPerKg.toFixed(2);
-        localStorage.setItem(cacheKey, eurPerKg.toFixed(2));
-        localStorage.setItem(cacheTsKey, row.d);
+        try { localStorage.setItem(cacheKey, eurPerKg.toFixed(2)); } catch(e) {}
+        try { localStorage.setItem(cacheTsKey, row.d); } catch(e) {}
+        goldStatus.textContent = `Cours mis à jour : ${row.d}`;
       } catch (err) {
-        const cached = localStorage.getItem(cacheKey);
-        if (cached) {
-          goldRateInput.value = cached;
+        try {
+          const cached = localStorage.getItem(cacheKey);
+          if (cached) {
+            goldRateInput.value = cached;
+            const ts = localStorage.getItem(cacheTsKey) || '?';
+            goldStatus.textContent = `Cours en cache (${ts}) — API indisponible`;
+          } else {
+            goldStatus.textContent = 'API indisponible. Saisissez le cours manuellement.';
+          }
+        } catch(e) {
+          goldStatus.textContent = 'API indisponible. Saisissez le cours manuellement.';
+        }
+      }
+    }
+
+    async function updateSilverRate() {
+      const cacheKey = 'silverRateEurKg';
+      const cacheTsKey = 'silverRateEurKgTs';
+      const url = 'https://prices.lbma.org.uk/json/silver.json';
+      const silverRateInput = document.getElementById('silverRate');
+      const silverStatus = document.getElementById('silverStatus');
+      try {
+        silverStatus.textContent = 'Récupération du cours…';
+        silverStatus.style.display = 'block';
+        const data = await fetchJson(url);
+        const row = selectLbmaFixing(data);
+        if (!row) throw new Error('No fixing');
+        const eurPerOz = Number(row.v[2]);
+        if (!Number.isFinite(eurPerOz)) throw new Error('Bad value');
+        const eurPerKg = eurPerOz * OZ_PER_KG;
+        silverRateInput.value = eurPerKg.toFixed(2);
+        try { localStorage.setItem(cacheKey, eurPerKg.toFixed(2)); } catch(e) {}
+        try { localStorage.setItem(cacheTsKey, row.d); } catch(e) {}
+        silverStatus.textContent = `Cours mis à jour : ${row.d}`;
+      } catch (err) {
+        try {
+          const cached = localStorage.getItem(cacheKey);
+          if (cached) {
+            silverRateInput.value = cached;
+            const ts = localStorage.getItem(cacheTsKey) || '?';
+            silverStatus.textContent = `Cours en cache (${ts}) — API indisponible`;
+          } else {
+            silverStatus.textContent = 'API indisponible. Saisissez le cours manuellement.';
+          }
+        } catch(e) {
+          silverStatus.textContent = 'API indisponible. Saisissez le cours manuellement.';
         }
       }
     }
@@ -1420,175 +1473,15 @@
       updateGoldRate();
     });
 
+    document.getElementById('updateSilverBtn')?.addEventListener('click', () => {
+      updateSilverRate();
+    });
+
     updateStartAvailability();
     setStage('idle');
     setStatus('Chargez une image pour démarrer.');
     updateGoldRate();
+    updateSilverRate();
   </script>
 </body>
 </html>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
