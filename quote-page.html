@@ -379,7 +379,7 @@
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/12.10.0/firebase-app.js";
     import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, updateProfile } from "https://www.gstatic.com/firebasejs/12.10.0/firebase-auth.js";
-    import { getFirestore, doc, setDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.10.0/firebase-firestore.js";
+    import { getFirestore, doc, setDoc, getDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.10.0/firebase-firestore.js";
 
     const firebaseConfig = {
       apiKey: "AIzaSyDRLgbcZXP0ezEDPgq_ZYdgrTppWCxYt98",
@@ -472,6 +472,7 @@
       }
 
       try {
+        setAuthStatus('Création du compte en cours...');
         const credential = await createUserWithEmailAndPassword(auth, email, password);
         const user = credential.user;
         const displayName = `${firstName} ${lastName}`.trim();
@@ -490,6 +491,7 @@
           createdAt: serverTimestamp()
         });
       } catch (err) {
+        await signOut(auth);
         setAuthStatus(err?.message || 'Création du compte impossible. Utilisez un autre email.', true);
       }
     });
@@ -499,17 +501,34 @@
     });
 
     onAuthStateChanged(auth, (user) => {
-      if (user) {
-        appContainer?.classList.remove('hidden');
-        authGate?.classList.add('hidden');
-        if (authBar) authBar.style.display = 'flex';
-        if (authUser) authUser.textContent = user.email || '';
-      } else {
+      if (!user) {
         appContainer?.classList.add('hidden');
         authGate?.classList.remove('hidden');
         if (authBar) authBar.style.display = 'none';
         setAuthStatus('Veuillez vous connecter.');
+        return;
       }
+
+      setAuthStatus('Chargement du compte...');
+      (async () => {
+        try {
+          const snap = await getDoc(doc(db, 'users', user.uid));
+          if (snap.exists()) {
+            appContainer?.classList.remove('hidden');
+            authGate?.classList.add('hidden');
+            if (authBar) authBar.style.display = 'flex';
+            if (authUser) authUser.textContent = user.email || '';
+          } else {
+            appContainer?.classList.add('hidden');
+            authGate?.classList.remove('hidden');
+            setAuthStatus('Profil incomplet. Merci de recréer le compte.', true);
+          }
+        } catch (err) {
+          appContainer?.classList.add('hidden');
+          authGate?.classList.remove('hidden');
+          setAuthStatus(err?.message || 'Accès impossible. Vérifiez Firestore.', true);
+        }
+      })();
     });
   </script>
 
@@ -1407,6 +1426,9 @@
   </script>
 </body>
 </html>
+
+
+
 
 
 
