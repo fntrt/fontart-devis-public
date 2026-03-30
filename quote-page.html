@@ -6,24 +6,25 @@
   <title>Devis autonome - Fontart</title>
   <style>
     :root {
-      --bg: #f4f5f7;
+      --bg: #ffffff;
       --card: #ffffff;
-      --ink: #1f2937;
-      --muted: #6b7280;
-      --accent: #0f766e;
-      --accent-2: #155e75;
-      --danger: #b91c1c;
-      --line: #d1d5db;
+      --ink: #1f1f1f;
+      --muted: rgba(31, 31, 31, 0.5);
+      --accent: #1f1b17;
+      --accent-2: #3a332d;
+      --danger: #a61b1b;
+      --line: #e3dcd2;
+      --soft: #f2ece3;
     }
 
     * { box-sizing: border-box; }
 
     body {
       margin: 0;
-      font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+      font-family: "Europa", "Futura PT", "Futura", "Helvetica Neue", Arial, sans-serif;
       color: var(--ink);
-      background: radial-gradient(circle at top right, #d9f3ef 0, transparent 45%), var(--bg);
-      line-height: 1.4;
+      background: #ffffff;
+      line-height: 1.6;
       padding: 24px;
     }
 
@@ -37,12 +38,18 @@
     .card {
       background: var(--card);
       border: 1px solid var(--line);
-      border-radius: 14px;
-      padding: 18px;
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.05);
+      border-radius: 8px;
+      padding: 20px;
+      box-shadow: 0 12px 24px rgba(0, 0, 0, 0.06);
     }
 
-    h1, h2 { margin: 0 0 10px; }
+    h1, h2 {
+      margin: 0 0 10px;
+      font-family: "Futura PT", "Futura", "Helvetica Neue", Arial, sans-serif;
+      font-weight: 300;
+      letter-spacing: 0px;
+      line-height: 1.2;
+    }
 
     .hint {
       color: var(--muted);
@@ -65,7 +72,7 @@
     input, textarea, select {
       width: 100%;
       border: 1px solid var(--line);
-      border-radius: 8px;
+      border-radius: 6px;
       padding: 9px 10px;
       font: inherit;
       background: #fff;
@@ -79,10 +86,21 @@
       gap: 10px;
       flex-wrap: wrap;
     }
+    .inline.center { justify-content: center; }
+
+    .scale-line {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
 
     button {
       border: 0;
-      border-radius: 8px;
+      border-radius: 6px;
       padding: 10px 14px;
       font: inherit;
       cursor: pointer;
@@ -92,13 +110,16 @@
     }
 
     button:hover { background: var(--accent-2); }
-    button.secondary { background: #475569; }
-    button.secondary:hover { background: #334155; }
+    button.secondary { background: #6b5f54; }
+    button.secondary:hover { background: #4f463e; }
 
     .workspace {
       display: grid;
       grid-template-columns: 1.1fr 1fr;
       gap: 14px;
+    }
+    .workspace.single {
+      grid-template-columns: 1fr;
     }
 
     @media (max-width: 900px) {
@@ -110,13 +131,60 @@
       border-radius: 12px;
       padding: 10px;
       background: #fff;
+      position: relative;
+      width: 100%;
+    }
+    #previewCanvas {
+      width: 100%;
+      height: auto;
+      display: block;
+    }
+
+
+    #photoPreview {
+      display: none;
+      position: fixed;
+      z-index: 9999;
+      pointer-events: none;
+      border-radius: 10px;
+      border: 2px solid #e2e8f0;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+      background: white;
+      padding: 5px;
+    }
+    #photoPreview img {
+      max-width: 300px;
+      max-height: 300px;
+      border-radius: 8px;
+      display: block;
+    }
+    td img { cursor: zoom-in; }
+
+    .zoom-controls {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      display: flex;
+      gap: 6px;
+      z-index: 6;
+    }
+    .zoom-controls button {
+      padding: 6px 10px;
+      border-radius: 6px;
+      background: #ffffff;
+      color: var(--ink);
+      border: 1px solid var(--line);
+      font-size: 14px;
+    }
+    .zoom-controls button:hover {
+      background: var(--soft);
     }
 
     canvas {
       width: 100%;
       height: auto;
       border-radius: 8px;
-      background: #f8fafc;
+      background: var(--soft);
       border: 1px solid #e2e8f0;
     }
 
@@ -124,10 +192,10 @@
       display: inline-block;
       padding: 4px 8px;
       border-radius: 999px;
-      background: #ecfeff;
-      border: 1px solid #bae6fd;
+      background: #f4eee6;
+      border: 1px solid #e1d6c7;
       font-size: .84rem;
-      color: #075985;
+      color: #5b4f44;
     }
 
     .danger { color: var(--danger); font-weight: 600; }
@@ -145,7 +213,7 @@
       padding: 10px 8px;
     }
 
-    th { background: #f8fafc; }
+    th { background: #f6f0e7; }
 
     .kpi {
       display: grid;
@@ -162,6 +230,10 @@
       font-size: 0.9rem;
     }
 
+    .hidden {
+      display: none !important;
+    }
+
     .status {
       margin-top: 8px;
       font-size: 0.93rem;
@@ -175,127 +247,1643 @@
       gap: 10px;
       margin-bottom: 8px;
     }
+
+    #appNav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: #1f1b17;
+      display: flex;
+      gap: 4px;
+      padding: 8px 12px;
+      border-radius: 8px;
+      margin-bottom: 4px;
+      flex-wrap: wrap;
+    }
+
+    #appNav button {
+      background: transparent;
+      color: rgba(255,255,255,0.7);
+      border: none;
+      border-radius: 6px;
+      padding: 8px 16px;
+      font-size: 0.85rem;
+      font-family: inherit;
+      cursor: pointer;
+      transition: background 0.15s, color 0.15s;
+      white-space: nowrap;
+    }
+
+    #appNav button:hover {
+      background: rgba(255,255,255,0.1);
+      color: #fff;
+    }
+
+    #appNav button.nav-active {
+      background: rgba(255,255,255,0.18);
+      color: #fff;
+      font-weight: 600;
+    }
   </style>
 </head>
 <body>
-  <div class="container">
-    <div class="card">
-      <h1>Demande de devis autonome</h1>
+<div id="photoPreview"><img src="" alt="" /></div>
+
+<!-- Popup confirmation commande -->
+<div id="orderModal" style="display:none; position:fixed; inset:0; z-index:10000; background:rgba(0,0,0,0.5); align-items:center; justify-content:center;">
+  <div style="background:white; border-radius:16px; padding:40px 36px; max-width:480px; width:90%; text-align:center; box-shadow:0 20px 60px rgba(0,0,0,0.3); position:relative;">
+    <div style="font-size:3rem; margin-bottom:16px;">🎉</div>
+    <h2 style="margin:0 0 12px; color:#1e293b; font-size:1.4rem;">Merci pour votre commande !</h2>
+    <p style="color:#475569; line-height:1.6; margin:0 0 24px;">
+      Votre commande a bien été enregistrée.<br><br>
+      Vous recevrez sous <strong>24h ouvrées</strong> un e-mail de confirmation contenant les instructions pour l'envoi de vos bijoux et les modalités de règlement.
+    </p>
+    <button onclick="document.getElementById('orderModal').style.display='none'" style="background:#1e293b; color:white; border:none; border-radius:8px; padding:12px 32px; font-size:1rem; cursor:pointer;">
+      Fermer
+    </button>
+  </div>
+</div>
+  <div class="card" id="authGate">
+    <h2>Accès membre</h2>
+    <p class="hint">Connectez-vous pour accéder au devis. Si vous n'avez pas de compte, inscrivez-vous.</p>
+
+    <div id="authLoginSection">
+      <div class="grid" style="margin-top: 10px;">
+        <div>
+          <label for="authEmail">Email</label>
+          <input id="authEmail" type="email" autocomplete="email" placeholder="client@exemple.com" />
+        </div>
+        <div>
+          <label for="authPassword">Mot de passe</label>
+          <input id="authPassword" type="password" autocomplete="current-password" placeholder="Votre mot de passe" />
+        </div>
+      </div>
+      <div class="inline" style="margin-top: 12px;">
+        <button id="authSignInBtn" type="button">Se connecter</button>
+        <button id="authShowRegisterBtn" class="secondary" type="button">S'inscrire</button>
+        <button id="authForgotBtn" class="secondary" type="button">Mot de passe oublié ?</button>
+        <button id="authResendVerifBtn" class="secondary hidden" type="button">Renvoyer l'email de vérification</button>
+      </div>
+    </div>
+
+    <div id="authResetSection" class="hidden">
+      <p class="hint" style="margin-top:10px;">Choisissez votre nouveau mot de passe.</p>
+      <div class="grid" style="margin-top: 10px;">
+        <div>
+          <label for="authNewPassword">Nouveau mot de passe</label>
+          <input id="authNewPassword" type="password" autocomplete="new-password" placeholder="6 caractères minimum" />
+        </div>
+        <div>
+          <label for="authNewPasswordConfirm">Confirmer le mot de passe</label>
+          <input id="authNewPasswordConfirm" type="password" autocomplete="new-password" placeholder="Répétez le mot de passe" />
+        </div>
+      </div>
+      <div class="inline" style="margin-top: 12px;">
+        <button id="authConfirmResetBtn" type="button">Réinitialiser le mot de passe</button>
+      </div>
+    </div>
+
+    <div id="authRegisterSection" class="hidden">
+      <div class="grid" style="margin-top: 10px;">
+        <div>
+          <label for="authRegEmail">Email</label>
+          <input id="authRegEmail" type="email" autocomplete="email" placeholder="client@exemple.com" />
+        </div>
+        <div>
+          <label for="authRegPassword">Mot de passe</label>
+          <input id="authRegPassword" type="password" autocomplete="new-password" placeholder="Votre mot de passe" />
+        </div>
+      </div>
+      <div class="grid" style="margin-top: 10px;">
+        <div>
+          <label for="authCompany">Raison sociale</label>
+          <input id="authCompany" type="text" placeholder="Nom de la société" />
+        </div>
+        <div>
+          <label for="authLastName">Nom</label>
+          <input id="authLastName" type="text" placeholder="Nom" />
+        </div>
+        <div>
+          <label for="authFirstName">Prénom</label>
+          <input id="authFirstName" type="text" placeholder="Prénom" />
+        </div>
+        <div>
+          <label for="authPhone">Téléphone</label>
+          <input id="authPhone" type="tel" placeholder="Téléphone" />
+        </div>
+        <div>
+          <label for="authSiret">SIRET</label>
+          <input id="authSiret" type="text" placeholder="SIRET" />
+        </div>
+        <div>
+          <label for="authVat">N° TVA</label>
+          <input id="authVat" type="text" placeholder="Numéro de TVA" />
+        </div>
+      </div>
+
+      <h3 style="margin: 16px 0 6px;">Adresse de facturation</h3>
+      <div class="grid">
+        <div>
+          <label for="authBillingStreet">Rue</label>
+          <input id="authBillingStreet" type="text" placeholder="Rue" />
+        </div>
+        <div>
+          <label for="authBillingPostal">Code postal</label>
+          <input id="authBillingPostal" type="text" placeholder="Code postal" />
+        </div>
+        <div>
+          <label for="authBillingCity">Ville</label>
+          <input id="authBillingCity" type="text" placeholder="Ville" />
+        </div>
+      </div>
+
+      <div class="inline" style="margin-top: 10px; align-items:center;">
+        <label for="authSameAddress" style="display:inline-flex; align-items:center; gap:8px; margin:0; white-space:nowrap;">
+          <input id="authSameAddress" type="checkbox" style="margin:0;" />
+          Adresse de livraison identique
+        </label>
+      </div>
+
+      <h3 style="margin: 12px 0 6px;">Adresse de livraison</h3>
+      <div class="grid">
+        <div>
+          <label for="authShippingStreet">Rue</label>
+          <input id="authShippingStreet" type="text" placeholder="Rue" />
+        </div>
+        <div>
+          <label for="authShippingPostal">Code postal</label>
+          <input id="authShippingPostal" type="text" placeholder="Code postal" />
+        </div>
+        <div>
+          <label for="authShippingCity">Ville</label>
+          <input id="authShippingCity" type="text" placeholder="Ville" />
+        </div>
+      </div>
+      <div class="inline" style="margin-top: 12px;">
+        <button id="authSignUpBtn" type="button">Créer un compte</button>
+        <button id="authBackToLoginBtn" class="secondary" type="button">Retour</button>
+      </div>
+    </div>
+
+    <p class="status" id="authStatus">Veuillez vous connecter.</p>
+  </div>
+
+  <div class="container hidden" id="appContainer">
+
+    <!-- Barre de navigation -->
+    <nav id="appNav">
+      <button onclick="navTo('nouvelArticleCard')" id="nav-nouvelArticleCard" class="nav-active">Nouvel article</button>
+      <button onclick="navTo('quotesCard')" id="nav-quotesCard">Mes articles</button>
+      <button onclick="navTo('cartCard')" id="nav-cartCard">Ma commande</button>
+      <button onclick="navTo('accountCard')" id="nav-accountCard">Mon compte</button>
+      <div id="authBar" style="margin-left:auto; display:none; align-items:center; gap:10px;">
+        <span id="authUser" style="color:rgba(255,255,255,0.75); font-size:0.85rem;"></span>
+<button id="authSignOutBtn" class="secondary" type="button" style="padding:6px 14px; font-size:0.82rem;">Se déconnecter</button>
+      </div>
+    </nav>
+
+    <div class="card" id="nouvelArticleCard">
+      <h2>Nouvel article</h2>
       <p class="hint">Photo obligatoire de la pièce à côté d'une règle graduée. Cliquez ensuite sur 2 points de la règle pour calibrer l'échelle.</p>
       <div class="grid">
         <div>
-          <label for="reference">Référence</label>
-          <input id="reference" type="text" placeholder="Ex: FA-00231" />
+          <label for="reference">Référence client (renseignement non obligatoire)</label>
+          <input id="reference" type="text" required placeholder="Ex: FA-00231" />
         </div>
         <div>
-          <label for="weight">Poids (g)</label>
-          <input id="weight" type="number" step="0.01" min="0" placeholder="Ex: 12.50" />
-        </div>
-        <div>
-          <label for="metalType">Métal principal</label>
-          <select id="metalType">
-            <option value="gold">Or</option>
-            <option value="silver">Argent</option>
-          </select>
+          <label for="weight">Poids (g)*</label>
+          <input id="weight" type="number" required step="0.01" min="0" placeholder="Ex: 12.50" />
         </div>
       </div>
+      <input id="supplierRef" type="hidden" />
       <div style="margin-top: 12px;">
-        <label for="description">Description</label>
-        <textarea id="description" placeholder="Description de la pièce"></textarea>
+        <label for="description">Description*</label>
+        <textarea id="description" required placeholder="Description de la pièce"></textarea>
       </div>
 
-      <div class="grid" style="margin-top: 10px;">
-        <div>
-          <label for="goldRate">Cours de l'or</label>
-          <input id="goldRate" type="number" step="0.0001" min="0" value="68" />
-          <p class="hint">Valeur unitaire utilisée pour D1/D2/D3.</p>
+      <div class="grid" style="margin-top: 10px;">        <div>
+          <label for="goldRate">Cours de l'or (EUR/kg)</label>
+          <div class="inline" style="margin-top: 6px;">
+            <input id="goldRate" type="number" readonly step="0.01" min="0" value="0" />
+          </div>
+          <p class="hint" id="goldStatus" style="display:none;"></p>
         </div>
         <div>
-          <label for="silverRate">Cours de l'argent</label>
-          <input id="silverRate" type="number" step="0.0001" min="0" value="0.8" />
-          <p class="hint">Valeur unitaire utilisée pour Argent 15/20/30.</p>
-        </div>
-        <div>
-          <label for="photoInput">Photo de l'article</label>
-          <input id="photoInput" type="file" accept="image/*" />
+          <label for="photoInput">Photo de l'article*</label>
+          <input id="photoInput" type="file" required accept="image/*" />
         </div>
       </div>
+      <p class="status" id="formStatus" style="display:none;"></p>
     </div>
 
-    <div class="card workspace">
-      <div>
-        <h2>Calibration & points règle</h2>
-        <span class="pill" id="pointsInfo">0 / 2 points sélectionnés</span>
-        <div class="canvas-wrap" style="margin-top: 8px;">
-          <canvas id="previewCanvas"></canvas>
+    <div class="card hidden" id="workspaceCard">
+      <h2>Calibration & points règle</h2>
+      <div class="canvas-wrap" style="margin-top: 8px;">
+        <canvas id="previewCanvas"></canvas>
+        <div class="zoom-controls">
+          <button type="button" id="zoomOutBtn">−</button>
+          <button type="button" id="zoomResetBtn">100%</button>
+          <button type="button" id="zoomInBtn">+</button>
         </div>
-
-        <div class="inline" style="margin-top: 10px;">
-          <button id="resetPointsBtn" class="secondary" type="button">Réinitialiser les points</button>
-          <button id="scalePickBtn" class="secondary" type="button">Sélectionner échelle (2 points)</button>
-          <button id="detectBtn" type="button">Détecter les contours</button>
-
-          <button id="drawRoiBtn" class="secondary" type="button">Dessiner zone pièce</button>
-        </div>
-
-        <div style="margin-top: 10px;">
-          <label for="knownDistanceMm">Distance réelle entre les 2 points (mm)</label>
-          <input id="knownDistanceMm" type="number" min="0" step="0.01" placeholder="Ex: 20" />
-        </div>
-
-        <p class="status" id="statusMsg">Chargez une image pour démarrer.</p>
       </div>
 
-      <div>
-        <h2>Ajustements contours</h2>
-        <div class="range-line">
-          <label for="blurRange">Flou (bruit)</label>
-          <span id="blurVal">3</span>
+      <div id="scaleSection" style="margin-top: 8px;">
+        <div style="display:flex; align-items:center; gap:10px; width:100%;">
+          <span class="pill" id="pointsInfo" style="white-space:nowrap;">0 / 2 points sélectionnés</span>
+          <button id="resetPointsBtn" class="secondary" type="button" style="white-space:nowrap;">Réinitialiser</button>
+          <input id="knownDistanceMm" type="number" min="0" step="0.01" placeholder="Distance en mm" style="flex:1; min-width:0;" />
+          <button id="validateScaleBtn" type="button" style="white-space:nowrap;">Valider l'échelle</button>
         </div>
-        <input id="blurRange" type="range" min="1" max="15" step="2" value="3" />
-
-        <div class="range-line" style="margin-top: 12px;">
-          <label for="threshRange">Seuil binaire</label>
-          <span id="threshVal">120</span>
-        </div>
-        <input id="threshRange" type="range" min="20" max="240" step="1" value="120" />
-
-        <div class="inline" style="margin-top: 12px;">
-          <input id="grabCutEnabled" type="checkbox" />
-          <label for="grabCutEnabled" style="margin:0;">Utiliser GrabCut (ROI)</label>
-        </div>
-        <div class="inline" style="margin-top: 12px;">
-          <button id="previewContoursBtn" class="secondary" type="button">Prévisualiser</button>
-          <button id="grayPreviewBtn" class="secondary" type="button">Voir en gris</button>
-          <button id="binaryPreviewBtn" class="secondary" type="button">Voir binaire</button>
-          <button id="confirmContoursBtn" type="button">Confirmer contours</button>
-        </div>
-
-        <p class="hint" style="margin-top: 10px;">Le calcul prend en compte le contour externe et les trous internes détectés (si présents).</p>
       </div>
+
+      <div id="selectSection" class="hidden" style="margin-top: 8px;">
+        <div style="display:flex; align-items:center; gap:10px; width:100%;">
+          <button id="manualClearBtn" class="secondary" type="button" style="white-space:nowrap;">Effacer</button>
+          <button id="confirmContoursBtn" type="button" style="white-space:nowrap;">Calculer le prix</button>
+          <span class="hint" id="manualHint" style="display:none; margin:0;">Cliquez sur les bordures de la pièce.</span>
+        </div>
+      </div>
+
+      <p class="status" id="statusMsg" style="margin-top:6px;">Chargez une image pour démarrer.</p>
     </div>
 
-    <div class="card">
+    <div class="card hidden" id="resultsCard">
       <h2>Résultats</h2>
-      <div class="kpi" id="kpiContainer">
-        <div>Surface S: <strong id="surfaceOut">-</strong> mm²</div>
-        <div>Périmètre p: <strong id="perimeterOut">-</strong> mm</div>
-        <div>Hauteur h: <strong id="heightOut">-</strong> mm</div>
-        <div>Surface totale: <strong id="stotalOut">-</strong> mm²</div>
-      </div>
-
       <table>
         <thead>
           <tr>
-            <th>Option</th>
-            <th>Formule</th>
+            <th>Couleur</th>
             <th>Prix</th>
+            <th>Commande</th>
           </tr>
         </thead>
         <tbody id="priceTableBody"></tbody>
       </table>
     </div>
+
+    <div class="card hidden" id="quotesCard">
+      <h2>Mes articles</h2>
+      <p class="hint">Articles enregistrés (coloris choisis).</p>
+      <div style="overflow:auto;">
+        <table>
+          <thead>
+            <tr>
+              <th>Photo</th>
+              <th>Référence client</th>
+              <th>Référence</th>
+              <th>Description</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="quotesTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card hidden" id="cartCard">
+      <h2>Ma commande</h2>
+      <p class="hint">Récapitulatif des articles ajoutés.</p>
+      <div style="overflow:auto;">
+        <table>
+          <thead>
+            <tr>
+              <th>Photo</th>
+              <th>Référence client</th>
+              <th>Référence</th>
+              <th>Description</th>
+              <th>Prix</th>
+              <th>Qté</th>
+              <th>Total</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="cartTableBody"></tbody>
+        </table>
+      </div>
+      <div class="inline" style="justify-content: flex-end; margin-top: 10px; gap: 16px; flex-wrap: wrap;">
+        <strong>Total panier: <span id="cartTotal">0 €</span></strong>
+        <button id="validateOrderBtn" type="button">Valider ma commande</button>
+      </div>
+      <div style="text-align:right; margin-top:6px;">
+        <span id="orderStatus" style="display:none; font-size:0.9em;"></span>
+      </div>
+    </div>
+
+    <div class="card hidden" id="accountCard">
+      <h2>Mon compte</h2>
+      <p class="hint">Vérifiez et mettez à jour vos informations.</p>
+      <div class="grid">
+        <div>
+          <label for="accountEmail">Email</label>
+          <input id="accountEmail" type="email" readonly />
+        </div>
+        <div>
+          <label for="accountClientCode">Code client</label>
+          <input id="accountClientCode" type="text" readonly />
+        </div>
+        <div>
+          <label for="accountCompany">Raison sociale</label>
+          <input id="accountCompany" type="text" />
+        </div>
+        <div>
+          <label for="accountLastName">Nom</label>
+          <input id="accountLastName" type="text" />
+        </div>
+        <div>
+          <label for="accountFirstName">Prénom</label>
+          <input id="accountFirstName" type="text" />
+        </div>
+        <div>
+          <label for="accountPhone">Téléphone</label>
+          <input id="accountPhone" type="tel" />
+        </div>
+        <div>
+          <label for="accountSiret">SIRET</label>
+          <input id="accountSiret" type="text" />
+        </div>
+        <div>
+          <label for="accountVat">N° TVA</label>
+          <input id="accountVat" type="text" />
+        </div>
+      </div>
+
+      <h3 style="margin: 16px 0 6px;">Adresse de facturation</h3>
+      <div class="grid">
+        <div>
+          <label for="accountBillingStreet">Rue</label>
+          <input id="accountBillingStreet" type="text" />
+        </div>
+        <div>
+          <label for="accountBillingPostal">Code postal</label>
+          <input id="accountBillingPostal" type="text" />
+        </div>
+        <div>
+          <label for="accountBillingCity">Ville</label>
+          <input id="accountBillingCity" type="text" />
+        </div>
+      </div>
+
+      <div class="inline" style="margin-top: 10px;">
+        <input id="accountSameAddress" type="checkbox" />
+        <label for="accountSameAddress" style="margin:0;">Adresse de livraison identique</label>
+      </div>
+
+      <h3 style="margin: 12px 0 6px;">Adresse de livraison</h3>
+      <div class="grid">
+        <div>
+          <label for="accountShippingStreet">Rue</label>
+          <input id="accountShippingStreet" type="text" />
+        </div>
+        <div>
+          <label for="accountShippingPostal">Code postal</label>
+          <input id="accountShippingPostal" type="text" />
+        </div>
+        <div>
+          <label for="accountShippingCity">Ville</label>
+          <input id="accountShippingCity" type="text" />
+        </div>
+      </div>
+      <div class="inline" style="margin-top: 12px;">
+        <button id="accountSaveBtn" type="button">Mettre à jour</button>
+      </div>
+      <p class="status" id="accountStatus" style="display:none;"></p>
+    </div>
   </div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.10.0/firebase-app.js";
+    import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, updateProfile, sendEmailVerification, sendPasswordResetEmail, confirmPasswordReset, reload, applyActionCode, setPersistence, browserSessionPersistence, inMemoryPersistence } from "https://www.gstatic.com/firebasejs/12.10.0/firebase-auth.js";
+    import { getFirestore, doc, setDoc, getDoc, collection, query, where, getDocs, addDoc, serverTimestamp, orderBy, limit, updateDoc, deleteDoc, runTransaction } from "https://www.gstatic.com/firebasejs/12.10.0/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyDRLgbcZXP0ezEDPgq_ZYdgrTppWCxYt98",
+      authDomain: "devis-dorure.firebaseapp.com",
+      projectId: "devis-dorure",
+      storageBucket: "devis-dorure.firebasestorage.app",
+      messagingSenderId: "47596669965",
+      appId: "1:47596669965:web:64eabaefd9f73042b39944"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+
+    // Dans un iframe tiers, localStorage est bloqué/partitionné par le navigateur.
+    // On utilise sessionStorage en priorité, sinon mémoire pure.
+    (async () => {
+      try {
+        await setPersistence(auth, browserSessionPersistence);
+        console.log('[Auth] Persistance : sessionStorage');
+      } catch {
+        try {
+          await setPersistence(auth, inMemoryPersistence);
+          console.log('[Auth] Persistance : inMemory (localStorage et sessionStorage bloqués)');
+        } catch {
+          console.warn('[Auth] setPersistence échoué, persistance par défaut.');
+        }
+      }
+    })();
+
+    const authGate = document.getElementById('authGate');
+    const appContainer = document.getElementById('appContainer');
+    const authLoginSection = document.getElementById('authLoginSection');
+    const authRegisterSection = document.getElementById('authRegisterSection');
+    const authEmail = document.getElementById('authEmail');
+    const authPassword = document.getElementById('authPassword');
+    const authRegEmail = document.getElementById('authRegEmail');
+    const authRegPassword = document.getElementById('authRegPassword');
+    const authCompany = document.getElementById('authCompany');
+    const authLastName = document.getElementById('authLastName');
+    const authFirstName = document.getElementById('authFirstName');
+    const authPhone = document.getElementById('authPhone');
+    const authSiret = document.getElementById('authSiret');
+    const authVat = document.getElementById('authVat');
+    const authBillingStreet = document.getElementById('authBillingStreet');
+    const authBillingPostal = document.getElementById('authBillingPostal');
+    const authBillingCity = document.getElementById('authBillingCity');
+    const authSameAddress = document.getElementById('authSameAddress');
+    const authShippingStreet = document.getElementById('authShippingStreet');
+    const authShippingPostal = document.getElementById('authShippingPostal');
+    const authShippingCity = document.getElementById('authShippingCity');
+    const signInBtn = document.getElementById('authSignInBtn');
+    const showRegisterBtn = document.getElementById('authShowRegisterBtn');
+    const backToLoginBtn = document.getElementById('authBackToLoginBtn');
+    const signUpBtn = document.getElementById('authSignUpBtn');
+    const signOutBtn = document.getElementById('authSignOutBtn');
+    const resendVerifBtn = document.getElementById('authResendVerifBtn');
+    const authStatus = document.getElementById('authStatus');
+    const authBar = document.getElementById('authBar');
+    const authUser = document.getElementById('authUser');
+    const supplierRefInput = document.getElementById('supplierRef');
+    window.supplierRefInput = supplierRefInput;
+    const formStatus = document.getElementById('formStatus');
+    const quotesCard = document.getElementById('quotesCard');
+    const quotesTableBody = document.getElementById('quotesTableBody');
+    const cartCard = document.getElementById('cartCard');
+    const cartTableBody = document.getElementById('cartTableBody');
+    const cartTotal = document.getElementById('cartTotal');
+    const accountCard = document.getElementById('accountCard');
+    const accountEmail = document.getElementById('accountEmail');
+    const accountClientCode = document.getElementById('accountClientCode');
+    const accountCompany = document.getElementById('accountCompany');
+    const accountLastName = document.getElementById('accountLastName');
+    const accountFirstName = document.getElementById('accountFirstName');
+    const accountBillingStreet = document.getElementById('accountBillingStreet');
+    const accountBillingPostal = document.getElementById('accountBillingPostal');
+    const accountBillingCity = document.getElementById('accountBillingCity');
+    const accountSameAddress = document.getElementById('accountSameAddress');
+    const accountShippingStreet = document.getElementById('accountShippingStreet');
+    const accountShippingPostal = document.getElementById('accountShippingPostal');
+    const accountShippingCity = document.getElementById('accountShippingCity');
+    const accountPhone = document.getElementById('accountPhone');
+    const accountSiret = document.getElementById('accountSiret');
+    const accountVat = document.getElementById('accountVat');
+    const accountSaveBtn = document.getElementById('accountSaveBtn');
+    const accountStatus = document.getElementById('accountStatus');
+    let needsProfile = false;
+    let isRegistering = false; // Flag pour éviter que onAuthStateChanged interrompe l'inscription
+    let isResettingPassword = false; // Flag pour éviter que onAuthStateChanged cache le formulaire de reset
+    let currentClientCode = '';
+    let currentSupplierRef = '';
+    window.currentSupplierRef = currentSupplierRef;
+
+    function getVerifActionSettings() {
+      return {
+        url: 'https://fontart.fr/devis',
+        handleCodeInApp: true
+      };
+    }
+
+    function setAuthStatus(msg, isError = false) {
+      if (!authStatus) return;
+      authStatus.textContent = msg;
+      authStatus.classList.toggle('danger', isError);
+    }
+
+    function setFormStatus(msg, isError = false) {
+      if (!formStatus) return;
+      formStatus.textContent = msg;
+      formStatus.style.display = 'block';
+      formStatus.classList.toggle('danger', isError);
+    }
+    window.setFormStatus = setFormStatus;
+
+    window.addEventListener('error', (e) => {
+      window.setFormStatus?.(`Erreur JS: ${e.message}`, true);
+    });
+    window.addEventListener('unhandledrejection', (e) => {
+      const msg = e?.reason?.message || e?.reason || 'Erreur JS';
+      window.setFormStatus?.(`Erreur JS: ${msg}`, true);
+    });
+
+    function showRegister(show) {
+      if (!authLoginSection || !authRegisterSection) return;
+      authLoginSection.classList.toggle('hidden', show);
+      authRegisterSection.classList.toggle('hidden', !show);
+    }
+
+
+    function setAuthShippingDisabled(disabled) {
+      if (!authShippingStreet || !authShippingPostal || !authShippingCity) return;
+      authShippingStreet.disabled = disabled;
+      authShippingPostal.disabled = disabled;
+      authShippingCity.disabled = disabled;
+    }
+
+    function copyAuthBillingToShipping() {
+      if (!authBillingStreet || !authBillingPostal || !authBillingCity) return;
+      if (!authShippingStreet || !authShippingPostal || !authShippingCity) return;
+      authShippingStreet.value = authBillingStreet.value || '';
+      authShippingPostal.value = authBillingPostal.value || '';
+      authShippingCity.value = authBillingCity.value || '';
+    }
+
+    function normalizeCompanyLetters(company) {
+      const raw = (company || '').toUpperCase();
+      const letters = raw.replace(/[^A-Z]/g, '');
+      return letters;
+    }
+
+    function buildClientCodeFromLetters(letters, offset = 0) {
+      if (!letters) letters = '';
+      let base = letters;
+      if (base.length < 4) {
+        base = (base + 'XXXX').slice(0, 4);
+      }
+      if (base.length > 4) {
+        const start = offset % (base.length - 3);
+        base = base.slice(start, start + 4);
+      }
+      return `411${base}`;
+    }
+
+    function extractClientLetters(code) {
+      const raw = (code || '').toUpperCase();
+      const cleaned = raw.startsWith('411') ? raw.slice(3) : raw;
+      const letters = cleaned.replace(/[^A-Z]/g, '');
+      return (letters + 'XXXX').slice(0, 4);
+    }
+
+    function randomLetters(len) {
+      const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+      let out = '';
+      for (let i = 0; i < len; i++) {
+        out += chars[Math.floor(Math.random() * chars.length)];
+      }
+      return out;
+    }
+
+    async function reserveClientCode(company) {
+      const letters = normalizeCompanyLetters(company);
+      const tries = [];
+      for (let i = 0; i < 10; i++) {
+        tries.push(buildClientCodeFromLetters(letters || randomLetters(4), i));
+      }
+      for (let i = 0; i < 10; i++) {
+        tries.push(`411${randomLetters(4)}`);
+      }
+      for (const candidate of tries) {
+        try {
+          await runTransaction(db, async (tx) => {
+            const codeRef = doc(db, 'clientCodes', candidate);
+            const snap = await tx.get(codeRef);
+            if (snap.exists()) {
+              throw new Error('Code déjà utilisé');
+            }
+            tx.set(codeRef, { createdAt: serverTimestamp() });
+          });
+          return candidate;
+        } catch (err) {
+          // continue
+        }
+      }
+      throw new Error('Impossible de générer un code client unique.');
+    }
+
+    async function allocateSupplierReference() {
+      const user = auth.currentUser;
+      if (!user) return null;
+      return await runTransaction(db, async (tx) => {
+        const userRef = doc(db, 'users', user.uid);
+        const snap = await tx.get(userRef);
+        if (!snap.exists()) throw new Error('Profil introuvable.');
+        const data = snap.data() || {};
+        const clientCode = data.clientCode || '';
+        const letters = extractClientLetters(clientCode);
+        const next = Number(data.supplierCounter || 0) + 1;
+        tx.update(userRef, { supplierCounter: next, updatedAt: serverTimestamp() });
+        const supplierRef = `${letters}${String(next).padStart(4, '0')}`;
+        return { supplierRef, clientCode };
+      });
+    }
+
+    async function previewNextSupplierReference() {
+      const user = auth.currentUser;
+      if (!user) return null;
+      const snap = await getDoc(doc(db, 'users', user.uid));
+      if (!snap.exists()) return null;
+      const data = snap.data() || {};
+      const clientCode = data.clientCode || '';
+      const letters = extractClientLetters(clientCode);
+      const next = Number(data.supplierCounter || 0) + 1;
+      return { supplierRef: `${letters}${String(next).padStart(4, '0')}`, clientCode };
+    }
+
+    function fallbackSupplierReference() {
+      const code = (accountClientCode?.value || currentClientCode || '411XXXX').toString();
+      const letters = extractClientLetters(code);
+      return `${letters}0001`;
+    }
+    window.fallbackSupplierReference = fallbackSupplierReference;
+
+    async function ensureSupplierReference() {
+      if (window.currentSupplierRef) return window.currentSupplierRef;
+      const result = await allocateSupplierReference();
+      if (!result) return null;
+      currentSupplierRef = result.supplierRef;
+      window.currentSupplierRef = currentSupplierRef;
+      currentClientCode = result.clientCode || currentClientCode;
+      if (window.supplierRefInput) window.supplierRefInput.value = currentSupplierRef;
+      return currentSupplierRef;
+    }
+    window.ensureSupplierReference = ensureSupplierReference;
+
+    function setAccountStatus(msg, isError = false) {
+      if (!accountStatus) return;
+      accountStatus.textContent = msg;
+      accountStatus.style.display = 'block';
+      accountStatus.classList.toggle('danger', isError);
+    }
+
+    function setShippingDisabled(disabled) {
+      if (!accountShippingStreet || !accountShippingPostal || !accountShippingCity) return;
+      accountShippingStreet.disabled = disabled;
+      accountShippingPostal.disabled = disabled;
+      accountShippingCity.disabled = disabled;
+    }
+
+    function copyBillingToShipping() {
+      if (!accountBillingStreet || !accountBillingPostal || !accountBillingCity) return;
+      if (!accountShippingStreet || !accountShippingPostal || !accountShippingCity) return;
+      accountShippingStreet.value = accountBillingStreet.value || '';
+      accountShippingPostal.value = accountBillingPostal.value || '';
+      accountShippingCity.value = accountBillingCity.value || '';
+    }
+
+    function getEmail() {
+      return (authEmail?.value || '').trim();
+    }
+
+    function getPassword() {
+      return authPassword?.value || '';
+    }
+
+    function getRegEmail() {
+      return (authRegEmail?.value || '').trim();
+    }
+
+    function getRegPassword() {
+      return authRegPassword?.value || '';
+    }
+
+    showRegisterBtn?.addEventListener('click', () => {
+      showRegister(true);
+      setAuthStatus('Complétez le formulaire pour créer un compte.');
+    });
+
+    backToLoginBtn?.addEventListener('click', () => {
+      showRegister(false);
+      setAuthStatus('Veuillez vous connecter.');
+    });
+
+    authSameAddress?.addEventListener('change', () => {
+      if (authSameAddress.checked) {
+        copyAuthBillingToShipping();
+      }
+      setAuthShippingDisabled(authSameAddress.checked);
+    });
+
+    [authBillingStreet, authBillingPostal, authBillingCity].forEach(input => {
+      input?.addEventListener('input', () => {
+        if (authSameAddress?.checked) {
+          copyAuthBillingToShipping();
+        }
+      });
+    });
+
+    signInBtn?.addEventListener('click', async () => {
+      const email = getEmail();
+      const password = getPassword();
+      if (!email || !password) {
+        setAuthStatus('Merci de saisir email et mot de passe.', true);
+        return;
+      }
+      try {
+        const credential = await signInWithEmailAndPassword(auth, email, password);
+        await reload(credential.user);
+        if (!credential.user.emailVerified) {
+          await signOut(auth);
+          resendVerifBtn?.classList.remove('hidden');
+          setAuthStatus('Veuillez vérifier votre adresse email avant de vous connecter. Consultez votre boîte mail.', true);
+          return;
+        }
+        resendVerifBtn?.classList.add('hidden');
+      } catch (err) {
+        const code = err?.code || '';
+        if (code === 'auth/invalid-credential' || code === 'auth/wrong-password' || code === 'auth/user-not-found') {
+          setAuthStatus('Email ou mot de passe incorrect.', true);
+        } else if (code === 'auth/too-many-requests') {
+          setAuthStatus('Trop de tentatives. Réessayez plus tard.', true);
+        } else {
+          setAuthStatus('Connexion impossible. Vérifiez vos identifiants.', true);
+        }
+      }
+    });
+
+    signUpBtn?.addEventListener('click', async () => {
+      const email = getRegEmail();
+      const password = getRegPassword();
+      const company = authCompany?.value.trim() || '';
+      const lastName = authLastName?.value.trim() || '';
+      const firstName = authFirstName?.value.trim() || '';
+      const phone = authPhone?.value.trim() || '';
+      const siret = authSiret?.value.trim() || '';
+      const vat = authVat?.value.trim() || '';
+      const billingStreet = authBillingStreet?.value.trim() || '';
+      const billingPostal = authBillingPostal?.value.trim() || '';
+      const billingCity = authBillingCity?.value.trim() || '';
+      const shippingStreet = authShippingStreet?.value.trim() || '';
+      const shippingPostal = authShippingPostal?.value.trim() || '';
+      const shippingCity = authShippingCity?.value.trim() || '';
+      const shippingSame = !!authSameAddress?.checked;
+
+      const missing = [];
+      if (!company) missing.push('raison sociale');
+      if (!lastName) missing.push('nom');
+      if (!firstName) missing.push('prénom');
+      if (!email) missing.push('email');
+      if (!phone) missing.push('téléphone');
+      if (!siret) missing.push('siret');
+      if (!vat) missing.push('n° TVA');
+      if (!billingStreet) missing.push('rue facturation');
+      if (!billingPostal) missing.push('code postal facturation');
+      if (!billingCity) missing.push('ville facturation');
+      if (!shippingSame) {
+        if (!shippingStreet) missing.push('rue livraison');
+        if (!shippingPostal) missing.push('code postal livraison');
+        if (!shippingCity) missing.push('ville livraison');
+      }
+      if (!password && !auth.currentUser) missing.push('mot de passe');
+
+      if (missing.length) {
+        setAuthStatus(`Champs obligatoires manquants: ${missing.join(', ')}.`, true);
+        return;
+      }
+
+      if (!auth.currentUser && password.length < 6) {
+        setAuthStatus('Le mot de passe doit contenir au moins 6 caractères.', true);
+        return;
+      }
+
+      try {
+        isRegistering = true;
+        setAuthStatus('Création du compte en cours...');
+        let user = auth.currentUser;
+        if (!user) {
+          const credential = await createUserWithEmailAndPassword(auth, email, password);
+          user = credential.user;
+          console.log('[SignUp] Compte Firebase Auth créé:', user.uid);
+        }
+        const displayName = `${firstName} ${lastName}`.trim();
+        if (displayName) {
+          await updateProfile(user, { displayName });
+        }
+        console.log('[SignUp] Réservation code client...');
+        const clientCode = await reserveClientCode(company);
+        console.log('[SignUp] Code client réservé:', clientCode);
+        console.log('[SignUp] Écriture profil Firestore...');
+        await setDoc(doc(db, 'users', user.uid), {
+          email,
+          clientCode,
+          company,
+          lastName,
+          firstName,
+          phone,
+          siret,
+          vat,
+          typeClient: CLIENT_DEFAULTS.typeClient,
+          typeFacturation: CLIENT_DEFAULTS.typeFacturation,
+          modeReglement: CLIENT_DEFAULTS.modeReglement,
+          delaiReglement: CLIENT_DEFAULTS.delaiReglement,
+          tva: CLIENT_DEFAULTS.tva,
+          tauxTva: CLIENT_DEFAULTS.tauxTva,
+          afficherNumeroBLFactures: CLIENT_DEFAULTS.afficherNumeroBLFactures,
+          afficherTarifsBL: CLIENT_DEFAULTS.afficherTarifsBL,
+          devise: CLIENT_DEFAULTS.devise,
+          conditionsTVA: CLIENT_DEFAULTS.conditionsTVA,
+          pays: CLIENT_DEFAULTS.pays,
+          compteClient: CLIENT_DEFAULTS.compteClient,
+          billingStreet,
+          billingPostal,
+          billingCity,
+          shippingStreet: shippingSame ? billingStreet : shippingStreet,
+          shippingPostal: shippingSame ? billingPostal : shippingPostal,
+          shippingCity: shippingSame ? billingCity : shippingCity,
+          shippingSame,
+          createdAt: serverTimestamp()
+        }, { merge: true });
+        console.log('[SignUp] Profil Firestore écrit. Envoi email de vérification...');
+        needsProfile = false;
+        await sendEmailVerification(auth.currentUser, getVerifActionSettings());
+        console.log('[SignUp] Email de vérification envoyé. Déconnexion...');
+        await signOut(auth);
+        isRegistering = false;
+        showRegister(false);
+        resendVerifBtn?.classList.remove('hidden');
+        setAuthStatus(`Compte créé ! Un email de vérification a été envoyé à ${email}. Vérifiez votre boîte mail puis connectez-vous.`, false);
+      } catch (err) {
+        isRegistering = false;
+        const code = err?.code || '';
+        showRegister(false);
+        console.error('[SignUp] Erreur:', code, err?.message, err);
+        if (code === 'permission-denied' || code === 'firestore/permission-denied') {
+          setAuthStatus('Compte créé, mais profil non enregistré. Vérifiez les règles Firestore.', true);
+        } else if (code === 'auth/email-already-in-use') {
+          setAuthStatus('Cet email est déjà utilisé. Connectez-vous.', true);
+        } else if (code === 'auth/weak-password') {
+          setAuthStatus('Mot de passe trop faible (6 caractères minimum).', true);
+        } else if (code === 'auth/invalid-email') {
+          setAuthStatus('Adresse email invalide.', true);
+        } else if (code === 'auth/network-request-failed') {
+          setAuthStatus('Erreur réseau. Vérifiez votre connexion.', true);
+        } else {
+          setAuthStatus(`Création du compte impossible (${code || err?.message || 'erreur inconnue'}). Vérifiez vos informations.`, true);
+        }
+      }
+    });
+
+    signOutBtn?.addEventListener('click', async () => {
+      await signOut(auth);
+    });
+
+    resendVerifBtn?.addEventListener('click', async () => {
+      const user = auth.currentUser;
+      if (user) {
+        try {
+          await sendEmailVerification(user, getVerifActionSettings());
+          setAuthStatus('Email de vérification renvoyé. Consultez votre boîte mail.', false);
+        } catch {
+          setAuthStatus('Impossible de renvoyer l\'email. Réessayez plus tard.', true);
+        }
+        return;
+      }
+      const email = getEmail();
+      const password = getPassword();
+      if (!email || !password) {
+        setAuthStatus('Saisissez votre email et mot de passe pour renvoyer la vérification.', true);
+        return;
+      }
+      try {
+        const credential = await signInWithEmailAndPassword(auth, email, password);
+        await sendEmailVerification(credential.user, getVerifActionSettings());
+        await signOut(auth);
+        setAuthStatus('Email de vérification renvoyé. Consultez votre boîte mail.', false);
+      } catch {
+        setAuthStatus('Impossible de renvoyer l\'email. Vérifiez vos identifiants.', true);
+      }
+    });
+
+
+    const authForgotBtn = document.getElementById('authForgotBtn');
+    authForgotBtn?.addEventListener('click', async () => {
+      const email = getEmail();
+      if (!email) {
+        setAuthStatus('Saisissez votre email puis cliquez sur "Mot de passe oublié ?".', true);
+        return;
+      }
+      try {
+        await sendPasswordResetEmail(auth, email, { url: 'https://fontart.fr/devis' });
+        setAuthStatus(`Un email de réinitialisation a été envoyé à ${email}.`, false);
+      } catch (err) {
+        const code = err?.code || '';
+        if (code === 'auth/user-not-found' || code === 'auth/invalid-email') {
+          setAuthStatus('Aucun compte trouvé pour cet email.', true);
+        } else {
+          setAuthStatus('Impossible d\'envoyer l\'email. Réessayez plus tard.', true);
+        }
+      }
+    });
+
+    async function fileToBase64Thumbnail(file) {
+      if (!file) return null;
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        const img = new Image();
+        reader.onload = () => {
+          img.onload = () => {
+            const maxSize = 1200;
+            let w = img.width;
+            let h = img.height;
+            const scale = Math.min(1, maxSize / Math.max(w, h));
+            w = Math.round(w * scale);
+            h = Math.round(h * scale);
+            const canvas = document.createElement('canvas');
+            canvas.width = w;
+            canvas.height = h;
+            const c = canvas.getContext('2d');
+            c.drawImage(img, 0, 0, w, h);
+            let quality = 0.7;
+            let dataUrl = canvas.toDataURL('image/jpeg', quality);
+            while (dataUrl.length > 900000 && quality > 0.4) {
+              quality -= 0.1;
+              dataUrl = canvas.toDataURL('image/jpeg', quality);
+            }
+            resolve({ dataUrl, width: w, height: h, quality });
+          };
+          img.onerror = reject;
+          img.src = reader.result;
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    }
+
+    window.fileToBase64Thumbnail = fileToBase64Thumbnail;
+
+    async function saveQuoteToFirestore(payload, file, canvasDataUrl) {
+      const user = auth.currentUser;
+      if (!user) return;
+
+      // Priorité : image annotée (canvas avec points + contours)
+      let photoDataUrl = canvasDataUrl || '';
+      let photoMeta = null;
+      if (!photoDataUrl && file) {
+        const thumb = await fileToBase64Thumbnail(file);
+        if (thumb) {
+          photoDataUrl = thumb.dataUrl;
+          photoMeta = {
+            name: file.name || 'photo.jpg',
+            type: file.type || 'image/jpeg',
+            width: thumb.width,
+            height: thumb.height,
+            quality: thumb.quality
+          };
+        }
+      }
+
+      await addDoc(collection(db, 'quotes'), {
+        ...payload,
+        photoDataUrl,
+        photoMeta,
+        userId: user.uid,
+        createdAt: serverTimestamp()
+      });
+    }
+
+    window.saveQuoteToFirestore = saveQuoteToFirestore;
+
+    function formatDate(ts) {
+      if (!ts) return '-';
+      try {
+        const d = ts.toDate ? ts.toDate() : new Date(ts);
+        return d.toLocaleDateString('fr-FR') + ' ' + d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+      } catch {
+        return '-';
+      }
+    }
+
+    function getPriceByLabel(prices, label) {
+      if (!Array.isArray(prices)) return '-';
+      const row = prices.find(p => p.label === label);
+      return row ? `${row.price.toFixed(2)} €` : '-';
+    }
+
+    async function upsertCartItem(item) {
+      const user = auth.currentUser;
+      if (!user) return;
+      const q = query(
+        collection(db, 'cartItems'),
+        where('userId', '==', user.uid),
+        where('reference', '==', item.reference || '')
+      );
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        const docSnap = snap.docs[0];
+        const data = docSnap.data() || {};
+        const currentQty = Number(data.quantity || 0);
+        const addQty = Number(item.quantity || 1);
+        await updateDoc(doc(db, 'cartItems', docSnap.id), {
+          quantity: Math.max(1, currentQty + addQty),
+          updatedAt: serverTimestamp()
+        });
+        return;
+      }
+      await addDoc(collection(db, 'cartItems'), {
+        ...item,
+        userId: user.uid,
+        createdAt: serverTimestamp()
+      });
+    }
+
+    async function upsertArticle(item) {
+      const user = auth.currentUser;
+      if (!user) return;
+      const q = query(
+        collection(db, 'articles'),
+        where('userId', '==', user.uid),
+        where('reference', '==', item.reference || '')
+      );
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        const docSnap = snap.docs[0];
+        const data = docSnap.data() || {};
+        const currentQty = Number(data.quantity || 0);
+        const addQty = Number(item.quantity || 1);
+        await updateDoc(doc(db, 'articles', docSnap.id), {
+          quantity: Math.max(1, currentQty + addQty),
+          updatedAt: serverTimestamp()
+        });
+        return;
+      }
+      await addDoc(collection(db, 'articles'), {
+        ...item,
+        userId: user.uid,
+        createdAt: serverTimestamp()
+      });
+    }
+
+    async function addToCart(item) {
+      try {
+        const user = auth.currentUser;
+        if (!user) return;
+        const supplierRef = await window.ensureSupplierReference?.();
+        if (!supplierRef) {
+          setStatus('Impossible de générer la référence fournisseur.', true);
+          return;
+        }
+        item.referenceSupplier = supplierRef;
+        try {
+          const snap = await getDoc(doc(db, 'users', user.uid));
+          if (snap.exists()) {
+            const data = snap.data() || {};
+            item.clientCode = data.clientCode || '';
+            item.company = data.company || '';
+          }
+        } catch (err) {
+          // ignore profile enrichment
+        }
+        const code = item.referenceCode || '';
+        item.reference = `${supplierRef}${code}`;
+        await upsertArticle(item);
+        await upsertCartItem(item);
+        await loadArticles();
+        await loadCartItems();
+        // Reset workflow back to start
+        referenceInput.value = '';
+        descriptionInput.value = '';
+        weightInput.value = '';
+        photoInput.value = '';
+        if (supplierRefInput) supplierRefInput.value = '';
+        currentSupplierRef = '';
+        window.currentSupplierRef = '';
+        sourceImage = null;
+        ctx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+        resultsCard.classList.add('hidden');
+        setStage('idle');
+        setStatus('Chargez une image pour démarrer.');
+      } catch (err) {
+        setStatus(err?.message || 'Impossible d\'ajouter au panier. Vérifiez les règles Firestore.', true);
+      }
+    }
+    window.addToCart = addToCart;
+
+    // Navigation entre sections
+    const navSections = ['nouvelArticleCard', 'quotesCard', 'cartCard', 'accountCard'];
+    const allNavCards = ['nouvelArticleCard', 'workspaceCard', 'resultsCard', 'quotesCard', 'cartCard', 'accountCard'];
+    let _wsVisible = false;
+    let _resVisible = false;
+
+    window.navTo = function(sectionId) {
+      // Sauvegarder l'état workspace/results avant de quitter Nouvel article
+      const currentActive = navSections.find(id =>
+        document.getElementById('nav-' + id)?.classList.contains('nav-active')
+      );
+      if (currentActive === 'nouvelArticleCard') {
+        _wsVisible  = !document.getElementById('workspaceCard')?.classList.contains('hidden');
+        _resVisible = !document.getElementById('resultsCard')?.classList.contains('hidden');
+      }
+
+      // Mettre à jour l'état actif du nav
+      navSections.forEach(id => document.getElementById('nav-' + id)?.classList.remove('nav-active'));
+      document.getElementById('nav-' + sectionId)?.classList.add('nav-active');
+
+      // Masquer toutes les sections
+      allNavCards.forEach(id => document.getElementById(id)?.classList.add('hidden'));
+
+      // Afficher la section active
+      document.getElementById(sectionId)?.classList.remove('hidden');
+
+      // Restaurer workspace/results si retour à Nouvel article
+      if (sectionId === 'nouvelArticleCard') {
+        if (_wsVisible)  document.getElementById('workspaceCard')?.classList.remove('hidden');
+        if (_resVisible) document.getElementById('resultsCard')?.classList.remove('hidden');
+      }
+
+      // Charger les données si nécessaire
+      if (sectionId === 'quotesCard')  loadArticles();
+      if (sectionId === 'cartCard')    loadCartItems();
+      if (sectionId === 'accountCard') loadAccount();
+
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      try { window.parent?.postMessage({ type: 'scrollToIframe' }, '*'); } catch(e) {}
+    };
+
+document.getElementById('validateOrderBtn')?.addEventListener('click', async () => {
+      console.log('[Commande] Clic sur Valider ma commande');
+      const user = auth.currentUser;
+      if (!user) { console.log('[Commande] Pas d\'utilisateur connecté'); return; }
+
+      const btn = document.getElementById('validateOrderBtn');
+      const orderStatus = document.getElementById('orderStatus');
+      const setOrderStatus = (msg, isError = false) => {
+        if (orderStatus) {
+          orderStatus.textContent = msg;
+          orderStatus.style.color = isError ? '#ef4444' : '#16a34a';
+          orderStatus.style.display = 'block';
+        }
+        console.log('[Commande]', msg);
+      };
+
+      btn.disabled = true;
+      btn.textContent = 'En cours...';
+      try {
+        const q = query(collection(db, 'cartItems'), where('userId', '==', user.uid));
+        const snap = await getDocs(q);
+        console.log('[Commande] Articles dans le panier :', snap.size);
+
+        if (snap.empty) {
+          setOrderStatus('Panier vide.', true);
+          return;
+        }
+
+        const items = snap.docs.map(d => {
+          const data = d.data() || {};
+          return {
+            company:           data.company           || '',
+            clientCode:        data.clientCode        || '',
+            referenceClient:   data.referenceClient   || '',
+            reference:         data.reference         || '',
+            referenceSupplier: data.referenceSupplier || '',
+            referenceCode:     data.referenceCode     || '',
+            description:       data.description       || '',
+            quantity:          Number(data.quantity   || 1),
+            unitPrice:         Math.round((data.unitPrice || 0) * 100) / 100,
+            surfaceTotalMm2:   Math.round(data.surfaceTotalMm2 || 0)
+          };
+        });
+
+        console.log('[Commande] Écriture dans Firestore orders...');
+        const ref = await addDoc(collection(db, 'orders'), {
+          userId:    user.uid,
+          orderedAt: serverTimestamp(),
+          status:    'pending',
+          items
+        });
+        await updateDoc(ref, { orderId: ref.id });
+        console.log('[Commande] Commande créée :', ref.id);
+
+        // Vider le panier
+        await Promise.all(snap.docs.map(d => deleteDoc(doc(db, 'cartItems', d.id))));
+        await loadCartItems();
+
+        const modal = document.getElementById('orderModal');
+        modal.style.display = 'flex';
+        btn.textContent = '✅ Commande validée';
+        setTimeout(() => {
+          btn.disabled = false;
+          btn.textContent = 'Valider ma commande';
+          if (orderStatus) orderStatus.style.display = 'none';
+        }, 3000);
+      } catch (err) {
+        console.error('[Commande] Erreur :', err);
+        setOrderStatus(err?.message || 'Erreur lors de la validation.', true);
+        btn.disabled = false;
+        btn.textContent = 'Valider ma commande';
+      }
+    });
+
+    async function loadArticles() {
+      const user = auth.currentUser;
+      if (!user || !quotesTableBody || !quotesCard) return;
+      quotesTableBody.innerHTML = '';
+      try {
+        const articleCache = new Map();
+        const q = query(
+          collection(db, 'articles'),
+          where('userId', '==', user.uid),
+          orderBy('createdAt', 'desc'),
+          limit(50)
+        );
+        const snap = await getDocs(q);
+        if (snap.empty) {
+          quotesTableBody.innerHTML = '<tr><td colspan="5">Aucun article enregistré.</td></tr>';
+          return;
+        }
+        snap.forEach(docSnap => {
+          const data = docSnap.data() || {};
+          articleCache.set(docSnap.id, data);
+          const tr = document.createElement('tr');
+          const imgHtml = data.photoDataUrl
+            ? `<img src="${data.photoDataUrl}" alt="photo" style="width:64px;height:auto;border-radius:6px;border:1px solid #e2e8f0;" />`
+            : '-';
+          tr.innerHTML = `
+            <td>${imgHtml}</td>
+            <td>${data.referenceClient || '-'}</td>
+            <td>${data.reference || '-'}</td>
+            <td>${data.description || '-'}</td>
+            <td><button type="button" class="secondary" data-article-add="${docSnap.id}">Ajouter au panier</button></td>
+          `;
+          quotesTableBody.appendChild(tr);
+        });
+        quotesTableBody.querySelectorAll('input[data-article-qty]').forEach(input => {
+          input.addEventListener('change', async () => {
+            const id = input.dataset.articleQty;
+            const newQty = Math.max(1, Number(input.value || 1));
+            input.value = newQty;
+            try {
+              await updateDoc(doc(db, 'articles', id), { quantity: newQty });
+              await loadArticles();
+            } catch (err) {
+              setStatus(err?.message || 'Mise à jour impossible. Vérifiez les règles Firestore.', true);
+            }
+          });
+        });
+        quotesTableBody.querySelectorAll('button[data-article-add]').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            const id = btn.dataset.articleAdd;
+            const data = articleCache.get(id);
+            if (!data) return;
+            const qtyInput = quotesTableBody.querySelector(`input[data-article-qty="${id}"]`);
+            const quantity = Math.max(1, Number(qtyInput?.value || data.quantity || 1));
+            try {
+              await upsertCartItem({
+                ...data,
+                quantity
+              });
+              await loadCartItems();
+              setStatus('Ajouté au panier.');
+            } catch (err) {
+              setStatus(err?.message || 'Ajout au panier impossible. Vérifiez les règles Firestore.', true);
+            }
+          });
+        });
+      } catch (err) {
+        quotesTableBody.innerHTML = '<tr><td colspan="5">Impossible de charger les articles (index manquant).</td></tr>';
+        setStatus('Impossible de charger les articles (index manquant).', true);
+      }
+    }
+
+    async function loadCartItems() {
+      const user = auth.currentUser;
+      if (!user || !cartTableBody || !cartCard || !cartTotal) return;
+      cartTableBody.innerHTML = '';
+      try {
+        const q = query(
+          collection(db, 'cartItems'),
+          where('userId', '==', user.uid),
+          orderBy('createdAt', 'desc'),
+          limit(50)
+        );
+        const snap = await getDocs(q);
+        const validateOrderBtn = document.getElementById('validateOrderBtn');
+        if (snap.empty) {
+          cartTableBody.innerHTML = '<tr><td colspan="7">Panier vide.</td></tr>';
+          cartTotal.textContent = '0 €';
+          if (validateOrderBtn) validateOrderBtn.style.display = 'none';
+          return;
+        }
+        if (validateOrderBtn) validateOrderBtn.style.display = '';
+        let total = 0;
+        snap.forEach(docSnap => {
+          const data = docSnap.data() || {};
+          const imgHtml = data.photoDataUrl
+            ? `<img src="${data.photoDataUrl}" alt="photo" style="width:64px;height:auto;border-radius:6px;border:1px solid #e2e8f0;" />`
+            : '-';
+          const qty = Number(data.quantity || 1);
+          const unit = Number(data.unitPrice || 0);
+          const lineTotal = qty * unit;
+          total += lineTotal;
+          const cartTr = document.createElement('tr');
+          cartTr.innerHTML = `
+            <td>${imgHtml}</td>
+            <td>${data.referenceClient || '-'}</td>
+            <td>${data.reference || '-'}</td>
+            <td>${data.description || '-'}</td>
+            <td>${unit.toFixed(2)} €</td>
+            <td>
+              <input type="number" min="1" step="1" value="${qty}" style="width:70px;" data-cart-qty="${docSnap.id}" />
+            </td>
+            <td>${lineTotal.toFixed(2)} €</td>
+            <td>
+              <button type="button" class="secondary" data-cart-del="${docSnap.id}">Supprimer</button>
+            </td>
+          `;
+          cartTableBody.appendChild(cartTr);
+        });
+        cartTotal.textContent = `${total.toFixed(2)} €`;
+        cartTableBody.querySelectorAll('input[data-cart-qty]').forEach(input => {
+          input.addEventListener('change', async () => {
+            const id = input.dataset.cartQty;
+            const newQty = Math.max(1, Number(input.value || 1));
+            input.value = newQty;
+            try {
+              await updateDoc(doc(db, 'cartItems', id), { quantity: newQty });
+              await loadCartItems();
+            } catch (err) {
+              setAuthStatus(err?.message || 'Mise à jour impossible. Vérifiez les règles Firestore.', true);
+            }
+          });
+        });
+        cartTableBody.querySelectorAll('button[data-cart-del]').forEach(btn => {
+          btn.addEventListener('click', async () => {
+            const id = btn.dataset.cartDel;
+            try {
+              await deleteDoc(doc(db, 'cartItems', id));
+              await loadCartItems();
+            } catch (err) {
+              setAuthStatus(err?.message || 'Suppression impossible. Vérifiez les règles Firestore.', true);
+            }
+          });
+        });
+      } catch (err) {
+        cartTableBody.innerHTML = '<tr><td colspan="7">Impossible de charger le panier (index manquant).</td></tr>';
+        cartCard.classList.remove('hidden');
+        cartTotal.textContent = '0 €';
+        setAuthStatus('Impossible de charger le panier (index manquant).', true);
+      }
+    }
+
+    async function loadAccount() {
+      const user = auth.currentUser;
+      if (!user || !accountCard) return;
+      accountEmail.value = user.email || '';
+      try {
+        const snap = await getDoc(doc(db, 'users', user.uid));
+        const data = snap.exists() ? snap.data() : {};
+        if (!data.clientCode && data.company) {
+          const newCode = await reserveClientCode(data.company);
+          await setDoc(doc(db, 'users', user.uid), { clientCode: newCode }, { merge: true });
+          data.clientCode = newCode;
+        }
+        currentClientCode = data.clientCode || '';
+        currentSupplierRef = '';
+        if (supplierRefInput) supplierRefInput.value = '';
+        accountClientCode.value = data.clientCode || '';
+        accountCompany.value = data.company || '';
+        accountLastName.value = data.lastName || '';
+        accountFirstName.value = data.firstName || '';
+        accountPhone.value = data.phone || '';
+        accountSiret.value = data.siret || '';
+        accountVat.value = data.vat || '';
+        accountBillingStreet.value = data.billingStreet || '';
+        accountBillingPostal.value = data.billingPostal || '';
+        accountBillingCity.value = data.billingCity || '';
+        accountShippingStreet.value = data.shippingStreet || '';
+        accountShippingPostal.value = data.shippingPostal || '';
+        accountShippingCity.value = data.shippingCity || '';
+        accountSameAddress.checked = !!data.shippingSame;
+        if (accountSameAddress.checked) {
+          copyBillingToShipping();
+        }
+        setShippingDisabled(accountSameAddress.checked);
+        if (accountStatus) accountStatus.style.display = 'none';
+        if (supplierRefInput) supplierRefInput.value = '';
+      } catch (err) {
+        setAccountStatus('Impossible de charger le profil.', true);
+      }
+    }
+
+    accountSameAddress?.addEventListener('change', () => {
+      if (accountSameAddress.checked) {
+        copyBillingToShipping();
+      }
+      setShippingDisabled(accountSameAddress.checked);
+    });
+
+    [accountBillingStreet, accountBillingPostal, accountBillingCity].forEach(input => {
+      input?.addEventListener('input', () => {
+        if (accountSameAddress?.checked) {
+          copyBillingToShipping();
+        }
+      });
+    });
+
+    accountSaveBtn?.addEventListener('click', async () => {
+      const user = auth.currentUser;
+      if (!user) return;
+      const payload = {
+        email: user.email || '',
+        company: (accountCompany?.value || '').trim(),
+        lastName: (accountLastName?.value || '').trim(),
+        firstName: (accountFirstName?.value || '').trim(),
+        phone: (accountPhone?.value || '').trim(),
+        siret: (accountSiret?.value || '').trim(),
+        vat: (accountVat?.value || '').trim(),
+        billingStreet: (accountBillingStreet?.value || '').trim(),
+        billingPostal: (accountBillingPostal?.value || '').trim(),
+        billingCity: (accountBillingCity?.value || '').trim(),
+        shippingStreet: (accountShippingStreet?.value || '').trim(),
+        shippingPostal: (accountShippingPostal?.value || '').trim(),
+        shippingCity: (accountShippingCity?.value || '').trim(),
+        shippingSame: !!accountSameAddress?.checked,
+        typeClient: CLIENT_DEFAULTS.typeClient,
+        typeFacturation: CLIENT_DEFAULTS.typeFacturation,
+        modeReglement: CLIENT_DEFAULTS.modeReglement,
+        delaiReglement: CLIENT_DEFAULTS.delaiReglement,
+        tva: CLIENT_DEFAULTS.tva,
+        tauxTva: CLIENT_DEFAULTS.tauxTva,
+        afficherNumeroBLFactures: CLIENT_DEFAULTS.afficherNumeroBLFactures,
+        afficherTarifsBL: CLIENT_DEFAULTS.afficherTarifsBL,
+        devise: CLIENT_DEFAULTS.devise,
+        conditionsTVA: CLIENT_DEFAULTS.conditionsTVA,
+        pays: CLIENT_DEFAULTS.pays,
+        compteClient: CLIENT_DEFAULTS.compteClient,
+        updatedAt: serverTimestamp()
+      };
+      try {
+        await setDoc(doc(db, 'users', user.uid), payload, { merge: true });
+        setAccountStatus('Informations mises à jour.');
+      } catch (err) {
+        setAccountStatus(err?.message || 'Mise à jour impossible.', true);
+      }
+    });
+
+
+    // Gérer le lien de vérification email (mode=verifyEmail&oobCode=...)
+    (async () => {
+      const params = new URLSearchParams(window.location.search);
+      const mode = params.get('mode');
+      const oobCode = params.get('oobCode');
+      const verified = params.get('verified');
+      console.log('[Auth] URL params:', { mode, oobCode: oobCode ? oobCode.substring(0, 10) + '...' : null, verified });
+
+      // Retour depuis la vérification GitHub Pages → afficher le message de succès
+      if (verified === '1') {
+        window.history.replaceState({}, document.title, window.location.pathname);
+        authGate?.classList.remove('hidden');
+        appContainer?.classList.add('hidden');
+        resendVerifBtn?.classList.add('hidden');
+        setAuthStatus('✅ Adresse email vérifiée avec succès. Vous pouvez maintenant vous connecter.', false);
+      }
+
+      if (params.get('passwordReset') === '1') {
+        window.history.replaceState({}, document.title, window.location.pathname);
+        setAuthStatus('✅ Mot de passe réinitialisé. Vous pouvez vous connecter.', false);
+      }
+
+      if (mode === 'resetPassword' && oobCode) {
+        isResettingPassword = true;
+        window.history.replaceState({}, document.title, window.location.pathname);
+        authGate?.classList.remove('hidden');
+        appContainer?.classList.add('hidden');
+        document.getElementById('authLoginSection')?.classList.add('hidden');
+        document.getElementById('authRegisterSection')?.classList.add('hidden');
+        document.getElementById('authResetSection')?.classList.remove('hidden');
+        setAuthStatus('Saisissez votre nouveau mot de passe.', false);
+
+        document.getElementById('authConfirmResetBtn')?.addEventListener('click', async () => {
+          const newPassword = document.getElementById('authNewPassword')?.value || '';
+          const confirm = document.getElementById('authNewPasswordConfirm')?.value || '';
+          if (newPassword.length < 6) {
+            setAuthStatus('Le mot de passe doit contenir au moins 6 caractères.', true);
+            return;
+          }
+          if (newPassword !== confirm) {
+            setAuthStatus('Les mots de passe ne correspondent pas.', true);
+            return;
+          }
+          try {
+            await confirmPasswordReset(auth, oobCode, newPassword);
+            isResettingPassword = false;
+            window.history.replaceState({}, document.title, window.location.pathname);
+            window.parent?.postMessage('cleanUrl', 'https://fontart.fr');
+            document.getElementById('authResetSection')?.classList.add('hidden');
+            document.getElementById('authLoginSection')?.classList.remove('hidden');
+            setAuthStatus('✅ Mot de passe réinitialisé. Vous pouvez vous connecter.', false);
+          } catch (err) {
+            const code = err?.code || '';
+            if (code === 'auth/expired-action-code') {
+              setAuthStatus('❌ Le lien a expiré. Demandez un nouvel email de réinitialisation.', true);
+            } else if (code === 'auth/weak-password') {
+              setAuthStatus('Mot de passe trop faible (6 caractères minimum).', true);
+            } else {
+              setAuthStatus(`❌ Erreur : ${code || err?.message}`, true);
+            }
+          }
+        });
+      }
+
+      if (mode === 'verifyEmail' && oobCode) {
+        const continueUrl = params.get('continueUrl') || 'https://fontart.fr/devis';
+        try {
+          await auth.authStateReady();
+          await applyActionCode(auth, oobCode);
+          console.log('[Auth] applyActionCode : succès');
+          window.history.replaceState({}, document.title, window.location.pathname);
+          window.parent?.postMessage('cleanUrl', 'https://fontart.fr');
+          authGate?.classList.remove('hidden');
+          appContainer?.classList.add('hidden');
+          resendVerifBtn?.classList.add('hidden');
+          setAuthStatus('✅ Adresse email vérifiée avec succès. Vous pouvez maintenant vous connecter.', false);
+        } catch (err) {
+          console.error('[Auth] applyActionCode erreur:', err?.code, err?.message);
+          authGate?.classList.remove('hidden');
+          appContainer?.classList.add('hidden');
+          resendVerifBtn?.classList.remove('hidden');
+          setAuthStatus(`❌ Vérification échouée (${err?.code || 'erreur inconnue'}). Demandez un nouvel email.`, true);
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }
+      }
+    })();
+
+    onAuthStateChanged(auth, (user) => {
+      if (!user) {
+        if (isResettingPassword) return; // Ne pas écraser le formulaire de reset
+        needsProfile = false;
+        appContainer?.classList.add('hidden');
+        authGate?.classList.remove('hidden');
+        if (authBar) authBar.style.display = 'none';
+        showRegister(false);
+        setAuthStatus('Veuillez vous connecter.');
+        return;
+      }
+
+      setAuthStatus('Chargement du compte...');
+      (async () => {
+        try {
+          // Toujours recharger pour obtenir l'état emailVerified à jour
+          try { await reload(user); } catch {}
+
+          // Ne pas interrompre un flux d'inscription en cours
+          if (!user.emailVerified && !isRegistering) {
+            await signOut(auth);
+            resendVerifBtn?.classList.remove('hidden');
+            setAuthStatus('Veuillez vérifier votre adresse email avant de vous connecter. Consultez votre boîte mail.', true);
+            return;
+          } else if (user.emailVerified) {
+            resendVerifBtn?.classList.add('hidden');
+          } else {
+            // isRegistering = true : inscription en cours, on laisse passer
+            return;
+          }
+
+          const snap = await getDoc(doc(db, 'users', user.uid));
+          if (snap.exists()) {
+            needsProfile = false;
+            appContainer?.classList.remove('hidden');
+            authGate?.classList.add('hidden');
+            if (authBar) authBar.style.display = 'flex';
+            if (authUser) authUser.textContent = user.email || '';
+            showRegister(false);
+            loadArticles();
+            loadCartItems();
+            loadAccount();
+            return;
+          }
+
+          const email = user.email || '';
+          if (email) {
+            const q = query(collection(db, 'users'), where('email', '==', email));
+            const result = await getDocs(q);
+            if (!result.empty) {
+              const data = result.docs[0].data();
+              await setDoc(doc(db, 'users', user.uid), data, { merge: true });
+              needsProfile = false;
+              appContainer?.classList.remove('hidden');
+              authGate?.classList.add('hidden');
+              if (authBar) authBar.style.display = 'flex';
+              if (authUser) authUser.textContent = user.email || '';
+              showRegister(false);
+              loadArticles();
+              loadCartItems();
+              loadAccount();
+              return;
+            }
+          }
+
+          needsProfile = true;
+          appContainer?.classList.add('hidden');
+          authGate?.classList.remove('hidden');
+          showRegister(true);
+          setAuthStatus('Profil incomplet. Merci de compléter les champs puis cliquer sur "Créer un compte".', true);
+        } catch (err) {
+          appContainer?.classList.add('hidden');
+          authGate?.classList.remove('hidden');
+          setAuthStatus(err?.message || 'Accès impossible. Vérifiez Firestore.', true);
+        }
+      })();
+    });
+  </script>
 
   <script>
     window.Module = {
@@ -305,70 +1893,125 @@
     };
   </script>
   <script async src="https://cdn.jsdelivr.net/npm/opencv.js@1.2.1/opencv.min.js"></script>
-  <script>
+    <script>
     const photoInput = document.getElementById('photoInput');
     const previewCanvas = document.getElementById('previewCanvas');
     const ctx = previewCanvas.getContext('2d');
     const resetPointsBtn = document.getElementById('resetPointsBtn');
-    const scalePickBtn = document.getElementById('scalePickBtn');
-    const detectBtn = document.getElementById('detectBtn');
-    const drawRoiBtn = document.getElementById('drawRoiBtn');
-    const grabCutEnabled = document.getElementById('grabCutEnabled');
-    const previewContoursBtn = document.getElementById('previewContoursBtn');
-    const grayPreviewBtn = document.getElementById('grayPreviewBtn');
-    const binaryPreviewBtn = document.getElementById('binaryPreviewBtn');
+    const validateScaleBtn = document.getElementById('validateScaleBtn');
     const confirmContoursBtn = document.getElementById('confirmContoursBtn');
+    const manualClearBtn = document.getElementById('manualClearBtn');
+    const manualHint = document.getElementById('manualHint');
     const pointsInfo = document.getElementById('pointsInfo');
+    const workspaceCard = document.getElementById('workspaceCard');
+    const scaleSection = document.getElementById('scaleSection');
+    const selectSection = document.getElementById('selectSection');
     const statusMsg = document.getElementById('statusMsg');
 
-    const blurRange = document.getElementById('blurRange');
-    const threshRange = document.getElementById('threshRange');
-    const blurVal = document.getElementById('blurVal');
-    const threshVal = document.getElementById('threshVal');
+    const zoomInBtn = document.getElementById('zoomInBtn');
+    const zoomOutBtn = document.getElementById('zoomOutBtn');
+    const zoomResetBtn = document.getElementById('zoomResetBtn');
+
 
     const knownDistanceMm = document.getElementById('knownDistanceMm');
     const goldRateInput = document.getElementById('goldRate');
-    const silverRateInput = document.getElementById('silverRate');
+    const referenceInput = document.getElementById('reference');
+    const descriptionInput = document.getElementById('description');
+    const weightInput = document.getElementById('weight');
+    const updateGoldBtn = document.getElementById('updateGoldBtn');
+    const goldStatus = document.getElementById('goldStatus');
 
     const surfaceOut = document.getElementById('surfaceOut');
     const perimeterOut = document.getElementById('perimeterOut');
     const heightOut = document.getElementById('heightOut');
     const stotalOut = document.getElementById('stotalOut');
     const priceTableBody = document.getElementById('priceTableBody');
+    const resultsCard = document.getElementById('resultsCard');
+    let lastQuoteContext = null;
+
+    const tempCanvas = document.createElement('canvas');
+    const tempCtx = tempCanvas.getContext('2d');
 
     let sourceImage = null;
     let selectedPoints = [];
     let pxPerMm = null;
-    let lastMetrics = null;
     let cvReady = false;
-    let roiMode = false;
-    let roiStart = null;
-    let roiRect = null;
-    let imageVersion = 0;
-    let grabMaskCache = null;
-    let grabMaskKey = null;
-    let scalePickMode = false;
-    let binaryContours = null;
-    let binaryHierarchy = null;
+    let binaryContours = [];
+    let binaryHierarchy = [];
     let selectableBinaryIndices = [];
     let selectedContourIndices = new Set();
+    let currentStage = 'idle';
+    let manualMode = false;
+    let manualContours = [];
+    let manualCurrent = [];
+    let manualDrawing = false;
+    let manualHoverPoint = null;
+    let manualNearStart = false;
+    let viewScale = 1;
+    let viewOffsetX = 0;
+    let viewOffsetY = 0;
+    let isPanning = false;
+    let panStart = null;
 
-    blurRange.addEventListener('input', () => { blurVal.textContent = blurRange.value; if (sourceImage) renderBinaryPreview(false); });
-    threshRange.addEventListener('input', () => { threshVal.textContent = threshRange.value; if (sourceImage) renderBinaryPreview(false); });
-    grabCutEnabled.addEventListener('change', () => { clearGrabMaskCache(); if (sourceImage) renderBinaryPreview(true); });
+    const MIN_CONTOUR_AREA = 200;
+    const OZ_PER_KG = 32.1507465686;
+
+    window.__cvReadyHook = () => {
+      cvReady = true;
+      if (sourceImage && currentStage === 'select') {
+        renderCurrent();
+      }
+    };
+
+    function setStage(stage) {
+      currentStage = stage;
+      const nouvelArticleCard = document.getElementById('nouvelArticleCard');
+      workspaceCard.classList.toggle('hidden', stage === 'idle');
+      workspaceCard.classList.toggle('single', stage === 'scale' || stage === 'select');
+      if (stage === 'idle') {
+        if (nouvelArticleCard) nouvelArticleCard.classList.remove('hidden');
+      }
+      scaleSection.classList.toggle('hidden', stage !== 'scale');
+      selectSection.classList.toggle('hidden', stage !== 'select');
+      if (sourceImage) {
+        renderNormalPreview();
+      }
+    }
 
     function setStatus(msg, isError = false) {
       statusMsg.textContent = msg;
       statusMsg.classList.toggle('danger', isError);
     }
 
+    function parseWeight() {
+      const raw = weightInput.value.trim().replace(',', '.');
+      if (weightInput.value !== raw) weightInput.value = raw;
+      const value = Number(raw);
+      return Number.isFinite(value) ? value : null;
+    }
+
+    function hasRequiredInputs() {
+      const missing = [];
+      if (!descriptionInput.value.trim()) missing.push('description');
+      const weight = parseWeight();
+      if (!weight || weight <= 0) missing.push('poids');
+      return { ok: missing.length === 0, missing };
+    }
+
+    function updateStartAvailability() {
+      const { ok } = hasRequiredInputs();
+      photoInput.disabled = !ok;
+    }
+
     function getCanvasXY(e) {
       const rect = previewCanvas.getBoundingClientRect();
       const scaleX = previewCanvas.width / rect.width;
       const scaleY = previewCanvas.height / rect.height;
+      const canvasX = (e.clientX - rect.left) * scaleX;
+      const canvasY = (e.clientY - rect.top) * scaleY;
       return {
-        x: (e.clientX - rect.left) * scaleX,
-        y: (e.clientY - rect.top) * scaleY
+        x: canvasX / viewScale + viewOffsetX,
+        y: canvasY / viewScale + viewOffsetY
       };
     }
 
@@ -379,28 +2022,34 @@
       const h = Math.abs(rect.h);
       return { x, y, w, h };
     }
+
     function drawImageAndPoints(baseImg) {
       if (!baseImg) return;
       previewCanvas.width = baseImg.width;
       previewCanvas.height = baseImg.height;
+      previewCanvas.style.width = '100%';
+      previewCanvas.style.height = 'auto';
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+      ctx.setTransform(viewScale, 0, 0, viewScale, -viewOffsetX * viewScale, -viewOffsetY * viewScale);
       ctx.drawImage(baseImg, 0, 0);
+
+      const radius = 6 / viewScale;
+      const labelSize = 14 / viewScale;
+      const labelOffset = 8 / viewScale;
 
       selectedPoints.forEach((p, i) => {
         ctx.beginPath();
-        ctx.arc(p.x, p.y, 6, 0, Math.PI * 2);
+        ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
         ctx.fillStyle = i === 0 ? '#ef4444' : '#2563eb';
         ctx.fill();
-        ctx.font = '14px sans-serif';
+        ctx.font = `${labelSize}px sans-serif`;
         ctx.fillStyle = '#111827';
-        ctx.fillText(String(i + 1), p.x + 8, p.y - 8);
-      });
+        ctx.fillText(String(i + 1), p.x + labelOffset, p.y - labelOffset);
+      });
 
-      if (roiRect) {
-        const r = normalizeRect(roiRect);
-        ctx.strokeStyle = '#f97316';
-        ctx.lineWidth = 3;
-        ctx.strokeRect(r.x, r.y, r.w, r.h);
+      if (pointsInfo) {
+        pointsInfo.textContent = `${selectedPoints.length} / 2 points sélectionnés`;
       }
 
       if (selectedPoints.length === 2) {
@@ -408,543 +2057,938 @@
         ctx.moveTo(selectedPoints[0].x, selectedPoints[0].y);
         ctx.lineTo(selectedPoints[1].x, selectedPoints[1].y);
         ctx.strokeStyle = '#f59e0b';
-        ctx.lineWidth = 3;
+        ctx.lineWidth = 3 / viewScale;
         ctx.stroke();
-      }
 
-      pointsInfo.textContent = `${selectedPoints.length} / 2 points sélectionnés`;
+        const dist = Number(knownDistanceMm.value);
+        if (pxPerMm && Number.isFinite(dist) && dist > 0) {
+          const mx = (selectedPoints[0].x + selectedPoints[1].x) / 2;
+          const my = (selectedPoints[0].y + selectedPoints[1].y) / 2;
+          const dx = selectedPoints[1].x - selectedPoints[0].x;
+          const dy = selectedPoints[1].y - selectedPoints[0].y;
+          const len = Math.hypot(dx, dy) || 1;
+          // Vecteur perpendiculaire orienté vers le bas (y positif en canvas)
+          let perpX = -dy / len;
+          let perpY = dx / len;
+          if (perpY < 0) { perpX = -perpX; perpY = -perpY; }
+          const offset = 18 / viewScale;
+          const lx = mx + perpX * offset;
+          const ly = my + perpY * offset;
+          const fontSize = 13 / viewScale;
+          const text = `${dist} mm`;
+          ctx.font = `bold ${fontSize}px sans-serif`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'top';
+          const tw = ctx.measureText(text).width;
+          const pad = 4 / viewScale;
+          ctx.fillStyle = 'rgba(255,255,255,0.85)';
+          ctx.fillRect(lx - tw / 2 - pad, ly - pad, tw + pad * 2, fontSize + pad * 2);
+          ctx.fillStyle = '#b45309';
+          ctx.fillText(text, lx, ly);
+          ctx.textAlign = 'left';
+          ctx.textBaseline = 'alphabetic';
+        }
+      }
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
     }
 
-    function renderGrayPreview() {
-      if (!sourceImage) {
-        setStatus('Chargez d\'abord une image.', true);
-        return;
-      }
-      if (!cvReady) {
-        setStatus('OpenCV n\'est pas encore chargé. Réessayez dans quelques secondes.', true);
-        return;
-      }
+    function isManualHole(index) {
+      const contour = manualContours[index];
+      if (!contour || !contour.points.length) return false;
+      const test = contour.points[0];
+      let insideCount = 0;
+      manualContours.forEach((other, j) => {
+        if (j === index) return;
+        if (pointInPolygon(other.points, test.x, test.y)) insideCount += 1;
+      });
+      return insideCount % 2 === 1;
+    }
 
-      const tempCanvas = document.createElement('canvas');
-      tempCanvas.width = sourceImage.width;
-      tempCanvas.height = sourceImage.height;
-      const tempCtx = tempCanvas.getContext('2d');
-      tempCtx.drawImage(sourceImage, 0, 0);
+    function drawManualOverlay() {
+      if (!manualContours.length && !manualCurrent.length) return;
+      ctx.save();
+      ctx.setTransform(viewScale, 0, 0, viewScale, -viewOffsetX * viewScale, -viewOffsetY * viewScale);
+      ctx.lineWidth = 3 / viewScale;
+      ctx.lineJoin = 'round';
+      ctx.lineCap = 'round';
 
-      const src = cv.imread(tempCanvas);
-      const gray = new cv.Mat();
-      const rgba = new cv.Mat();
-      try {
-        cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
-        cv.cvtColor(gray, rgba, cv.COLOR_GRAY2RGBA);
-        cv.imshow(previewCanvas, rgba);
+      manualContours.forEach((contour, idx) => {
+        const isHole = isManualHole(idx);
+        ctx.strokeStyle = isHole ? '#2563eb' : '#16a34a';
+        ctx.beginPath();
+        ctx.moveTo(contour.points[0].x, contour.points[0].y);
+        for (let i = 1; i < contour.points.length; i++) {
+          ctx.lineTo(contour.points[i].x, contour.points[i].y);
+        }
+        ctx.closePath();
+        ctx.stroke();
+      });
 
-        selectedPoints.forEach((p, i) => {
+      if (manualCurrent.length) {
+        ctx.strokeStyle = '#f97316';
+        ctx.beginPath();
+        ctx.moveTo(manualCurrent[0].x, manualCurrent[0].y);
+        for (let i = 1; i < manualCurrent.length; i++) {
+          ctx.lineTo(manualCurrent[i].x, manualCurrent[i].y);
+        }
+        if (manualHoverPoint) {
+          ctx.lineTo(manualHoverPoint.x, manualHoverPoint.y);
+        }
+        ctx.stroke();
+
+        ctx.fillStyle = '#f97316';
+        manualCurrent.forEach((pt, i) => {
           ctx.beginPath();
-          ctx.arc(p.x, p.y, 6, 0, Math.PI * 2);
-          ctx.fillStyle = i === 0 ? '#ef4444' : '#2563eb';
+          ctx.arc(pt.x, pt.y, 3 / viewScale, 0, Math.PI * 2);
           ctx.fill();
-          ctx.font = '14px sans-serif';
-          ctx.fillStyle = '#111827';
-          ctx.fillText(String(i + 1), p.x + 8, p.y - 8);
-        });
-
-        if (roiRect) {
-          const r = normalizeRect(roiRect);
-          ctx.strokeStyle = '#f97316';
-          ctx.lineWidth = 3;
-          ctx.strokeRect(r.x, r.y, r.w, r.h);
-        }
-
-        if (selectedPoints.length === 2) {
-          ctx.beginPath();
-          ctx.moveTo(selectedPoints[0].x, selectedPoints[0].y);
-          ctx.lineTo(selectedPoints[1].x, selectedPoints[1].y);
-          ctx.strokeStyle = '#f59e0b';
-          ctx.lineWidth = 3;
-          ctx.stroke();
-        }
-
-        pointsInfo.textContent = `${selectedPoints.length} / 2 points sélectionnés`;
-        setStatus('Prévisualisation en niveaux de gris affichée.');
-      } catch (err) {
-        setStatus(`Erreur niveaux de gris: ${err.message || err}`, true);
-      } finally {
-        src.delete();
-        gray.delete();
-        rgba.delete();
-      }
-    }
-
-
-    function clearGrabMaskCache() {
-      if (grabMaskCache) {
-        grabMaskCache.delete();
-        grabMaskCache = null;
-      }
-      grabMaskKey = null;
-    }
-
-    function buildGrabCutMask(src) {
-      if (!roiRect || !grabCutEnabled.checked) return null;
-      const r = normalizeRect(roiRect);
-      const x = Math.max(0, Math.floor(r.x));
-      const y = Math.max(0, Math.floor(r.y));
-      const w = Math.min(src.cols - x, Math.floor(r.w));
-      const h = Math.min(src.rows - y, Math.floor(r.h));
-      if (w <= 1 || h <= 1) return null;
-
-      const key = `${imageVersion}:${x}:${y}:${w}:${h}`;
-      if (grabMaskCache && grabMaskKey === key) {
-        return grabMaskCache;
-      }
-
-      clearGrabMaskCache();
-      const mask = new cv.Mat(src.rows, src.cols, cv.CV_8U, new cv.Scalar(cv.GC_BGD));
-      const bgdModel = new cv.Mat();
-      const fgdModel = new cv.Mat();
-      try {
-        const rect = new cv.Rect(x, y, w, h);
-        cv.grabCut(src, mask, rect, bgdModel, fgdModel, 3, cv.GC_INIT_WITH_RECT);
-
-        const fg = new cv.Mat();
-        const prFg = new cv.Mat();
-        cv.compare(mask, new cv.Scalar(cv.GC_FGD), fg, cv.CMP_EQ);
-        cv.compare(mask, new cv.Scalar(cv.GC_PR_FGD), prFg, cv.CMP_EQ);
-        cv.bitwise_or(fg, prFg, mask);
-        fg.delete();
-        prFg.delete();
-      } finally {
-        bgdModel.delete();
-        fgdModel.delete();
-      }
-
-      grabMaskCache = mask;
-      grabMaskKey = key;
-      return grabMaskCache;
-    }
-    function clearBinaryDetection() {
-      if (binaryContours) {
-        binaryContours.delete();
-        binaryContours = null;
-      }
-      if (binaryHierarchy) {
-        binaryHierarchy.delete();
-        binaryHierarchy = null;
-      }
-      selectableBinaryIndices = [];
-    }
-
-    function toggleContourAt(x, y) {
-      if (!binaryContours || selectableBinaryIndices.length === 0) return false;
-
-      let bestIdx = -1;
-      let bestArea = Number.POSITIVE_INFINITY;
-      for (let i = 0; i < selectableBinaryIndices.length; i++) {
-        const idx = selectableBinaryIndices[i];
-        const c = binaryContours.get(idx);
-        const inside = cv.pointPolygonTest(c, new cv.Point(x, y), false) >= 0;
-        if (inside) {
-          const a = Math.abs(cv.contourArea(c, false));
-          if (a < bestArea) {
-            bestArea = a;
-            bestIdx = idx;
+          if (i === 0 && manualNearStart && manualCurrent.length >= 3) {
+            ctx.strokeStyle = '#16a34a';
+            ctx.lineWidth = 2 / viewScale;
+            ctx.beginPath();
+            ctx.arc(pt.x, pt.y, 8 / viewScale, 0, Math.PI * 2);
+            ctx.stroke();
           }
-        }
-        c.delete();
-      }
-
-      if (bestIdx === -1) return false;
-      if (selectedContourIndices.has(bestIdx)) {
-        selectedContourIndices.delete(bestIdx);
-      } else {
-        selectedContourIndices.add(bestIdx);
-      }
-      return true;
-    }
-    function renderBinaryPreview(keepSelection = false) {
-      if (!sourceImage) {
-        setStatus('Chargez d\'abord une image.', true);
-        return;
-      }
-      if (!cvReady) {
-        setStatus('OpenCV n\'est pas encore chargé. Réessayez dans quelques secondes.', true);
-        return;
-      }
-
-      const tempCanvas = document.createElement('canvas');
-      tempCanvas.width = sourceImage.width;
-      tempCanvas.height = sourceImage.height;
-      const tempCtx = tempCanvas.getContext('2d');
-      tempCtx.drawImage(sourceImage, 0, 0);
-
-      const src = cv.imread(tempCanvas);
-      const gray = new cv.Mat();
-      const blur = new cv.Mat();
-      let bin = new cv.Mat();
-      const rgba = new cv.Mat();
-      const kernel = cv.Mat.ones(3, 3, cv.CV_8U);
-      try {
-        cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
-
-        const blurK = Number(blurRange.value) || 3;
-        cv.GaussianBlur(gray, blur, new cv.Size(blurK, blurK), 0, 0, cv.BORDER_DEFAULT);
-
-        const t = Number(threshRange.value) || 120;
-        cv.threshold(blur, bin, t, 255, cv.THRESH_BINARY_INV);
-        cv.morphologyEx(bin, bin, cv.MORPH_OPEN, kernel);
-        cv.morphologyEx(bin, bin, cv.MORPH_CLOSE, kernel);`r`n`r`n        if (roiRect) {`r`n          const r = normalizeRect(roiRect);`r`n          const x1 = Math.max(0, Math.floor(r.x));`r`n          const y1 = Math.max(0, Math.floor(r.y));`r`n          const x2 = Math.min(src.cols - 1, Math.floor(r.x + r.w));`r`n          const y2 = Math.min(src.rows - 1, Math.floor(r.y + r.h));`r`n          if (x2 > x1 && y2 > y1) {`r`n            const mask = cv.Mat.zeros(src.rows, src.cols, cv.CV_8U);`r`n            cv.rectangle(mask, new cv.Point(x1, y1), new cv.Point(x2, y2), new cv.Scalar(255), -1);`r`n            cv.bitwise_and(bin, mask, bin);`r`n            mask.delete();`r`n          }`r`n        }`r`n`r`n        if (grabCutEnabled.checked) {`r`n          const gMask = buildGrabCutMask(src);`r`n          if (gMask) {`r`n            bin.delete();`r`n            bin = gMask.clone();`r`n          }`r`n        }`r`n        }
-
-        clearBinaryDetection();
-        binaryContours = new cv.MatVector();
-        binaryHierarchy = new cv.Mat();
-        cv.findContours(bin, binaryContours, binaryHierarchy, cv.RETR_TREE, cv.CHAIN_APPROX_SIMPLE);
-
-        selectableBinaryIndices = [];
-        for (let i = 0; i < binaryContours.size(); i++) {
-          const c = binaryContours.get(i);
-          const area = Math.abs(cv.contourArea(c, false));
-          if (area >= 80) selectableBinaryIndices.push(i);
-          c.delete();
-        }
-
-        if (!keepSelection) selectedContourIndices.clear();
-
-        cv.cvtColor(bin, rgba, cv.COLOR_GRAY2RGBA);
-        for (const idx of selectedContourIndices) {
-          if (idx >= 0 && idx < binaryContours.size()) {
-            cv.drawContours(rgba, binaryContours, idx, new cv.Scalar(239, 68, 68, 255), 2, cv.LINE_8, binaryHierarchy, 0);
-          }
-        }
-        cv.imshow(previewCanvas, rgba);
-
-        if (roiRect) {
-          const r = normalizeRect(roiRect);
-          ctx.strokeStyle = '#f97316';
-          ctx.lineWidth = 3;
-          ctx.strokeRect(r.x, r.y, r.w, r.h);
-        }
-
-        selectedPoints.forEach((p, i) => {
-          ctx.beginPath();
-          ctx.arc(p.x, p.y, 6, 0, Math.PI * 2);
-          ctx.fillStyle = i === 0 ? '#ef4444' : '#2563eb';
-          ctx.fill();
-          ctx.font = '14px sans-serif';
-          ctx.fillStyle = '#111827';
-          ctx.fillText(String(i + 1), p.x + 8, p.y - 8);
         });
+      }
+      ctx.restore();
+    }
 
-        if (selectedPoints.length === 2) {
-          ctx.beginPath();
-          ctx.moveTo(selectedPoints[0].x, selectedPoints[0].y);
-          ctx.lineTo(selectedPoints[1].x, selectedPoints[1].y);
-          ctx.strokeStyle = '#f59e0b';
-          ctx.lineWidth = 3;
-          ctx.stroke();
+    function renderNormalPreview() {
+      if (!sourceImage) return;
+      drawImageAndPoints(sourceImage);
+      if (currentStage === 'select' && manualMode) {
+        drawManualOverlay();
+      }
+    }
+
+    function captureAnnotatedImage(maxDim = 1200, quality = 0.82) {
+      if (!sourceImage) return null;
+      const savedScale = viewScale;
+      const savedOffX = viewOffsetX;
+      const savedOffY = viewOffsetY;
+
+      // Dessiner en vue complète (sans zoom)
+      viewScale = 1;
+      viewOffsetX = 0;
+      viewOffsetY = 0;
+      renderNormalPreview();
+
+      // Capturer et redimensionner
+      const w = previewCanvas.width;
+      const h = previewCanvas.height;
+      const scale = Math.min(1, maxDim / Math.max(w, h, 1));
+      const tw = Math.round(w * scale);
+      const th = Math.round(h * scale);
+      const tmp = document.createElement('canvas');
+      tmp.width = tw;
+      tmp.height = th;
+      tmp.getContext('2d').drawImage(previewCanvas, 0, 0, tw, th);
+      const dataUrl = tmp.toDataURL('image/jpeg', quality);
+
+      // Restaurer la vue d'origine
+      viewScale = savedScale;
+      viewOffsetX = savedOffX;
+      viewOffsetY = savedOffY;
+      renderNormalPreview();
+
+      return dataUrl;
+    }
+
+    function clampView() {
+      if (!sourceImage) return;
+      const maxX = Math.max(0, sourceImage.width - sourceImage.width / viewScale);
+      const maxY = Math.max(0, sourceImage.height - sourceImage.height / viewScale);
+      viewOffsetX = Math.min(maxX, Math.max(0, viewOffsetX));
+      viewOffsetY = Math.min(maxY, Math.max(0, viewOffsetY));
+    }
+
+    function setZoom(newScale, anchorX, anchorY) {
+      if (!sourceImage) return;
+      const oldScale = viewScale;
+      viewScale = Math.min(5, Math.max(1, newScale));
+      const screenX = (anchorX - viewOffsetX) * oldScale;
+      const screenY = (anchorY - viewOffsetY) * oldScale;
+      viewOffsetX = anchorX - screenX / viewScale;
+      viewOffsetY = anchorY - screenY / viewScale;
+      clampView();
+      if (zoomResetBtn) {
+        zoomResetBtn.textContent = `${Math.round(viewScale * 100)}%`;
+      }
+      renderNormalPreview();
+    }
+
+    function resetZoom() {
+      viewScale = 1;
+      viewOffsetX = 0;
+      viewOffsetY = 0;
+      if (zoomResetBtn) zoomResetBtn.textContent = '100%';
+      renderNormalPreview();
+    }
+
+
+    function renderCurrent() {
+      if (!sourceImage) return;
+      renderNormalPreview();
+    }
+
+    function pointInPolygon(points, x, y) {
+      let inside = false;
+      for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+        const xi = points[i].x, yi = points[i].y;
+        const xj = points[j].x, yj = points[j].y;
+        const intersect = ((yi > y) !== (yj > y)) &&
+          (x < (xj - xi) * (y - yi) / (yj - yi + 0.000001) + xi);
+        if (intersect) inside = !inside;
+      }
+      return inside;
+    }
+
+    function findExternalContourAt(x, y) {
+      let hit = null;
+      selectableBinaryIndices.forEach(idx => {
+        const contour = binaryContours[idx];
+        if (!contour || contour.points.length < 3) return;
+        if (pointInPolygon(contour.points, x, y)) {
+          if (!hit || contour.area < hit.area) {
+            hit = contour;
+          }
         }
+      });
+      return hit ? hit.index : null;
+    }
 
-        pointsInfo.textContent = `${selectedPoints.length} / 2 points sélectionnés`;
-        setStatus(`Prévisualisation binaire affichée. Zones sélectionnées: ${selectedContourIndices.size}.`);
-      } catch (err) {
-        setStatus(`Erreur binaire: ${err.message || err}`, true);
-      } finally {
-        src.delete();
-        gray.delete();
-        blur.delete();
-        bin.delete();
-        rgba.delete();
-        kernel.delete();
+    function getHoleIndicesFor(idx) {
+      const result = [];
+      if (!binaryHierarchy[idx]) return result;
+      let child = binaryHierarchy[idx].child;
+      while (child !== -1 && child !== undefined) {
+        result.push(child);
+        const inner = getHoleIndicesFor(child);
+        result.push(...inner);
+        child = binaryHierarchy[child]?.next ?? -1;
+      }
+      return result;
+    }
+
+    function polygonArea(points) {
+      let sum = 0;
+      for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+        sum += (points[j].x * points[i].y - points[i].x * points[j].y);
+      }
+      return Math.abs(sum) / 2;
+    }
+
+    function polygonPerimeter(points) {
+      let sum = 0;
+      for (let i = 0; i < points.length; i++) {
+        const next = points[(i + 1) % points.length];
+        const dx = points[i].x - next.x;
+        const dy = points[i].y - next.y;
+        sum += Math.hypot(dx, dy);
+      }
+      return sum;
+    }
+
+    function computePriceFromSurface(colorCode, surfaceTotalMm2, goldRate) {
+      const stotale = Number(surfaceTotalMm2) || 0;
+      const gold = Number(goldRate) || 0;
+      if (!stotale) return null;
+      const goldFactor = gold / 100000;
+      switch ((colorCode || '').toUpperCase()) {
+        case 'FAV':
+          return stotale * (0.0019 + 0.0003842 + 0.0008166666667 * goldFactor);
+        case 'D1':
+          return stotale * (0.0019 + (0.0008166666667 + 0.0012166666667) * goldFactor);
+        case 'D2':
+          return stotale * (0.0019 + (0.0008166666667 + 0.0024333333333) * goldFactor);
+        case 'D3':
+          return stotale * (0.0019 + (0.0008166666667 + 0.00365) * goldFactor);
+        default:
+          return null;
       }
     }
 
-    function euclidean(a, b) {
-      const dx = a.x - b.x;
-      const dy = a.y - b.y;
-      return Math.sqrt(dx * dx + dy * dy);
+    const CLIENT_DEFAULTS = {
+      typeClient: 'Professionnel',
+      typeFacturation: 'Façon',
+      modeReglement: 'Virement bancaire',
+      delaiReglement: 'Paiement Comptant',
+      tva: 'Oui',
+      tauxTva: '20',
+      afficherNumeroBLFactures: 'Oui',
+      afficherTarifsBL: 'Oui',
+      devise: 'EUR',
+      conditionsTVA: 'N° TVA',
+      pays: '',
+      compteClient: ''
+    };
+
+    function computeMetricsFromSelection() {
+      let areaPx = 0;
+      let perimeterPx = 0;
+
+      if (manualContours.length > 0) {
+        manualContours.forEach((contour, idx) => {
+          const area = polygonArea(contour.points);
+          const perim = polygonPerimeter(contour.points);
+          const testPoint = contour.points[0];
+          let insideCount = 0;
+          manualContours.forEach((other, j) => {
+            if (j === idx) return;
+            if (pointInPolygon(other.points, testPoint.x, testPoint.y)) insideCount += 1;
+          });
+          const isHole = insideCount % 2 === 1;
+          areaPx += isHole ? -area : area;
+          perimeterPx += perim;
+        });
+        return { areaPx, perimeterPx, count: manualContours.length };
+      }
+
+      selectedContourIndices.forEach(idx => {
+        const contour = binaryContours[idx];
+        if (!contour) return;
+        areaPx += contour.area;
+        perimeterPx += contour.perimeter;
+        const holes = getHoleIndicesFor(idx);
+        holes.forEach(hIdx => {
+          const hole = binaryContours[hIdx];
+          if (!hole) return;
+          areaPx -= hole.area;
+          perimeterPx += hole.perimeter;
+        });
+      });
+
+      return { areaPx, perimeterPx, count: selectedContourIndices.size };
     }
 
-    function updateScaleFromPoints() {
-      const distMm = Number(knownDistanceMm.value);
-      if (selectedPoints.length !== 2 || !distMm || distMm <= 0) {
-        pxPerMm = null;
+    async function computeAndDisplayPrices() {
+      if (!pxPerMm) {
+        setStatus('Définissez l\'échelle avant de calculer.', true);
         return;
       }
-      const pxDist = euclidean(selectedPoints[0], selectedPoints[1]);
-      if (pxDist <= 0) {
-        pxPerMm = null;
+
+      const weight = parseWeight();
+      if (!weight || weight <= 0) {
+        setStatus('Poids invalide.', true);
         return;
       }
-      pxPerMm = pxDist / distMm;
-      setStatus(`Echelle calibrée: ${pxPerMm.toFixed(4)} px/mm.`);
-    }
 
-    function formatPrice(value) {
-      return new Intl.NumberFormat('fr-FR', {
-        style: 'currency',
-        currency: 'EUR',
-        maximumFractionDigits: 4
-      }).format(value);
-    }
+      const metrics = computeMetricsFromSelection();
+      if (metrics.count === 0) {
+        setStatus('Sélectionnez au moins un contour.', true);
+        return;
+      }
 
-    function renderPriceTable(stotale, goldRate, silverRate) {
-      const lines = [
-        { label: 'Flash + Vernis', formula: 'Stotale × 0.001', value: stotale * 0.001 },
-        { label: 'D1', formula: 'Stotale × 0.002 × cours or', value: stotale * 0.002 * goldRate },
-        { label: 'D2', formula: 'Stotale × 0.003 × cours or', value: stotale * 0.003 * goldRate },
-        { label: 'D3', formula: 'Stotale × 0.004 × cours or', value: stotale * 0.004 * goldRate },
-        { label: 'Argent 15', formula: 'Stotale × 0.002 × cours argent', value: stotale * 0.002 * silverRate },
-        { label: 'Argent 20', formula: 'Stotale × 0.003 × cours argent', value: stotale * 0.003 * silverRate },
-        { label: 'Argent 30', formula: 'Stotale × 0.004 × cours argent', value: stotale * 0.004 * silverRate },
+      if (!window.currentSupplierRef && window.supplierRefInput && !window.supplierRefInput.value) {
+        try {
+          const preview = await previewNextSupplierReference();
+          if (preview?.supplierRef) {
+            window.supplierRefInput.value = preview.supplierRef;
+          } else {
+            window.supplierRefInput.value = window.fallbackSupplierReference?.() || 'XXXX0001';
+          }
+        } catch (err) {
+          window.supplierRefInput.value = window.fallbackSupplierReference?.() || 'XXXX0001';
+        }
+      }
+
+      const surfaceMm2 = metrics.areaPx / (pxPerMm * pxPerMm);
+      const perimeterMm = metrics.perimeterPx / pxPerMm;
+      const h = weight / (0.0073 * surfaceMm2);
+      const stotale = surfaceMm2 * 2 + (h * perimeterMm);
+      const goldRate = Number(goldRateInput.value) || 0;
+      const goldFactor = goldRate / 100000;
+      const priceBaseSurface = stotale;
+      const priceFlashVernis = priceBaseSurface * (0.0019 + 0.0003842 + 0.0008166666667 * goldFactor);
+      const priceD1 = priceBaseSurface * (0.0019 + (0.0008166666667 + 0.0012166666667) * goldFactor);
+      const priceD2 = priceBaseSurface * (0.0019 + (0.0008166666667 + 0.0024333333333) * goldFactor);
+      const priceD3 = priceBaseSurface * (0.0019 + (0.0008166666667 + 0.00365) * goldFactor);
+
+      if (surfaceOut) surfaceOut.textContent = surfaceMm2.toFixed(2);
+      if (perimeterOut) perimeterOut.textContent = perimeterMm.toFixed(2);
+      if (heightOut) heightOut.textContent = h.toFixed(4);
+      if (stotalOut) stotalOut.textContent = stotale.toFixed(2);
+
+      const prices = [
+        { label: 'Flash + Vernis', code: 'FAV', coloris: 'Flash + Vernis', formula: `${stotale.toFixed(2)} x (0,0019 + 0,0003842 + 0,0008166666667 * (${goldRate.toFixed(2)} / 100000))`, price: priceFlashVernis },
+        { label: 'D1', code: 'D1', coloris: 'Doré 1', formula: `${stotale.toFixed(2)} x (0,0019 + (0,0008166666667 + 0,0012166666667) * (${goldRate.toFixed(2)} / 100000))`, price: priceD1 },
+        { label: 'D2', code: 'D2', coloris: 'Doré 2', formula: `${stotale.toFixed(2)} x (0,0019 + (0,0008166666667 + 0,0024333333333) * (${goldRate.toFixed(2)} / 100000))`, price: priceD2 },
+        { label: 'D3', code: 'D3', coloris: 'Doré 3', formula: `${stotale.toFixed(2)} x (0,0019 + (0,0008166666667 + 0,00365) * (${goldRate.toFixed(2)} / 100000))`, price: priceD3 }
       ];
 
-      priceTableBody.innerHTML = lines.map(line => `
-        <tr>
-          <td>${line.label}</td>
-          <td>${line.formula}</td>
-          <td>${formatPrice(line.value)}</td>
-        </tr>
-      `).join('');
-    }
+      lastQuoteContext = {
+        referenceClient: referenceInput.value.trim(),
+        referenceSupplier: (window.supplierRefInput?.value || '').trim(),
+        description: descriptionInput.value.trim()
+      };
 
-    function computeAndDisplayPrices(surfaceMm2, perimeterMm) {
-      const h = 0.0073 / surfaceMm2;
-      const stotale = surfaceMm2 + (h * perimeterMm);
-
-      const goldRate = Number(goldRateInput.value) || 0;
-      const silverRate = Number(silverRateInput.value) || 0;
-
-      surfaceOut.textContent = surfaceMm2.toFixed(3);
-      perimeterOut.textContent = perimeterMm.toFixed(3);
-      heightOut.textContent = h.toExponential(6);
-      stotalOut.textContent = stotale.toFixed(3);
-
-      renderPriceTable(stotale, goldRate, silverRate);
-
-      lastMetrics = { surfaceMm2, perimeterMm, h, stotale, goldRate, silverRate };
-    }
-
-    function analyzeContours(previewOnly = false) {
-      if (!cvReady) {
-        setStatus('OpenCV n\'est pas encore chargé. Réessayez dans quelques secondes.', true);
-        return;
+      priceTableBody.innerHTML = '';
+      const previewFile = photoInput.files && photoInput.files[0] ? photoInput.files[0] : null;
+      let photoPreview = null;
+      try {
+        if (previewFile && window.fileToBase64Thumbnail) {
+          photoPreview = await window.fileToBase64Thumbnail(previewFile);
+        }
+      } catch (err) {
+        setStatus('Prévisualisation photo impossible.', true);
       }
-      if (!sourceImage) {
-        setStatus('Chargez d\'abord une image.', true);
-        return;
-      }
+      prices.forEach((row) => {
+        const tr = document.createElement('tr');
+        const desc = `${row.coloris} sur ${lastQuoteContext?.description || ''}`.trim();
+        tr.innerHTML = `
+          <td>${row.label}</td>
+          <td>${row.price.toFixed(2)} €</td>
+          <td><button type="button" class="secondary" data-label="${row.label}" data-code="${row.code}" data-coloris="${row.coloris}" data-price="${row.price}">Ajouter</button></td>
+        `;
+        priceTableBody.appendChild(tr);
+      });
+      priceTableBody.querySelectorAll('button[data-code]').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const qty = 1;
+          const descBase = lastQuoteContext?.description || '';
+          const item = {
+            source: 'result',
+            reference: '',
+            referenceCode: btn.dataset.code || '',
+            referenceClient: lastQuoteContext?.referenceClient || '',
+            referenceSupplier: lastQuoteContext?.referenceSupplier || '',
+            description: `${btn.dataset.coloris || ''} sur ${descBase}`.trim(),
+            unitPrice: Number(btn.dataset.price) || 0,
+            surfaceTotalMm2: stotale,
+            quantity: qty,
+            photoDataUrl: captureAnnotatedImage() || photoPreview?.dataUrl || ''
+          };
+          setFormStatus('Ajout au panier...', false);
+          if (window.addToCart) {
+            window.addToCart(item);
+            setStatus('Ajouté au panier.');
+          }
+        });
+      });
 
-      renderBinaryPreview(true);
-      if (previewOnly) {
-        setStatus('Cliquez sur les zones noires de la pièce pour sélectionner les contours, puis confirmez.');
-        return;
-      }
+      resultsCard.classList.remove('hidden');
+      workspaceCard.classList.add('hidden');
+      setStatus('Calcul terminé.');
 
-      updateScaleFromPoints();
-      if (!pxPerMm) {
-        setStatus('Sélectionnez 2 points de règle et renseignez leur distance réelle en mm avant la confirmation.', true);
-        return;
-      }
-
-      if (!binaryContours || selectedContourIndices.size === 0) {
-        setStatus('Aucune zone sélectionnée. Cliquez sur les zones noires de la pièce.', true);
-        return;
-      }
-
-      const objMask = cv.Mat.zeros(previewCanvas.height, previewCanvas.width, cv.CV_8U);
-      const hData = binaryHierarchy ? binaryHierarchy.data32S : null;
+      const payload = {
+        referenceClient: referenceInput.value.trim(),
+        referenceSupplier: (window.supplierRefInput?.value || '').trim() || null,
+        description: descriptionInput.value.trim(),
+        weight,
+        goldRate,
+        surfaceMm2,
+        perimeterMm,
+        heightMm: h,
+        surfaceTotalMm2: stotale,
+        prices,
+        calibration: {
+          distanceMm: Number(knownDistanceMm.value) || null,
+          pxPerMm,
+          points: selectedPoints.map(p => ({ x: Math.round(p.x), y: Math.round(p.y) }))
+        },
+        roi: null,
+        adjustments: null,
+        selection: {
+          mode: manualMode ? 'manual' : 'auto',
+          selectedContours: manualMode ? manualContours.length : Array.from(selectedContourIndices),
+          holes: manualMode ? manualContours.filter(c => c.isHole).length : null
+        }
+      };
 
       try {
-        for (const idx of selectedContourIndices) {
-          if (idx < 0 || idx >= binaryContours.size()) continue;
-          cv.drawContours(objMask, binaryContours, idx, new cv.Scalar(255), -1, cv.LINE_8, binaryHierarchy, 0);
-          if (hData) {
-            for (let j = 0; j < binaryContours.size(); j++) {
-              if (hData[j * 4 + 3] === idx) {
-                cv.drawContours(objMask, binaryContours, j, new cv.Scalar(0), -1, cv.LINE_8, binaryHierarchy, 0);
-              }
-            }
-          }
+        const file = photoInput.files && photoInput.files[0] ? photoInput.files[0] : null;
+        const canvasDataUrl = captureAnnotatedImage();
+        if (window.saveQuoteToFirestore) {
+          await window.saveQuoteToFirestore(payload, file, canvasDataUrl);
         }
-
-        const areaPx2 = cv.countNonZero(objMask);
-        const perContours = new cv.MatVector();
-        const perHierarchy = new cv.Mat();
-        cv.findContours(objMask, perContours, perHierarchy, cv.RETR_CCOMP, cv.CHAIN_APPROX_SIMPLE);
-
-        let perimeterPx = 0;
-        for (let i = 0; i < perContours.size(); i++) {
-          const cPer = perContours.get(i);
-          const a = Math.abs(cv.contourArea(cPer, false));
-          if (a >= 10) perimeterPx += cv.arcLength(cPer, true);
-          cPer.delete();
-        }
-        perContours.delete();
-        perHierarchy.delete();
-
-        const mmPerPx = 1 / pxPerMm;
-        const surfaceMm2 = areaPx2 * mmPerPx * mmPerPx;
-        const perimeterMm = perimeterPx * mmPerPx;
-
-        if (surfaceMm2 <= 0 || perimeterMm <= 0) {
-          setStatus('Contours invalides. Ajustez les paramètres ou la sélection.', true);
-          return;
-        }
-
-        computeAndDisplayPrices(surfaceMm2, perimeterMm);
-        setStatus('Contours validés et prix calculés.');
       } catch (err) {
-        setStatus(`Erreur traitement: ${err.message || err}`, true);
-      } finally {
-        objMask.delete();
+        setStatus(err?.message || 'Enregistrement Firebase impossible. Vérifiez les règles Storage/Firestore.', true);
       }
     }
-    photoInput.addEventListener('change', (e) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
 
-      const img = new Image();
-      img.onload = () => {
-        sourceImage = img;
-        imageVersion += 1;
-        clearGrabMaskCache();
-        selectedPoints = [];
-        pxPerMm = null;
-        roiMode = false;
-        roiStart = null;
-        roiRect = null;
-        scalePickMode = false;
-        clearGrabMaskCache();
-        selectedContourIndices.clear();
-        clearBinaryDetection();
-        renderBinaryPreview(false);
-        setStatus('Image chargée. Vue binaire active. Cliquez sur les zones noires à prendre en compte.');
-      };
-      img.src = URL.createObjectURL(file);
-    });
+    function resetWorkflowForImage() {
+      selectedPoints = [];
+      pxPerMm = null;
+      binaryContours = [];
+      binaryHierarchy = [];
+      selectableBinaryIndices = [];
+      selectedContourIndices.clear();
+      manualContours = [];
+      manualCurrent = [];
+      manualDrawing = false;
+      manualHoverPoint = null;
+      manualMode = false;
+      viewScale = 1;
+      viewOffsetX = 0;
+      viewOffsetY = 0;
+      if (manualHint) manualHint.style.display = 'none';
+      resultsCard.classList.add('hidden');
+    }
 
-    previewCanvas.addEventListener('click', (e) => {
-      if (!sourceImage) return;
-      if (roiMode) return;
+    function loadImageFromFile(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const img = new Image();
+          img.onload = () => resolve(img);
+          img.onerror = reject;
+          img.src = reader.result;
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    }
 
-      const { x, y } = getCanvasXY(e);
-
-      if (scalePickMode) {
-        if (selectedPoints.length >= 2) selectedPoints = [];
-        selectedPoints.push({ x, y });
-        renderBinaryPreview(true);
-
-        if (selectedPoints.length === 2) {
-          updateScaleFromPoints();
-          scalePickMode = false;
-          setStatus('Échelle définie. Vous pouvez confirmer le calcul.');
+    async function fetchJson(url) {
+      const tryFetch = async (target) => {
+        const response = await fetch(target, { cache: 'no-store' });
+        if (!response.ok) throw new Error('HTTP ' + response.status);
+        const text = await response.text();
+        try {
+          return JSON.parse(text);
+        } catch (err) {
+          const start = text.indexOf('[');
+          const end = text.lastIndexOf(']');
+          if (start !== -1 && end !== -1 && end > start) {
+            return JSON.parse(text.slice(start, end + 1));
+          }
+          throw err;
         }
+      };
+      try {
+        return await tryFetch(url);
+      } catch (err) {
+        try {
+          return await tryFetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`);
+        } catch (err2) {
+          return await tryFetch(`https://r.jina.ai/http://${url.replace(/^https?:\/\//, '')}`);
+        }
+      }
+    }
+
+    function selectLbmaFixing(data) {
+      if (!Array.isArray(data)) return null;
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      const cutoff = yesterday.toISOString().slice(0, 10);
+      let best = null;
+      data.forEach(row => {
+        if (!row || !row.d || !row.v || row.v.length < 3) return;
+        if (row.d <= cutoff) {
+          if (!best || row.d > best.d) best = row;
+        }
+      });
+      return best;
+    }
+
+    async function updateGoldRate() {
+      const cacheKey = 'goldRateEurKg';
+      const cacheTsKey = 'goldRateEurKgTs';
+      const url = 'https://prices.lbma.org.uk/json/gold_am.json';
+      try {
+        const data = await fetchJson(url);
+        const row = selectLbmaFixing(data);
+        if (!row) throw new Error('No fixing');
+        const eurPerOz = Number(row.v[2]);
+        if (!Number.isFinite(eurPerOz)) throw new Error('Bad value');
+        const eurPerKg = eurPerOz * OZ_PER_KG;
+        goldRateInput.value = eurPerKg.toFixed(2);
+        localStorage.setItem(cacheKey, eurPerKg.toFixed(2));
+        localStorage.setItem(cacheTsKey, row.d);
+      } catch (err) {
+        const cached = localStorage.getItem(cacheKey);
+        if (cached) {
+          goldRateInput.value = cached;
+        }
+      }
+    }
+
+    referenceInput.addEventListener('input', updateStartAvailability);
+    descriptionInput.addEventListener('input', updateStartAvailability);
+    weightInput.addEventListener('input', updateStartAvailability);
+    weightInput.addEventListener('change', () => parseWeight());
+
+
+
+    photoInput.addEventListener('change', async (e) => {
+      setFormStatus('Photo sélectionnée. Vérification...', false);
+      const { ok, missing } = hasRequiredInputs();
+      if (!ok) {
+        setFormStatus(`Champs obligatoires manquants: ${missing.join(', ')}.`, true);
+        photoInput.value = '';
         return;
       }
-
-      const toggled = toggleContourAt(Math.floor(x), Math.floor(y));
-      if (toggled) {
-        renderBinaryPreview(true);
-      } else {
-        setStatus('Cliquez sur une zone noire de la pièce pour la sélectionner.', true);
+      if (formStatus) formStatus.style.display = 'none';
+      const file = e.target.files[0];
+      if (!file) return;
+      try {
+        sourceImage = await loadImageFromFile(file);
+        tempCanvas.width = sourceImage.width;
+        tempCanvas.height = sourceImage.height;
+        tempCtx.clearRect(0, 0, tempCanvas.width, tempCanvas.height);
+        tempCtx.drawImage(sourceImage, 0, 0);
+        resetWorkflowForImage();
+        if (workspaceCard) workspaceCard.classList.remove('hidden');
+        const nouvelArticleCard = document.getElementById('nouvelArticleCard');
+        if (nouvelArticleCard) nouvelArticleCard.classList.add('hidden');
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        try { window.parent?.postMessage({ type: 'scrollToIframe' }, '*'); } catch(e) {}
+        setStage('scale');
+        setStatus('Cliquez 2 points sur la règle pour calibrer l\'échelle.');
+        setFormStatus('Image chargée. Passez à la calibration.', false);
+        renderNormalPreview();
+      } catch (err) {
+        console.error(err);
+        setFormStatus('Impossible de charger l\'image.', true);
       }
-    });
-
-    previewCanvas.addEventListener('mousedown', (e) => {
-      if (!sourceImage || !roiMode) return;
-      const { x, y } = getCanvasXY(e);
-      roiStart = { x, y };
-      roiRect = { x, y, w: 0, h: 0 };
-      drawImageAndPoints(sourceImage);
-    });
-
-    previewCanvas.addEventListener('mousemove', (e) => {
-      if (!sourceImage || !roiMode || !roiStart) return;
-      const { x, y } = getCanvasXY(e);
-      roiRect = { x: roiStart.x, y: roiStart.y, w: x - roiStart.x, h: y - roiStart.y };
-      drawImageAndPoints(sourceImage);
-    });
-
-    previewCanvas.addEventListener('mouseup', () => {
-      if (!sourceImage || !roiMode || !roiRect) return;
-      const r = normalizeRect(roiRect);
-      if (r.w < 20 || r.h < 20) {
-        roiRect = null;
-        roiStart = null;
-        setStatus('Rectangle trop petit. Redessinez une zone plus large.', true);
-        drawImageAndPoints(sourceImage);
-        return;
-      }
-      roiRect = r;
-      roiStart = null;
-      roiMode = false;
-      drawImageAndPoints(sourceImage);
-      setStatus('Zone pièce enregistrée. Lancez "Prévisualiser".');
-    });
-
-    knownDistanceMm.addEventListener('input', () => {
-      if (selectedPoints.length === 2) updateScaleFromPoints();
     });
 
     resetPointsBtn.addEventListener('click', () => {
       selectedPoints = [];
       pxPerMm = null;
-        roiMode = false;
-        roiStart = null;
-        roiRect = null;
-        scalePickMode = false;
-        clearGrabMaskCache();
-        selectedContourIndices.clear();
-        clearBinaryDetection();
-        if (sourceImage) {
-          renderBinaryPreview(false);
-        } else {
-          drawImageAndPoints(sourceImage);
-        }
+      renderNormalPreview();
       setStatus('Points réinitialisés.');
     });
 
-    detectBtn.addEventListener('click', () => analyzeContours(true));
-    scalePickBtn.addEventListener('click', () => {
-      if (!sourceImage) {
-        setStatus('Chargez d\'abord une image.', true);
+    validateScaleBtn.addEventListener('click', () => {
+      if (selectedPoints.length !== 2) {
+        setStatus('Sélectionnez deux points sur la règle.', true);
         return;
       }
-      scalePickMode = true;
-      selectedPoints = [];
-      setStatus('Cliquez 2 points sur la règle pour définir l\'échelle.');
-      renderBinaryPreview(true);
-    });
-
-    drawRoiBtn.addEventListener('click', () => {
-      if (!sourceImage) {
-        setStatus('Chargez d\'abord une image.', true);
+      const dist = Number(knownDistanceMm.value);
+      if (!Number.isFinite(dist) || dist <= 0) {
+        setStatus('Entrez une distance réelle valide.', true);
         return;
       }
-      roiMode = true;
-      roiStart = null;
-      setStatus('Cliquez-glissez pour dessiner un rectangle autour de la pièce.');
+      const dx = selectedPoints[0].x - selectedPoints[1].x;
+      const dy = selectedPoints[0].y - selectedPoints[1].y;
+      const pixelLength = Math.hypot(dx, dy);
+      pxPerMm = pixelLength / dist;
+      setStage('select');
+      manualMode = true;
+      if (manualHint) manualHint.style.display = 'block';
+      setStatus('Mode points activé. Cliquez pour placer les points du contour.');
+      renderNormalPreview();
     });
-    previewContoursBtn.addEventListener('click', () => analyzeContours(true));
-    grayPreviewBtn.addEventListener('click', () => renderBinaryPreview(true));
-    binaryPreviewBtn.addEventListener('click', () => renderBinaryPreview(true));
-    confirmContoursBtn.addEventListener('click', () => analyzeContours(false));
 
-    [goldRateInput, silverRateInput].forEach(input => {
-      input.addEventListener('input', () => {
-        if (lastMetrics) {
-          renderPriceTable(lastMetrics.stotale, Number(goldRateInput.value) || 0, Number(silverRateInput.value) || 0);
+    confirmContoursBtn.addEventListener('click', () => {
+      setFormStatus('Calcul en cours...', false);
+      computeAndDisplayPrices();
+    });
+
+
+    manualClearBtn.addEventListener('click', () => {
+      manualContours = [];
+      manualCurrent = [];
+      manualHoverPoint = null;
+      setStatus('Contours manuels effacés.');
+      renderNormalPreview();
+    });
+
+    previewCanvas.addEventListener('click', (e) => {
+      if (!sourceImage) return;
+      const { x, y } = getCanvasXY(e);
+
+      if (currentStage === 'scale') {
+        if (selectedPoints.length < 2) {
+          selectedPoints.push({ x, y });
+          renderNormalPreview();
+          if (selectedPoints.length === 2) {
+            setStatus('Indiquez la distance réelle entre les points puis validez.');
+          }
         }
-      });
+        return;
+      }
+
+      if (currentStage === 'select' && manualMode && !isPanning) {
+        if (manualNearStart) {
+          manualContours.push({ points: [...manualCurrent] });
+          manualCurrent = [];
+          manualDrawing = false;
+          manualHoverPoint = null;
+          manualNearStart = false;
+          setStatus('Contour fermé.');
+          renderNormalPreview();
+          return;
+        }
+        manualCurrent.push({ x, y });
+        manualHoverPoint = null;
+        setStatus(`Points sélectionnés: ${manualCurrent.length}. Cliquez pour continuer, puis validez.`);
+        renderNormalPreview();
+      }
     });
 
-    window.__cvReadyHook = () => {
-      cvReady = true;
-      setStatus('OpenCV chargé. Importez une image pour commencer.');
-    };
+    previewCanvas.addEventListener('mousedown', (e) => {
+      if (!sourceImage) return;
+      if (viewScale > 1 && (e.altKey || e.button === 1 || e.button === 2)) {
+        isPanning = true;
+        panStart = { x: e.clientX, y: e.clientY, ox: viewOffsetX, oy: viewOffsetY };
+        return;
+      }
+    });
+
+    previewCanvas.addEventListener('mousemove', (e) => {
+      if (!sourceImage) return;
+      if (isPanning && panStart) {
+        const rect = previewCanvas.getBoundingClientRect();
+        const scaleX = previewCanvas.width / rect.width;
+        const scaleY = previewCanvas.height / rect.height;
+        const dx = (e.clientX - panStart.x) * scaleX;
+        const dy = (e.clientY - panStart.y) * scaleY;
+        viewOffsetX = panStart.ox - dx / viewScale;
+        viewOffsetY = panStart.oy - dy / viewScale;
+        clampView();
+        renderNormalPreview();
+        return;
+      }
+      if (currentStage === 'select' && manualMode && manualCurrent.length) {
+        const { x, y } = getCanvasXY(e);
+        manualHoverPoint = { x, y };
+        if (manualCurrent.length >= 3) {
+          const rect = previewCanvas.getBoundingClientRect();
+          const threshold = 12 * (previewCanvas.width / rect.width);
+          manualNearStart = Math.hypot(x - manualCurrent[0].x, y - manualCurrent[0].y) <= threshold;
+        } else {
+          manualNearStart = false;
+        }
+        renderNormalPreview();
+      }
+    });
+
+    previewCanvas.addEventListener('mouseup', (e) => {
+      if (!sourceImage) return;
+      if (isPanning) {
+        isPanning = false;
+        panStart = null;
+        return;
+      }
+    });
+
+    previewCanvas.addEventListener('mouseleave', () => {
+      if (isPanning) {
+        isPanning = false;
+        panStart = null;
+      }
+      if (currentStage === 'select' && manualMode) {
+        manualHoverPoint = null;
+        manualNearStart = false;
+      }
+    });
+
+    previewCanvas.addEventListener('wheel', (e) => {
+      if (!sourceImage) return;
+      e.preventDefault();
+      const { x, y } = getCanvasXY(e);
+      const factor = e.deltaY > 0 ? 0.9 : 1.1;
+      setZoom(viewScale * factor, x, y);
+    }, { passive: false });
+
+    previewCanvas.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+    });
+
+    zoomInBtn?.addEventListener('click', () => {
+      if (!sourceImage) return;
+      const centerX = viewOffsetX + (previewCanvas.width / viewScale) / 2;
+      const centerY = viewOffsetY + (previewCanvas.height / viewScale) / 2;
+      setZoom(viewScale * 1.2, centerX, centerY);
+    });
+
+    zoomOutBtn?.addEventListener('click', () => {
+      if (!sourceImage) return;
+      const centerX = viewOffsetX + (previewCanvas.width / viewScale) / 2;
+      const centerY = viewOffsetY + (previewCanvas.height / viewScale) / 2;
+      setZoom(viewScale / 1.2, centerX, centerY);
+    });
+
+    zoomResetBtn?.addEventListener('click', () => {
+      if (!sourceImage) return;
+      resetZoom();
+    });
+
+    updateGoldBtn?.addEventListener('click', () => {
+      updateGoldRate();
+    });
+
+    updateStartAvailability();
+    setStage('idle');
+    setStatus('Chargez une image pour démarrer.');
+    updateGoldRate();
+
+    // Aperçu photo au survol
+    const photoPreview = document.getElementById('photoPreview');
+    const photoPreviewImg = photoPreview.querySelector('img');
+    document.addEventListener('mouseover', (e) => {
+      const img = e.target.closest('td img');
+      if (!img) return;
+      photoPreviewImg.src = img.src;
+      photoPreview.style.display = 'block';
+    });
+    document.addEventListener('mousemove', (e) => {
+      if (photoPreview.style.display === 'none') return;
+      const x = e.clientX + 20;
+      const y = e.clientY + 20;
+      photoPreview.style.left = Math.min(x, window.innerWidth  - 330) + 'px';
+      photoPreview.style.top  = Math.min(y, window.innerHeight - 330) + 'px';
+    });
+    document.addEventListener('mouseout', (e) => {
+      if (!e.target.closest('td img')) return;
+      photoPreview.style.display = 'none';
+    });
   </script>
 </body>
 </html>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
