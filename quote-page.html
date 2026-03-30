@@ -499,8 +499,7 @@
       <div id="selectSection" class="hidden" style="margin-top: 8px;">
         <div style="display:flex; align-items:center; gap:10px; width:100%;">
           <button id="manualClearBtn" class="secondary" type="button" style="white-space:nowrap;">Effacer</button>
-          <button id="confirmContoursBtn" type="button" style="white-space:nowrap;">Calculer le prix</button>
-          <span class="hint" id="manualHint" style="display:none; margin:0;">Cliquez sur les bordures de la pièce.</span>
+          <button id="confirmContoursBtn" type="button" style="white-space:nowrap;">Valider le(s) contour(s)</button>
         </div>
       </div>
 
@@ -1348,6 +1347,8 @@
         window.currentSupplierRef = '';
         sourceImage = null;
         ctx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+        const knownDistanceInput = document.getElementById('knownDistanceMm');
+        if (knownDistanceInput) knownDistanceInput.value = '';
         resultsCard.classList.add('hidden');
         setStage('idle');
         setStatus('Chargez une image pour démarrer.');
@@ -2415,10 +2416,10 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       if (stotalOut) stotalOut.textContent = stotale.toFixed(2);
 
       const prices = [
-        { label: 'Flash + Vernis', code: 'FAV', coloris: 'Flash + Vernis', formula: `${stotale.toFixed(2)} x (0,0019 + 0,0003842 + 0,0008166666667 * (${goldRate.toFixed(2)} / 100000))`, price: priceFlashVernis },
-        { label: 'D1', code: 'D1', coloris: 'Doré 1', formula: `${stotale.toFixed(2)} x (0,0019 + (0,0008166666667 + 0,0012166666667) * (${goldRate.toFixed(2)} / 100000))`, price: priceD1 },
-        { label: 'D2', code: 'D2', coloris: 'Doré 2', formula: `${stotale.toFixed(2)} x (0,0019 + (0,0008166666667 + 0,0024333333333) * (${goldRate.toFixed(2)} / 100000))`, price: priceD2 },
-        { label: 'D3', code: 'D3', coloris: 'Doré 3', formula: `${stotale.toFixed(2)} x (0,0019 + (0,0008166666667 + 0,00365) * (${goldRate.toFixed(2)} / 100000))`, price: priceD3 }
+        { label: 'Flash or avec vernis cataphorèse', code: 'FAV', coloris: 'Flash + Vernis', formula: `${stotale.toFixed(2)} x (0,0019 + 0,0003842 + 0,0008166666667 * (${goldRate.toFixed(2)} / 100000))`, price: priceFlashVernis },
+        { label: 'Dorure 1µm', code: 'D1', coloris: 'Doré 1', formula: `${stotale.toFixed(2)} x (0,0019 + (0,0008166666667 + 0,0012166666667) * (${goldRate.toFixed(2)} / 100000))`, price: priceD1 },
+        { label: 'Dorure 2µm', code: 'D2', coloris: 'Doré 2', formula: `${stotale.toFixed(2)} x (0,0019 + (0,0008166666667 + 0,0024333333333) * (${goldRate.toFixed(2)} / 100000))`, price: priceD2 },
+        { label: 'Dorure 3µm', code: 'D3', coloris: 'Doré 3', formula: `${stotale.toFixed(2)} x (0,0019 + (0,0008166666667 + 0,00365) * (${goldRate.toFixed(2)} / 100000))`, price: priceD3 }
       ];
 
       lastQuoteContext = {
@@ -2641,7 +2642,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         window.scrollTo({ top: 0, behavior: 'smooth' });
         try { window.parent?.postMessage({ type: 'scrollToIframe' }, '*'); } catch(e) {}
         setStage('scale');
-        setStatus('Cliquez 2 points sur la règle pour calibrer l\'échelle.');
+        setStatus('Sélectionnez 2 points sur la règle pour calibrer l\'image.');
         setFormStatus('Image chargée. Passez à la calibration.', false);
         renderNormalPreview();
       } catch (err) {
@@ -2714,7 +2715,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           manualDrawing = false;
           manualHoverPoint = null;
           manualNearStart = false;
-          setStatus('Contour fermé.');
+          setStatus('Contour fermé. Valider ou ajouter des contours si besoin.');
           renderNormalPreview();
           return;
         }
