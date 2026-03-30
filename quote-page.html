@@ -446,8 +446,8 @@
     <p class="status" id="authStatus">Veuillez vous connecter.</p>
   </div>
 
-  <!-- Tutoriel -->
-  <div class="container" style="margin-top: 24px;">
+  <!-- Tutoriel supprimé ici, déplacé dans aideCard -->
+  <div style="display:none">
     <div class="card">
       <div class="tuto-wrap">
         <h2>Comment passer votre commande ?</h2>
@@ -557,6 +557,7 @@
       <button onclick="navTo('quotesCard')" id="nav-quotesCard">Mes articles</button>
       <button onclick="navTo('cartCard')" id="nav-cartCard">Ma commande</button>
       <button onclick="navTo('accountCard')" id="nav-accountCard">Mon compte</button>
+      <button onclick="navTo('aideCard')" id="nav-aideCard">Aide</button>
       <div id="authBar" style="margin-left:auto; display:none; align-items:center; gap:10px;">
         <span id="authUser" style="color:rgba(255,255,255,0.75); font-size:0.85rem;"></span>
 <button id="authSignOutBtn" class="secondary" type="button" style="padding:6px 14px; font-size:0.82rem;">Se déconnecter</button>
@@ -767,6 +768,98 @@
         <button id="accountSaveBtn" type="button">Mettre à jour</button>
       </div>
       <p class="status" id="accountStatus" style="display:none;"></p>
+    </div>
+
+    <div class="card hidden" id="aideCard">
+      <div class="tuto-wrap">
+        <h2>Comment passer votre commande ?</h2>
+        <p class="subtitle">Suivez ces étapes pour soumettre vos articles à dorer.</p>
+        <hr class="tuto-divider">
+
+        <div class="tuto-section-title">① Accès à votre espace</div>
+
+        <div class="tuto-step">
+          <div class="tuto-num">1</div>
+          <div class="tuto-body">
+            <h3>Créez votre compte</h3>
+            <p>Lors de votre première visite, cliquez sur <em>Créer un compte</em> et renseignez les informations demandées. Un e-mail de vérification vous sera envoyé — cliquez sur le lien pour activer votre compte, puis connectez-vous.</p>
+          </div>
+        </div>
+
+        <div class="tuto-step">
+          <div class="tuto-num">2</div>
+          <div class="tuto-body">
+            <h3>Connectez-vous</h3>
+            <p>Lors des visites suivantes, saisissez votre adresse e-mail et votre mot de passe. Si vous l'avez oublié, utilisez le lien <em>Mot de passe oublié</em> pour le réinitialiser.</p>
+          </div>
+        </div>
+
+        <div class="tuto-section-title">② Créer un nouvel article</div>
+
+        <div class="tuto-step">
+          <div class="tuto-num">3</div>
+          <div class="tuto-body">
+            <h3>Prenez une photo vue de dessus et pesez l'article</h3>
+            <p>Posez votre bijou à plat sur une surface neutre, <strong>à côté d'une règle graduée</strong>. Photographiez-le strictement de dessus, en veillant à ce que la règle soit bien visible et dans le même plan que la pièce. Importez ensuite cette photo dans le formulaire. Précisez également le poids de la pièce et une description.</p>
+            <span class="tuto-tip">💡 Un éclairage uniforme sans ombre portée donne de meilleurs résultats.</span>
+          </div>
+        </div>
+
+        <div class="tuto-step">
+          <div class="tuto-num">4</div>
+          <div class="tuto-body">
+            <h3>Calibrez l'échelle</h3>
+            <p>Cliquez sur deux points dont vous connaissez la distance exacte — par exemple deux graduations sur la règle. Renseignez ensuite la distance réelle entre eux (en mm) pour calibrer l'image.</p>
+          </div>
+        </div>
+
+        <div class="tuto-step">
+          <div class="tuto-num">5</div>
+          <div class="tuto-body">
+            <h3>Dessinez le contour de la pièce</h3>
+            <p>Cliquez le long des bords du bijou pour placer des points. Approchez-vous du point de départ pour fermer automatiquement le contour. Vous pouvez tracer plusieurs zones si la pièce comporte des découpes.</p>
+            <span class="tuto-tip">💡 Plus le tracé est précis, plus le calcul de surface et le tarif seront exacts.</span>
+          </div>
+        </div>
+
+        <div class="tuto-step">
+          <div class="tuto-num">6</div>
+          <div class="tuto-body">
+            <h3>Choisissez l'épaisseur du dépôt</h3>
+            <p>Sélectionnez l'épaisseur de dorure souhaitée. Ce choix influe directement sur le prix. L'article est ensuite enregistré dans <em>Mes articles</em> avec son prix calculé automatiquement. Le prix varie en fonction du cours de l'or du jour.</p>
+          </div>
+        </div>
+
+        <div class="tuto-section-title">③ Passer commande</div>
+
+        <div class="tuto-step">
+          <div class="tuto-num">7</div>
+          <div class="tuto-body">
+            <h3>Consultez vos articles</h3>
+            <p>La section <em>Mes articles</em> liste toutes vos références enregistrées avec leur prix selon l'épaisseur choisie.</p>
+          </div>
+        </div>
+
+        <div class="tuto-step">
+          <div class="tuto-num">8</div>
+          <div class="tuto-body">
+            <h3>Ajoutez au panier et vérifiez</h3>
+            <p>Ajoutez vos articles au panier depuis <em>Mes articles</em>. La section <em>Ma commande</em> affiche le récapitulatif avec le total. Vous pouvez modifier les quantités ou supprimer des articles avant de valider.</p>
+          </div>
+        </div>
+
+        <div class="tuto-step">
+          <div class="tuto-num">9</div>
+          <div class="tuto-body">
+            <h3>Validez votre commande</h3>
+            <p>Cliquez sur <em>Valider ma commande</em>. Votre commande est enregistrée et votre panier est vidé automatiquement.</p>
+          </div>
+        </div>
+
+        <div class="tuto-note">
+          ✉️ <strong>Après votre commande</strong>, vous recevrez sous <strong>24h ouvrées</strong> un e-mail de confirmation avec les instructions pour l'envoi de vos bijoux et les modalités de règlement.
+        </div>
+      </div>
     </div>
   </div>
 
@@ -1480,8 +1573,8 @@
     window.addToCart = addToCart;
 
     // Navigation entre sections
-    const navSections = ['nouvelArticleCard', 'quotesCard', 'cartCard', 'accountCard'];
-    const allNavCards = ['nouvelArticleCard', 'workspaceCard', 'resultsCard', 'quotesCard', 'cartCard', 'accountCard'];
+    const navSections = ['nouvelArticleCard', 'quotesCard', 'cartCard', 'accountCard', 'aideCard'];
+    const allNavCards = ['nouvelArticleCard', 'workspaceCard', 'resultsCard', 'quotesCard', 'cartCard', 'accountCard', 'aideCard'];
     let _wsVisible = false;
     let _resVisible = false;
     let _formVisible = true;
