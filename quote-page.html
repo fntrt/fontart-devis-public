@@ -1362,15 +1362,17 @@
     const allNavCards = ['nouvelArticleCard', 'workspaceCard', 'resultsCard', 'quotesCard', 'cartCard', 'accountCard'];
     let _wsVisible = false;
     let _resVisible = false;
+    let _formVisible = true;
 
     window.navTo = function(sectionId) {
-      // Sauvegarder l'état workspace/results avant de quitter Nouvel article
+      // Sauvegarder l'état workspace/results/form avant de quitter Nouvel article
       const currentActive = navSections.find(id =>
         document.getElementById('nav-' + id)?.classList.contains('nav-active')
       );
       if (currentActive === 'nouvelArticleCard') {
-        _wsVisible  = !document.getElementById('workspaceCard')?.classList.contains('hidden');
-        _resVisible = !document.getElementById('resultsCard')?.classList.contains('hidden');
+        _wsVisible   = !document.getElementById('workspaceCard')?.classList.contains('hidden');
+        _resVisible  = !document.getElementById('resultsCard')?.classList.contains('hidden');
+        _formVisible = !document.getElementById('nouvelArticleCard')?.classList.contains('hidden');
       }
 
       // Mettre à jour l'état actif du nav
@@ -1380,13 +1382,16 @@
       // Masquer toutes les sections
       allNavCards.forEach(id => document.getElementById(id)?.classList.add('hidden'));
 
-      // Afficher la section active
-      document.getElementById(sectionId)?.classList.remove('hidden');
+      // Afficher la section active (sauf nouvelArticleCard géré ci-dessous)
+      if (sectionId !== 'nouvelArticleCard') {
+        document.getElementById(sectionId)?.classList.remove('hidden');
+      }
 
-      // Restaurer workspace/results si retour à Nouvel article
+      // Restaurer l'état exact de Nouvel article si retour
       if (sectionId === 'nouvelArticleCard') {
-        if (_wsVisible)  document.getElementById('workspaceCard')?.classList.remove('hidden');
-        if (_resVisible) document.getElementById('resultsCard')?.classList.remove('hidden');
+        if (_formVisible) document.getElementById('nouvelArticleCard')?.classList.remove('hidden');
+        if (_wsVisible)   document.getElementById('workspaceCard')?.classList.remove('hidden');
+        if (_resVisible)  document.getElementById('resultsCard')?.classList.remove('hidden');
       }
 
       // Charger les données si nécessaire
