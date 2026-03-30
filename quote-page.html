@@ -3040,6 +3040,17 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       photoPreview.style.display = 'none';
     });
   </script>
+
+  <script>
+    // Auto-resize iframe
+    function sendHeight() {
+      try {
+        window.parent?.postMessage({ type: 'iframeHeight', height: document.body.scrollHeight }, '*');
+      } catch(e) {}
+    }
+    new ResizeObserver(sendHeight).observe(document.body);
+    sendHeight();
+  </script>
 </body>
 </html>
 
