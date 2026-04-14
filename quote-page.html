@@ -362,6 +362,7 @@
     </div>
 
     <div id="authRegisterSection" class="hidden">
+      <!-- Ligne 1 : Email / Mot de passe -->
       <div class="grid" style="margin-top: 10px;">
         <div>
           <label for="authRegEmail">Email</label>
@@ -372,7 +373,8 @@
           <input id="authRegPassword" type="password" autocomplete="new-password" placeholder="Votre mot de passe" />
         </div>
       </div>
-      <div class="grid" style="margin-top: 10px;">
+      <!-- Ligne 2 : Raison sociale / Nom / Prénom -->
+      <div style="display:grid; grid-template-columns: repeat(3,1fr); gap:12px; margin-top:10px;">
         <div>
           <label for="authCompany">Raison sociale</label>
           <input id="authCompany" type="text" placeholder="Nom de la société" />
@@ -385,25 +387,28 @@
           <label for="authFirstName">Prénom</label>
           <input id="authFirstName" type="text" placeholder="Prénom" />
         </div>
+      </div>
+      <!-- Ligne 3 : Téléphone / SIRET / N° TVA -->
+      <div style="display:grid; grid-template-columns: repeat(3,1fr); gap:12px; margin-top:10px;">
         <div>
           <label for="authPhone">Téléphone</label>
           <input id="authPhone" type="tel" placeholder="Téléphone" />
         </div>
         <div>
           <label for="authSiret">SIRET</label>
-          <label for="authIsIndividual" class="inline" style="margin-bottom:6px; font-weight: 500;">
+          <input id="authSiret" type="text" placeholder="SIRET" />
+          <label for="authIsIndividual" class="inline" style="margin-top:6px; font-weight:500; font-size:0.9rem;">
             <input id="authIsIndividual" type="checkbox" style="margin:0;" />
             Je suis un particulier
           </label>
-          <input id="authSiret" type="text" placeholder="SIRET" />
         </div>
         <div>
           <label for="authVat">N° TVA</label>
-          <label for="authIsAutoEntrepreneur" class="inline" style="margin-bottom:6px; font-weight: 500;">
+          <input id="authVat" type="text" placeholder="Numéro de TVA" />
+          <label for="authIsAutoEntrepreneur" class="inline" style="margin-top:6px; font-weight:500; font-size:0.9rem;">
             <input id="authIsAutoEntrepreneur" type="checkbox" style="margin:0;" />
             Je suis autoentrepreneur
           </label>
-          <input id="authVat" type="text" placeholder="Numéro de TVA" />
         </div>
       </div>
 
