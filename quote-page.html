@@ -391,10 +391,18 @@
         </div>
         <div>
           <label for="authSiret">SIRET</label>
+          <label for="authIsIndividual" class="inline" style="margin-bottom:6px; font-weight: 500;">
+            <input id="authIsIndividual" type="checkbox" style="margin:0;" />
+            Je suis un particulier
+          </label>
           <input id="authSiret" type="text" placeholder="SIRET" />
         </div>
         <div>
           <label for="authVat">N° TVA</label>
+          <label for="authIsAutoEntrepreneur" class="inline" style="margin-bottom:6px; font-weight: 500;">
+            <input id="authIsAutoEntrepreneur" type="checkbox" style="margin:0;" />
+            Je suis autoentrepreneur
+          </label>
           <input id="authVat" type="text" placeholder="Numéro de TVA" />
         </div>
       </div>
@@ -893,6 +901,8 @@
     const authPhone = document.getElementById('authPhone');
     const authSiret = document.getElementById('authSiret');
     const authVat = document.getElementById('authVat');
+    const authIsIndividual = document.getElementById('authIsIndividual');
+    const authIsAutoEntrepreneur = document.getElementById('authIsAutoEntrepreneur');
     const authBillingStreet = document.getElementById('authBillingStreet');
     const authBillingPostal = document.getElementById('authBillingPostal');
     const authBillingCity = document.getElementById('authBillingCity');
@@ -944,7 +954,7 @@
 
     function getVerifActionSettings() {
       return {
-        url: 'https://fontart.fr/devis',
+        url: 'https://www.fontart.fr/service-dorure-bijoux',
         handleCodeInApp: true
       };
     }
@@ -991,6 +1001,37 @@
       authShippingStreet.value = authBillingStreet.value || '';
       authShippingPostal.value = authBillingPostal.value || '';
       authShippingCity.value = authBillingCity.value || '';
+    }
+
+    function updateAuthBusinessFlags() {
+      const isIndividual = !!authIsIndividual?.checked;
+      const isAuto = !!authIsAutoEntrepreneur?.checked;
+
+      if (isIndividual) {
+        if (authIsAutoEntrepreneur) authIsAutoEntrepreneur.checked = false;
+        if (authIsAutoEntrepreneur) authIsAutoEntrepreneur.disabled = true;
+        if (authSiret) {
+          authSiret.value = '';
+          authSiret.disabled = true;
+        }
+        if (authVat) {
+          authVat.value = '';
+          authVat.disabled = true;
+        }
+        return;
+      }
+
+      if (authIsAutoEntrepreneur) authIsAutoEntrepreneur.disabled = false;
+      if (authSiret) authSiret.disabled = false;
+
+      if (isAuto) {
+        if (authVat) {
+          authVat.value = 'En franchise de TVA';
+          authVat.disabled = true;
+        }
+      } else if (authVat) {
+        authVat.disabled = false;
+      }
     }
 
     function normalizeCompanyLetters(company) {
@@ -1158,6 +1199,9 @@
       setAuthShippingDisabled(authSameAddress.checked);
     });
 
+    authIsIndividual?.addEventListener('change', updateAuthBusinessFlags);
+    authIsAutoEntrepreneur?.addEventListener('change', updateAuthBusinessFlags);
+
     [authBillingStreet, authBillingPostal, authBillingCity].forEach(input => {
       input?.addEventListener('input', () => {
         if (authSameAddress?.checked) {
@@ -1204,6 +1248,8 @@
       const phone = authPhone?.value.trim() || '';
       const siret = authSiret?.value.trim() || '';
       const vat = authVat?.value.trim() || '';
+      const isIndividual = !!authIsIndividual?.checked;
+      const isAutoEntrepreneur = !!authIsAutoEntrepreneur?.checked;
       const billingStreet = authBillingStreet?.value.trim() || '';
       const billingPostal = authBillingPostal?.value.trim() || '';
       const billingCity = authBillingCity?.value.trim() || '';
@@ -1213,13 +1259,13 @@
       const shippingSame = !!authSameAddress?.checked;
 
       const missing = [];
-      if (!company) missing.push('raison sociale');
+      if (!company && !isIndividual) missing.push('raison sociale');
       if (!lastName) missing.push('nom');
       if (!firstName) missing.push('prénom');
       if (!email) missing.push('email');
       if (!phone) missing.push('téléphone');
-      if (!siret) missing.push('siret');
-      if (!vat) missing.push('n° TVA');
+      if (!isIndividual && !siret) missing.push('siret');
+      if (!isIndividual && !isAutoEntrepreneur && !vat) missing.push('n° TVA');
       if (!billingStreet) missing.push('rue facturation');
       if (!billingPostal) missing.push('code postal facturation');
       if (!billingCity) missing.push('ville facturation');
@@ -1357,7 +1403,7 @@
         return;
       }
       try {
-        await sendPasswordResetEmail(auth, email, { url: 'https://fontart.fr/devis' });
+        await sendPasswordResetEmail(auth, email, { url: 'https://www.fontart.fr/service-dorure-bijoux' });
         setAuthStatus(`Un email de réinitialisation a été envoyé à ${email}.`, false);
       } catch (err) {
         const code = err?.code || '';
@@ -1986,7 +2032,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       }
 
       if (mode === 'verifyEmail' && oobCode) {
-        const continueUrl = params.get('continueUrl') || 'https://fontart.fr/devis';
+        const continueUrl = params.get('continueUrl') || 'https://www.fontart.fr/service-dorure-bijoux';
         try {
           await auth.authStateReady();
           await applyActionCode(auth, oobCode);
@@ -3039,6 +3085,17 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       if (!e.target.closest('td img')) return;
       photoPreview.style.display = 'none';
     });
+  </script>
+
+  <script>
+    // Auto-resize iframe
+    function sendHeight() {
+      try {
+        window.parent?.postMessage({ type: 'iframeHeight', height: document.body.scrollHeight }, '*');
+      } catch(e) {}
+    }
+    new ResizeObserver(sendHeight).observe(document.body);
+    sendHeight();
   </script>
 </body>
 </html>
