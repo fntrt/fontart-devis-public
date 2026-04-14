@@ -1024,18 +1024,21 @@
         if (authIsAutoEntrepreneur) authIsAutoEntrepreneur.checked = false;
         if (authIsAutoEntrepreneur) authIsAutoEntrepreneur.disabled = true;
         if (authSiret) {
-          authSiret.value = '';
+          authSiret.value = 'PARTICULIER';
           authSiret.disabled = true;
         }
         if (authVat) {
-          authVat.value = '';
+          authVat.value = 'NON APPLICABLE';
           authVat.disabled = true;
         }
         return;
       }
 
       if (authIsAutoEntrepreneur) authIsAutoEntrepreneur.disabled = false;
-      if (authSiret) authSiret.disabled = false;
+      if (authSiret) {
+        if (authSiret.value === 'PARTICULIER') authSiret.value = '';
+        authSiret.disabled = false;
+      }
 
       if (isAuto) {
         if (authVat) {
@@ -1043,6 +1046,7 @@
           authVat.disabled = true;
         }
       } else if (authVat) {
+        if (authVat.value === 'NON APPLICABLE') authVat.value = '';
         authVat.disabled = false;
       }
     }
