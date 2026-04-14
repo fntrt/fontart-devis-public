@@ -397,18 +397,22 @@
         <div>
           <label for="authSiret">SIRET</label>
           <input id="authSiret" type="text" placeholder="SIRET" />
-          <label for="authIsIndividual" style="display:flex; align-items:center; justify-content:flex-start; gap:6px; margin-top:6px; font-weight:500; font-size:0.9rem; white-space:nowrap; width:auto;">
-            <input id="authIsIndividual" type="checkbox" style="margin:0; flex-shrink:0;" />
-            Je suis un particulier
-          </label>
         </div>
         <div>
           <label for="authVat">N° TVA</label>
           <input id="authVat" type="text" placeholder="Numéro de TVA" />
-          <label for="authIsAutoEntrepreneur" style="display:flex; align-items:center; justify-content:flex-start; gap:6px; margin-top:6px; font-weight:500; font-size:0.9rem; white-space:nowrap; width:auto;">
-            <input id="authIsAutoEntrepreneur" type="checkbox" style="margin:0; flex-shrink:0;" />
-            Je suis autoentrepreneur
-          </label>
+        </div>
+      </div>
+      <!-- Ligne checkboxes alignée sous SIRET et N° TVA -->
+      <div style="display:grid; grid-template-columns: repeat(3,1fr); gap:12px; margin-top:6px;">
+        <div></div>
+        <div style="display:flex; align-items:center; gap:6px;">
+          <input id="authIsIndividual" type="checkbox" style="margin:0; flex-shrink:0;" />
+          <label for="authIsIndividual" style="margin:0; font-weight:500; font-size:0.9rem; cursor:pointer;">Je suis un particulier</label>
+        </div>
+        <div style="display:flex; align-items:center; gap:6px;">
+          <input id="authIsAutoEntrepreneur" type="checkbox" style="margin:0; flex-shrink:0;" />
+          <label for="authIsAutoEntrepreneur" style="margin:0; font-weight:500; font-size:0.9rem; cursor:pointer;">Je suis autoentrepreneur</label>
         </div>
       </div>
 
