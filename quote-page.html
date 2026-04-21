@@ -1748,8 +1748,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         const q = query(
           collection(db, 'articles'),
           where('userId', '==', user.uid),
-          orderBy('createdAt', 'desc'),
-          limit(50)
+          orderBy('createdAt', 'desc')
         );
         const snap = await getDocs(q);
         if (snap.empty) {
