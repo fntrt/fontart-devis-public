@@ -1755,7 +1755,12 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           quotesTableBody.innerHTML = '<tr><td colspan="5">Aucun article enregistré.</td></tr>';
           return;
         }
-        snap.forEach(docSnap => {
+        const docs = snap.docs.slice().sort((a, b) => {
+          const refA = (a.data().reference || '').toLowerCase();
+          const refB = (b.data().reference || '').toLowerCase();
+          return refA.localeCompare(refB, 'fr');
+        });
+        docs.forEach(docSnap => {
           const data = docSnap.data() || {};
           articleCache.set(docSnap.id, data);
           const tr = document.createElement('tr');
