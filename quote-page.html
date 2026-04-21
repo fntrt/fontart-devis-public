@@ -666,6 +666,10 @@
     <div class="card hidden" id="quotesCard">
       <h2>Mes articles</h2>
       <p class="hint">Articles enregistrés (coloris choisis).</p>
+      <div style="margin-bottom:12px;">
+        <input type="search" id="articlesFilter" placeholder="Filtrer par référence ou description…"
+          style="width:100%;max-width:420px;padding:8px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:0.95rem;" />
+      </div>
       <div style="overflow:auto;">
         <table>
           <thead>
@@ -1811,6 +1815,20 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       } catch (err) {
         quotesTableBody.innerHTML = '<tr><td colspan="5">Impossible de charger les articles (index manquant).</td></tr>';
         setStatus('Impossible de charger les articles (index manquant).', true);
+      }
+
+      // Filtre en temps réel sur Référence et Description
+      const articlesFilter = document.getElementById('articlesFilter');
+      if (articlesFilter) {
+        articlesFilter.value = '';
+        articlesFilter.oninput = () => {
+          const term = articlesFilter.value.trim().toLowerCase();
+          quotesTableBody.querySelectorAll('tr').forEach(tr => {
+            const ref  = (tr.cells[2]?.textContent || '').toLowerCase();
+            const desc = (tr.cells[3]?.textContent || '').toLowerCase();
+            tr.style.display = (!term || ref.includes(term) || desc.includes(term)) ? '' : 'none';
+          });
+        };
       }
     }
 
