@@ -1768,7 +1768,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
             <td>${data.referenceClient || '-'}</td>
             <td>${data.reference || '-'}</td>
             <td>${data.description || '-'}</td>
-            <td><button type="button" class="secondary" data-article-add="${docSnap.id}">Ajouter au panier</button></td>
+            <td><button type="button" class="secondary" style="white-space:nowrap" data-article-add="${docSnap.id}">Ajouter au panier</button></td>
           `;
           quotesTableBody.appendChild(tr);
         });
