@@ -1743,7 +1743,9 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       }
     });
 
+    let _loadArticlesToken = 0;
     async function loadArticles() {
+      const token = ++_loadArticlesToken;
       const user = auth.currentUser;
       if (!user || !quotesTableBody || !quotesCard) return;
       quotesTableBody.innerHTML = '';
@@ -1755,6 +1757,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           orderBy('createdAt', 'desc')
         );
         const snap = await getDocs(q);
+        if (token !== _loadArticlesToken) return; // un appel plus récent a pris le relais
         if (snap.empty) {
           quotesTableBody.innerHTML = '<tr><td colspan="5">Aucun article enregistré.</td></tr>';
           return;
