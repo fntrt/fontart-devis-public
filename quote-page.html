@@ -666,9 +666,14 @@
     <div class="card hidden" id="quotesCard">
       <h2>Mes articles</h2>
       <p class="hint">Articles enregistrés (coloris choisis).</p>
-      <div style="margin-bottom:12px;">
-        <input type="search" id="articlesFilter" placeholder="Filtrer par référence ou description…"
+      <div style="margin-bottom:8px;">
+        <input type="search" id="articlesFilter" placeholder="Rechercher par référence ou description…"
           style="width:100%;max-width:420px;padding:8px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:0.95rem;" />
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+        <button id="articlesPrev" type="button" class="secondary" disabled style="padding:6px 16px;">← Précédent</button>
+        <span id="articlesPageInfo" style="font-size:0.9rem;color:#6b7280;min-width:50px;text-align:center;"></span>
+        <button id="articlesNext" type="button" class="secondary" disabled style="padding:6px 16px;">Suivant →</button>
       </div>
       <div style="overflow:auto;">
         <table>
@@ -873,7 +878,7 @@
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/12.10.0/firebase-app.js";
     import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, updateProfile, sendEmailVerification, sendPasswordResetEmail, confirmPasswordReset, reload, applyActionCode, setPersistence, browserSessionPersistence, inMemoryPersistence } from "https://www.gstatic.com/firebasejs/12.10.0/firebase-auth.js";
-    import { getFirestore, doc, setDoc, getDoc, collection, query, where, getDocs, addDoc, serverTimestamp, orderBy, limit, updateDoc, deleteDoc, runTransaction } from "https://www.gstatic.com/firebasejs/12.10.0/firebase-firestore.js";
+    import { getFirestore, doc, setDoc, getDoc, collection, query, where, getDocs, addDoc, serverTimestamp, orderBy, limit, startAfter, updateDoc, deleteDoc, runTransaction } from "https://www.gstatic.com/firebasejs/12.10.0/firebase-firestore.js";
 
     const firebaseConfig = {
       apiKey: "AIzaSyDRLgbcZXP0ezEDPgq_ZYdgrTppWCxYt98",
@@ -1762,97 +1767,132 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     }
     // ─────────────────────────────────────────────────────────────────────────
 
+    const ARTICLES_PAGE_SIZE = 25;
     let _loadArticlesToken = 0;
-    async function loadArticles() {
-      const token = ++_loadArticlesToken;
-      const user = auth.currentUser;
-      if (!user || !quotesTableBody || !quotesCard) return;
-      quotesTableBody.innerHTML = '';
-      try {
-        const articleCache = new Map();
-        const q = query(
-          collection(db, 'articles'),
-          where('userId', '==', user.uid),
-          orderBy('createdAt', 'desc')
-        );
-        const snap = await getDocs(q);
-        if (token !== _loadArticlesToken) return; // un appel plus récent a pris le relais
-        if (snap.empty) {
-          quotesTableBody.innerHTML = '<tr><td colspan="5">Aucun article enregistré.</td></tr>';
-          return;
-        }
-        const docs = snap.docs.slice().sort((a, b) => {
-          const refA = (a.data().reference || '').toLowerCase();
-          const refB = (b.data().reference || '').toLowerCase();
-          return refA.localeCompare(refB, 'fr');
-        });
-        docs.forEach(docSnap => {
-          const data = docSnap.data() || {};
-          articleCache.set(docSnap.id, data);
-          const tr = document.createElement('tr');
-          const imgHtml = data.photoDataUrl
-            ? `<img src="${data.photoDataUrl}" alt="photo" style="width:64px;height:auto;border-radius:6px;border:1px solid #e2e8f0;" />`
-            : '-';
-          tr.innerHTML = `
-            <td>${imgHtml}</td>
-            <td>${data.referenceClient || '-'}</td>
-            <td>${data.reference || '-'}</td>
-            <td>${data.description || '-'}</td>
-            <td><button type="button" class="secondary" style="white-space:nowrap" data-article-add="${docSnap.id}">Ajouter au panier</button></td>
-          `;
-          quotesTableBody.appendChild(tr);
-        });
-        quotesTableBody.querySelectorAll('input[data-article-qty]').forEach(input => {
-          input.addEventListener('change', async () => {
-            const id = input.dataset.articleQty;
-            const newQty = Math.max(1, Number(input.value || 1));
-            input.value = newQty;
-            try {
-              await updateDoc(doc(db, 'articles', id), { quantity: newQty });
-              await loadArticles();
-            } catch (err) {
-              setStatus(err?.message || 'Mise à jour impossible. Vérifiez les règles Firestore.', true);
-            }
-          });
-        });
-        quotesTableBody.querySelectorAll('button[data-article-add]').forEach(btn => {
-          btn.addEventListener('click', async () => {
-            const id = btn.dataset.articleAdd;
-            const data = articleCache.get(id);
-            if (!data) return;
-            const qtyInput = quotesTableBody.querySelector(`input[data-article-qty="${id}"]`);
-            const quantity = Math.max(1, Number(qtyInput?.value || data.quantity || 1));
-            try {
-              await upsertCartItem({
-                ...data,
-                quantity
-              });
-              await loadCartItems();
-              setStatus('Ajouté au panier.');
-            } catch (err) {
-              setStatus(err?.message || 'Ajout au panier impossible. Vérifiez les règles Firestore.', true);
-            }
-          });
-        });
-      } catch (err) {
-        quotesTableBody.innerHTML = '<tr><td colspan="5">Impossible de charger les articles (index manquant).</td></tr>';
-        setStatus('Impossible de charger les articles (index manquant).', true);
-      }
+    let _pageCursors  = [null]; // null = début, puis dernier doc de chaque page
+    let _currentPage  = 0;
+    let _hasNextPage  = false;
+    const _articleCache = new Map();
 
-      // Filtre en temps réel sur Référence et Description
-      const articlesFilter = document.getElementById('articlesFilter');
-      if (articlesFilter) {
-        articlesFilter.value = '';
-        articlesFilter.oninput = () => {
-          const term = articlesFilter.value.trim().toLowerCase();
-          quotesTableBody.querySelectorAll('tr').forEach(tr => {
-            const ref  = (tr.cells[2]?.textContent || '').toLowerCase();
-            const desc = (tr.cells[3]?.textContent || '').toLowerCase();
-            tr.style.display = (!term || ref.includes(term) || desc.includes(term)) ? '' : 'none';
+    function _updatePaginationControls() {
+      const prevBtn  = document.getElementById('articlesPrev');
+      const nextBtn  = document.getElementById('articlesNext');
+      const pageInfo = document.getElementById('articlesPageInfo');
+      const isSearch = (document.getElementById('articlesFilter')?.value || '').trim().length > 0;
+      if (prevBtn)  prevBtn.disabled  = isSearch || _currentPage === 0;
+      if (nextBtn)  nextBtn.disabled  = isSearch || !_hasNextPage;
+      if (pageInfo) pageInfo.textContent = isSearch ? '' : `Page ${_currentPage + 1}`;
+    }
+
+    function _renderArticleRows(docs) {
+      quotesTableBody.innerHTML = '';
+      if (docs.length === 0) {
+        quotesTableBody.innerHTML = '<tr><td colspan="5">Aucun article trouvé.</td></tr>';
+        return;
+      }
+      docs.forEach(docSnap => {
+        const data = docSnap.data() || {};
+        _articleCache.set(docSnap.id, data);
+        const tr = document.createElement('tr');
+        const imgHtml = data.photoDataUrl
+          ? `<img src="${data.photoDataUrl}" alt="photo" style="width:64px;height:auto;border-radius:6px;border:1px solid #e2e8f0;" />`
+          : '-';
+        tr.innerHTML = `
+          <td>${imgHtml}</td>
+          <td>${data.referenceClient || '-'}</td>
+          <td>${data.reference || '-'}</td>
+          <td>${data.description || '-'}</td>
+          <td><button type="button" class="secondary" style="white-space:nowrap" data-article-add="${docSnap.id}">Ajouter au panier</button></td>
+        `;
+        quotesTableBody.appendChild(tr);
+      });
+      quotesTableBody.querySelectorAll('button[data-article-add]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const id   = btn.dataset.articleAdd;
+          const data = _articleCache.get(id);
+          if (!data) return;
+          try {
+            await upsertCartItem({ ...data, quantity: 1 });
+            await loadCartItems();
+            setStatus('Ajouté au panier.');
+          } catch (err) {
+            setStatus(err?.message || 'Ajout au panier impossible.', true);
+          }
+        });
+      });
+    }
+
+    async function loadArticles(pageIndex = 0) {
+      const token = ++_loadArticlesToken;
+      const user  = auth.currentUser;
+      if (!user || !quotesTableBody || !quotesCard) return;
+      quotesTableBody.innerHTML = '<tr><td colspan="5" style="color:#9ca3af;">Chargement…</td></tr>';
+
+      const filterTerm = (document.getElementById('articlesFilter')?.value || '').trim().toLowerCase();
+      const isSearch   = filterTerm.length > 0;
+
+      try {
+        let docsToRender;
+
+        if (isSearch) {
+          // Recherche : charge tout sans limite, filtre côté client
+          const q = query(
+            collection(db, 'articles'),
+            where('userId', '==', user.uid),
+            orderBy('reference')
+          );
+          const snap = await getDocs(q);
+          if (token !== _loadArticlesToken) return;
+          docsToRender = snap.docs.filter(d => {
+            const ref  = (d.data().reference   || '').toLowerCase();
+            const desc = (d.data().description || '').toLowerCase();
+            return ref.includes(filterTerm) || desc.includes(filterTerm);
           });
-        };
+          _hasNextPage = false;
+        } else {
+          // Navigation paginée
+          _currentPage = pageIndex;
+          const cursor = _pageCursors[pageIndex] || null;
+          const constraints = [
+            where('userId', '==', user.uid),
+            orderBy('reference'),
+            limit(ARTICLES_PAGE_SIZE + 1),   // +1 pour détecter s'il y a une page suivante
+          ];
+          if (cursor) constraints.push(startAfter(cursor));
+          const snap = await getDocs(query(collection(db, 'articles'), ...constraints));
+          if (token !== _loadArticlesToken) return;
+          _hasNextPage  = snap.docs.length > ARTICLES_PAGE_SIZE;
+          docsToRender  = snap.docs.slice(0, ARTICLES_PAGE_SIZE);
+          // Mémoriser le curseur de la page suivante
+          if (_hasNextPage && _currentPage >= _pageCursors.length - 1) {
+            _pageCursors[_currentPage + 1] = docsToRender[docsToRender.length - 1];
+          }
+        }
+
+        _renderArticleRows(docsToRender);
+        _updatePaginationControls();
+
+      } catch (err) {
+        if (token !== _loadArticlesToken) return;
+        const indexUrl = err?.message?.match(/https:\/\/console\.firebase[^\s]+/)?.[0];
+        quotesTableBody.innerHTML = indexUrl
+          ? `<tr><td colspan="5">Index Firestore manquant. <a href="${indexUrl}" target="_blank">Cliquez ici pour le créer automatiquement</a>, puis rechargez.</td></tr>`
+          : '<tr><td colspan="5">Impossible de charger les articles.</td></tr>';
+        setStatus('Impossible de charger les articles.', true);
       }
     }
+
+    // Initialisation unique des contrôles de pagination et du filtre
+    document.getElementById('articlesPrev')?.addEventListener('click', () => {
+      if (_currentPage > 0) loadArticles(_currentPage - 1);
+    });
+    document.getElementById('articlesNext')?.addEventListener('click', () => {
+      if (_hasNextPage) loadArticles(_currentPage + 1);
+    });
+    document.getElementById('articlesFilter')?.addEventListener('input', () => {
+      _pageCursors = [null];
+      loadArticles(0);
+    });
 
     async function loadCartItems() {
       const user = auth.currentUser;
