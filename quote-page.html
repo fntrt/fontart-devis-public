@@ -723,6 +723,7 @@
       </div>
       <div class="inline" style="justify-content: flex-end; margin-top: 10px; gap: 16px; flex-wrap: wrap;">
         <strong>Total panier: <span id="cartTotal">0 €</span></strong>
+        <button id="clearCartBtn" type="button" class="secondary">Vider le panier</button>
         <button id="validateOrderBtn" type="button">Valider ma commande</button>
       </div>
       <div style="text-align:right; margin-top:6px;">
@@ -1756,6 +1757,23 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         setOrderStatus(err?.message || 'Erreur lors de la validation.', true);
         btn.disabled = false;
         btn.textContent = 'Valider ma commande';
+      }
+    });
+
+    document.getElementById('clearCartBtn')?.addEventListener('click', async () => {
+      const user = auth.currentUser;
+      if (!user) return;
+      if (!confirm('Vider le panier ? Cette action est irréversible.')) return;
+      try {
+        const snap = await getDocs(query(
+          collection(db, 'cartItems'),
+          where('userId', '==', user.uid)
+        ));
+        await Promise.all(snap.docs.map(d => deleteDoc(doc(db, 'cartItems', d.id))));
+        await loadCartItems();
+        setStatus('Panier vidé.');
+      } catch (err) {
+        setStatus(err?.message || 'Impossible de vider le panier.', true);
       }
     });
 
