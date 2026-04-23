@@ -1743,6 +1743,25 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       }
     });
 
+    // ── Log de session ────────────────────────────────────────────────────────
+    let _sessionLogged = false;
+    async function logSession(user) {
+      if (_sessionLogged) return;
+      _sessionLogged = true;
+      try {
+        await addDoc(collection(db, 'sessions'), {
+          userId:    user.uid,
+          email:     user.email || '',
+          connectedAt: serverTimestamp(),
+          date:      new Date().toISOString().slice(0, 10), // "2026-04-23"
+          userAgent: navigator.userAgent,
+        });
+      } catch (e) {
+        // silencieux : le log ne doit jamais bloquer l'app
+      }
+    }
+    // ─────────────────────────────────────────────────────────────────────────
+
     let _loadArticlesToken = 0;
     async function loadArticles() {
       const token = ++_loadArticlesToken;
@@ -2137,6 +2156,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
             if (authBar) authBar.style.display = 'flex';
             if (authUser) authUser.textContent = user.email || '';
             showRegister(false);
+            logSession(user);
             loadArticles();
             loadCartItems();
             loadAccount();
@@ -2156,6 +2176,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
               if (authBar) authBar.style.display = 'flex';
               if (authUser) authUser.textContent = user.email || '';
               showRegister(false);
+              logSession(user);
               loadArticles();
               loadCartItems();
               loadAccount();
