@@ -670,10 +670,19 @@
         <input type="search" id="articlesFilter" placeholder="Rechercher par référence ou description…"
           style="width:100%;max-width:420px;padding:8px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:0.95rem;" />
       </div>
-      <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap;">
         <button id="articlesPrev" type="button" class="secondary" disabled style="padding:6px 16px;">← Précédent</button>
         <span id="articlesPageInfo" style="font-size:0.9rem;color:#6b7280;min-width:50px;text-align:center;"></span>
         <button id="articlesNext" type="button" class="secondary" disabled style="padding:6px 16px;">Suivant →</button>
+        <label style="font-size:0.9rem;color:#6b7280;margin-left:auto;display:flex;align-items:center;gap:6px;">
+          Articles par page :
+          <select id="articlesPageSize" style="padding:4px 8px;border:1px solid #d1d5db;border-radius:6px;font-size:0.9rem;">
+            <option value="10">10</option>
+            <option value="25" selected>25</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+          </select>
+        </label>
       </div>
       <div style="overflow:auto;">
         <table>
@@ -1768,7 +1777,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     }
     // ─────────────────────────────────────────────────────────────────────────
 
-    const ARTICLES_PAGE_SIZE = 25;
+    let ARTICLES_PAGE_SIZE = 25;
     let _loadArticlesToken = 0;
     let _pageCursors    = [null]; // null = début, puis dernier doc de chaque page
     let _currentPage    = 0;
@@ -1908,6 +1917,11 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     });
     document.getElementById('articlesNext')?.addEventListener('click', () => {
       if (_hasNextPage) loadArticles(_currentPage + 1);
+    });
+    document.getElementById('articlesPageSize')?.addEventListener('change', e => {
+      ARTICLES_PAGE_SIZE = parseInt(e.target.value, 10);
+      _invalidateArticlesCache();
+      loadArticles(0, true);
     });
     // ── Optimisation 3 : debounce 400ms sur la recherche ──────────────────────
     document.getElementById('articlesFilter')?.addEventListener('input', () => {
