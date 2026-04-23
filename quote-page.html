@@ -681,6 +681,7 @@
             <option value="25" selected>25</option>
             <option value="50">50</option>
             <option value="100">100</option>
+            <option value="all">Tout</option>
           </select>
         </label>
       </div>
@@ -1878,6 +1879,22 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           });
           _hasNextPage = false;
 
+        } else if (ARTICLES_PAGE_SIZE === Infinity) {
+          // ── Tout afficher ─────────────────────────────────────────────────────
+          if (!_allArticlesCache) {
+            const q = query(
+              collection(db, 'articles'),
+              where('userId', '==', user.uid),
+              orderBy('reference')
+            );
+            const snap = await getDocs(q);
+            if (token !== _loadArticlesToken) return;
+            _allArticlesCache = snap.docs;
+          }
+          docsToRender = _allArticlesCache;
+          _hasNextPage = false;
+          _articlesLoaded = true;
+
         } else {
           // ── Navigation paginée ────────────────────────────────────────────────
           _currentPage = pageIndex;
@@ -1919,7 +1936,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       if (_hasNextPage) loadArticles(_currentPage + 1);
     });
     document.getElementById('articlesPageSize')?.addEventListener('change', e => {
-      ARTICLES_PAGE_SIZE = parseInt(e.target.value, 10);
+      ARTICLES_PAGE_SIZE = e.target.value === 'all' ? Infinity : parseInt(e.target.value, 10);
       _invalidateArticlesCache();
       loadArticles(0, true);
     });
