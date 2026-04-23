@@ -1603,7 +1603,8 @@
         item.reference = `${supplierRef}${code}`;
         await upsertArticle(item);
         await upsertCartItem(item);
-        await loadArticles();
+        _invalidateArticlesCache();
+        await loadArticles(0, true);
         await loadCartItems();
         // Reset workflow back to start
         referenceInput.value = '';
@@ -1664,7 +1665,7 @@
       }
 
       // Charger les données si nécessaire
-      if (sectionId === 'quotesCard')  loadArticles();
+      if (sectionId === 'quotesCard')  loadArticles(); // le cache interne évite les requêtes inutiles
       if (sectionId === 'cartCard')    loadCartItems();
       if (sectionId === 'accountCard') loadAccount();
 
@@ -1769,9 +1770,12 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
 
     const ARTICLES_PAGE_SIZE = 25;
     let _loadArticlesToken = 0;
-    let _pageCursors  = [null]; // null = début, puis dernier doc de chaque page
-    let _currentPage  = 0;
-    let _hasNextPage  = false;
+    let _pageCursors    = [null]; // null = début, puis dernier doc de chaque page
+    let _currentPage    = 0;
+    let _hasNextPage    = false;
+    let _articlesLoaded = false;  // true si la page courante est déjà affichée
+    let _allArticlesCache = null; // cache complet pour la recherche (chargé une seule fois)
+    let _searchDebounce   = null; // timer debounce
     const _articleCache = new Map();
 
     function _updatePaginationControls() {
@@ -1822,51 +1826,67 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       });
     }
 
-    async function loadArticles(pageIndex = 0) {
+    function _invalidateArticlesCache() {
+      _articlesLoaded   = false;
+      _allArticlesCache = null;
+      _pageCursors      = [null];
+      _currentPage      = 0;
+    }
+
+    async function loadArticles(pageIndex = 0, forceRefresh = false) {
       const token = ++_loadArticlesToken;
       const user  = auth.currentUser;
       if (!user || !quotesTableBody || !quotesCard) return;
-      quotesTableBody.innerHTML = '<tr><td colspan="5" style="color:#9ca3af;">Chargement…</td></tr>';
 
       const filterTerm = (document.getElementById('articlesFilter')?.value || '').trim().toLowerCase();
       const isSearch   = filterTerm.length > 0;
+
+      // ── Optimisation 1 : ne pas recharger si déjà affiché et pas de recherche ──
+      if (_articlesLoaded && !isSearch && !forceRefresh && pageIndex === _currentPage) return;
+
+      quotesTableBody.innerHTML = '<tr><td colspan="5" style="color:#9ca3af;">Chargement…</td></tr>';
 
       try {
         let docsToRender;
 
         if (isSearch) {
-          // Recherche : charge tout sans limite, filtre côté client
-          const q = query(
-            collection(db, 'articles'),
-            where('userId', '==', user.uid),
-            orderBy('reference')
-          );
-          const snap = await getDocs(q);
-          if (token !== _loadArticlesToken) return;
-          docsToRender = snap.docs.filter(d => {
+          // ── Optimisation 2 : cache complet pour la recherche ──────────────────
+          // Charger tous les articles une seule fois, filtrer en local ensuite
+          if (!_allArticlesCache) {
+            const q = query(
+              collection(db, 'articles'),
+              where('userId', '==', user.uid),
+              orderBy('reference')
+            );
+            const snap = await getDocs(q);
+            if (token !== _loadArticlesToken) return;
+            _allArticlesCache = snap.docs; // mise en cache
+          }
+          docsToRender = _allArticlesCache.filter(d => {
             const ref  = (d.data().reference   || '').toLowerCase();
             const desc = (d.data().description || '').toLowerCase();
             return ref.includes(filterTerm) || desc.includes(filterTerm);
           });
           _hasNextPage = false;
+
         } else {
-          // Navigation paginée
+          // ── Navigation paginée ────────────────────────────────────────────────
           _currentPage = pageIndex;
           const cursor = _pageCursors[pageIndex] || null;
           const constraints = [
             where('userId', '==', user.uid),
             orderBy('reference'),
-            limit(ARTICLES_PAGE_SIZE + 1),   // +1 pour détecter s'il y a une page suivante
+            limit(ARTICLES_PAGE_SIZE + 1), // +1 pour détecter s'il y a une page suivante
           ];
           if (cursor) constraints.push(startAfter(cursor));
           const snap = await getDocs(query(collection(db, 'articles'), ...constraints));
           if (token !== _loadArticlesToken) return;
-          _hasNextPage  = snap.docs.length > ARTICLES_PAGE_SIZE;
-          docsToRender  = snap.docs.slice(0, ARTICLES_PAGE_SIZE);
-          // Mémoriser le curseur de la page suivante
+          _hasNextPage = snap.docs.length > ARTICLES_PAGE_SIZE;
+          docsToRender = snap.docs.slice(0, ARTICLES_PAGE_SIZE);
           if (_hasNextPage && _currentPage >= _pageCursors.length - 1) {
             _pageCursors[_currentPage + 1] = docsToRender[docsToRender.length - 1];
           }
+          _articlesLoaded = true;
         }
 
         _renderArticleRows(docsToRender);
@@ -1889,9 +1909,13 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     document.getElementById('articlesNext')?.addEventListener('click', () => {
       if (_hasNextPage) loadArticles(_currentPage + 1);
     });
+    // ── Optimisation 3 : debounce 400ms sur la recherche ──────────────────────
     document.getElementById('articlesFilter')?.addEventListener('input', () => {
-      _pageCursors = [null];
-      loadArticles(0);
+      clearTimeout(_searchDebounce);
+      _searchDebounce = setTimeout(() => {
+        _pageCursors = [null];
+        loadArticles(0);
+      }, 400);
     });
 
     async function loadCartItems() {
