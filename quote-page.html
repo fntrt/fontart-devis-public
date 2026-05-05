@@ -630,12 +630,35 @@
         </div>
       </div>
 
-      <div id="scaleSection" style="margin-top: 8px;">
+      <div id="autoScaleSection" class="hidden" style="margin-top: 8px;">
+        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+          <span id="autoScaleStatus" style="flex:1; font-size:.88rem; color:#555;">Détection automatique de la règle…</span>
+          <button id="autoScaleAcceptBtn" type="button" style="white-space:nowrap;" disabled>✓ Utiliser cette calibration</button>
+          <button id="autoScaleManualBtn" class="secondary" type="button" style="white-space:nowrap;">Calibrer manuellement</button>
+        </div>
+      </div>
+
+      <div id="scaleSection" class="hidden" style="margin-top: 8px;">
         <div style="display:flex; align-items:center; gap:10px; width:100%;">
           <span class="pill" id="pointsInfo" style="white-space:nowrap;">0 / 2 points sélectionnés</span>
           <button id="resetPointsBtn" class="secondary" type="button" style="white-space:nowrap;">Réinitialiser</button>
           <input id="knownDistanceMm" type="number" min="0" step="0.01" placeholder="Distance en mm" style="flex:1; min-width:0;" />
           <button id="validateScaleBtn" type="button" style="white-space:nowrap;">Valider l'échelle</button>
+        </div>
+      </div>
+
+      <div id="aiSection" class="hidden" style="margin-top: 8px;">
+        <div id="aiSliderWrap" style="display:flex; align-items:center; gap:10px; width:100%; margin-bottom:8px; opacity:.4; pointer-events:none;">
+          <span style="font-size:.8rem; color:#888; white-space:nowrap;">Détail</span>
+          <input type="range" id="aiCorrSlider" min="0" max="10" step="0.1" value="5" style="flex:1; accent-color:#2d7aff;" />
+          <span style="font-size:.8rem; color:#888; white-space:nowrap;">Silhouette</span>
+        </div>
+        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+          <span id="aiStatusEl" style="flex:1; font-size:.88rem; color:#555;">Analyse IA en cours…</span>
+          <button id="aiCompleteBtn" class="secondary" type="button" style="white-space:nowrap; display:none;">+ Compléter</button>
+          <button id="aiClearManualBtn" class="secondary" type="button" style="white-space:nowrap; display:none;">Effacer zones</button>
+          <button id="aiAcceptBtn" type="button" style="white-space:nowrap;" disabled>✓ Utiliser ce contour</button>
+          <button id="aiManualBtn" class="secondary" type="button" style="white-space:nowrap;">Dessiner manuellement</button>
         </div>
       </div>
 
@@ -2339,6 +2362,18 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     const confirmContoursBtn = document.getElementById('confirmContoursBtn');
     const manualClearBtn = document.getElementById('manualClearBtn');
     const manualHint = document.getElementById('manualHint');
+    const aiSection       = document.getElementById('aiSection');
+    const aiStatusEl      = document.getElementById('aiStatusEl');
+    const aiAcceptBtn     = document.getElementById('aiAcceptBtn');
+    const aiManualBtn     = document.getElementById('aiManualBtn');
+    const aiCompleteBtn   = document.getElementById('aiCompleteBtn');
+    const aiClearManualBtn= document.getElementById('aiClearManualBtn');
+    const aiSliderWrap    = document.getElementById('aiSliderWrap');
+    const aiCorrSlider    = document.getElementById('aiCorrSlider');
+    const autoScaleSection   = document.getElementById('autoScaleSection');
+    const autoScaleStatus    = document.getElementById('autoScaleStatus');
+    const autoScaleAcceptBtn = document.getElementById('autoScaleAcceptBtn');
+    const autoScaleManualBtn = document.getElementById('autoScaleManualBtn');
     const pointsInfo = document.getElementById('pointsInfo');
     const workspaceCard = document.getElementById('workspaceCard');
     const scaleSection = document.getElementById('scaleSection');
@@ -2378,6 +2413,12 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     let selectableBinaryIndices = [];
     let selectedContourIndices = new Set();
     let currentStage = 'idle';
+    let aiDetectedMask  = null;   // Float32Array prob 0-1 at sourceImage resolution
+    let aiMaskOffscreen = null;   // HTMLCanvasElement — cached green overlay
+    let aiMetrics       = null;   // { areaPx, perimeterPx } from AI mask
+    let hybridMode      = false;  // AI + manual complement mode
+    let autoCalibration = null;   // { ruler, ticks, spacing } — detected ruler info
+    let autoCalibOverlay = null;  // HTMLCanvasElement — cached "10 mm" overlay
     let manualMode = false;
     let manualContours = [];
     let manualCurrent = [];
@@ -2400,15 +2441,26 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       }
     };
 
+    const workspaceTitle = workspaceCard.querySelector('h2');
+    const STAGE_TITLES = {
+      'auto-scale': 'Calibration automatique de la règle',
+      scale:        'Calibration & points règle',
+      'ai-detect':  'Détection automatique des contours',
+      select:       'Sélection du contour',
+    };
+
     function setStage(stage) {
       currentStage = stage;
       const nouvelArticleCard = document.getElementById('nouvelArticleCard');
       workspaceCard.classList.toggle('hidden', stage === 'idle');
-      workspaceCard.classList.toggle('single', stage === 'scale' || stage === 'select');
+      workspaceCard.classList.toggle('single', stage === 'auto-scale' || stage === 'scale' || stage === 'ai-detect' || stage === 'select');
       if (stage === 'idle') {
         if (nouvelArticleCard) nouvelArticleCard.classList.remove('hidden');
       }
+      if (workspaceTitle && STAGE_TITLES[stage]) workspaceTitle.textContent = STAGE_TITLES[stage];
+      autoScaleSection.classList.toggle('hidden', stage !== 'auto-scale');
       scaleSection.classList.toggle('hidden', stage !== 'scale');
+      aiSection.classList.toggle('hidden',    stage !== 'ai-detect');
       selectSection.classList.toggle('hidden', stage !== 'select');
       if (sourceImage) {
         renderNormalPreview();
@@ -2541,7 +2593,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       return insideCount % 2 === 1;
     }
 
-    function drawManualOverlay() {
+    function drawManualOverlay(isHybrid = false) {
       if (!manualContours.length && !manualCurrent.length) return;
       ctx.save();
       ctx.setTransform(viewScale, 0, 0, viewScale, -viewOffsetX * viewScale, -viewOffsetY * viewScale);
@@ -2550,8 +2602,8 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       ctx.lineCap = 'round';
 
       manualContours.forEach((contour, idx) => {
-        const isHole = isManualHole(idx);
-        ctx.strokeStyle = isHole ? '#2563eb' : '#16a34a';
+        const isHole = !isHybrid && isManualHole(idx);
+        ctx.strokeStyle = isHybrid ? '#f97316' : (isHole ? '#2563eb' : '#16a34a');
         ctx.beginPath();
         ctx.moveTo(contour.points[0].x, contour.points[0].y);
         for (let i = 1; i < contour.points.length; i++) {
@@ -2593,8 +2645,22 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     function renderNormalPreview() {
       if (!sourceImage) return;
       drawImageAndPoints(sourceImage);
-      if (currentStage === 'select' && manualMode) {
-        drawManualOverlay();
+      // Auto-calibration overlay — shown during detection
+      if (autoCalibOverlay && currentStage === 'auto-scale') {
+        ctx.save();
+        ctx.setTransform(viewScale, 0, 0, viewScale, -viewOffsetX * viewScale, -viewOffsetY * viewScale);
+        ctx.drawImage(autoCalibOverlay, 0, 0);
+        ctx.restore();
+      }
+      // AI mask overlay — shown during detection and after acceptance
+      if (aiMaskOffscreen && (currentStage === 'ai-detect' || (currentStage === 'select' && aiMetrics && manualContours.length === 0))) {
+        ctx.save();
+        ctx.setTransform(viewScale, 0, 0, viewScale, -viewOffsetX * viewScale, -viewOffsetY * viewScale);
+        ctx.drawImage(aiMaskOffscreen, 0, 0);
+        ctx.restore();
+      }
+      if ((currentStage === 'select' && manualMode) || (currentStage === 'ai-detect' && hybridMode)) {
+        drawManualOverlay(currentStage === 'ai-detect' && hybridMode);
       }
     }
 
@@ -2763,6 +2829,17 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     function computeMetricsFromSelection() {
       let areaPx = 0;
       let perimeterPx = 0;
+
+      // Hybrid mode: combine AI mask + manual complement polygons
+      if (hybridMode && aiMetrics) {
+        const combined = computeCombinedMetrics();
+        if (combined) return combined;
+      }
+
+      // AI-detected mask takes priority when no manual contours exist
+      if (aiMetrics && manualContours.length === 0) {
+        return { areaPx: aiMetrics.areaPx, perimeterPx: aiMetrics.perimeterPx, count: 1 };
+      }
 
       if (manualContours.length > 0) {
         manualContours.forEach((contour, idx) => {
@@ -2948,6 +3025,15 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     function resetWorkflowForImage() {
       selectedPoints = [];
       pxPerMm = null;
+      autoCalibration  = null;
+      autoCalibOverlay = null;
+      aiDetectedMask  = null;
+      aiMaskOffscreen = null;
+      aiMetrics       = null;
+      hybridMode      = false;
+      if (aiCompleteBtn)    { aiCompleteBtn.style.display = 'none'; }
+      if (aiClearManualBtn) { aiClearManualBtn.style.display = 'none'; }
+      previewCanvas.style.cursor = '';
       binaryContours = [];
       binaryHierarchy = [];
       selectableBinaryIndices = [];
@@ -3072,10 +3158,11 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         if (nouvelArticleCard) nouvelArticleCard.classList.add('hidden');
         window.scrollTo({ top: 0, behavior: 'smooth' });
         try { window.parent?.postMessage({ type: 'scrollToIframe' }, '*'); } catch(e) {}
-        setStage('scale');
-        setStatus('Sélectionnez 2 points sur la règle pour calibrer l\'image.');
-        setFormStatus('Image chargée. Passez à la calibration.', false);
+        setStage('auto-scale');
+        setStatus('Détection automatique de la règle en cours…');
+        setFormStatus('Image chargée. Calibration automatique…', false);
         renderNormalPreview();
+        runAutoCalibration();
       } catch (err) {
         console.error(err);
         setFormStatus('Impossible de charger l\'image.', true);
@@ -3103,11 +3190,8 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       const dy = selectedPoints[0].y - selectedPoints[1].y;
       const pixelLength = Math.hypot(dx, dy);
       pxPerMm = pixelLength / dist;
-      setStage('select');
-      manualMode = true;
-      if (manualHint) manualHint.style.display = 'block';
-      setStatus('Mode points activé. Cliquez pour placer les points du contour.');
-      renderNormalPreview();
+      setStage('ai-detect');
+      runAIDetection();
     });
 
     confirmContoursBtn.addEventListener('click', () => {
@@ -3124,6 +3208,811 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       renderNormalPreview();
     });
 
+    // ── Automatic ruler calibration (from calibrage-regle.html) ───
+
+    function clamp(value, min, max) {
+      return Math.min(max, Math.max(min, value));
+    }
+
+    function luma(r, g, b) {
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    }
+
+    function movingAverage(values, radius) {
+      const out = new Array(values.length).fill(0);
+      const prefix = new Array(values.length + 1).fill(0);
+      for (let i = 0; i < values.length; i += 1) prefix[i + 1] = prefix[i] + values[i];
+      for (let i = 0; i < values.length; i += 1) {
+        const start = Math.max(0, i - radius);
+        const end   = Math.min(values.length - 1, i + radius);
+        out[i] = (prefix[end + 1] - prefix[start]) / (end - start + 1);
+      }
+      return out;
+    }
+
+    function percentile(values, p) {
+      if (!values.length) return 0;
+      const sorted = values.slice().sort((a, b) => a - b);
+      const index = clamp((p / 100) * (sorted.length - 1), 0, sorted.length - 1);
+      const lo = Math.floor(index);
+      const hi = Math.ceil(index);
+      if (lo === hi) return sorted[lo];
+      return sorted[lo] + (sorted[hi] - sorted[lo]) * (index - lo);
+    }
+
+    function maxAround(values, center, radius) {
+      let max = 0;
+      for (let x = center - radius; x <= center + radius; x += 1) {
+        if (x >= 0 && x < values.length) max = Math.max(max, values[x]);
+      }
+      return max;
+    }
+
+    function positiveModulo(value, divisor) {
+      return ((value % divisor) + divisor) % divisor;
+    }
+
+    function detectRuler(imageData, sensitivity) {
+      const { data, width, height } = imageData;
+      const startY = Math.max(0, Math.floor(height * 0.42));
+      const xStep = Math.max(1, Math.floor(width / 900));
+      const rowScore = new Array(height).fill(0);
+      const rowLum = new Array(height).fill(0);
+
+      for (let y = startY; y < height; y += 1) {
+        let light = 0, total = 0, lumSum = 0;
+        for (let x = 0; x < width; x += xStep) {
+          const i = (y * width + x) * 4;
+          const r = data[i], g = data[i + 1], b = data[i + 2];
+          const lum = luma(r, g, b);
+          const chroma = Math.max(r, g, b) - Math.min(r, g, b);
+          if ((lum > 145 && chroma < 70) || (lum > 190 && chroma < 105)) light += 1;
+          lumSum += lum;
+          total += 1;
+        }
+        rowScore[y] = light / Math.max(1, total);
+        rowLum[y] = lumSum / Math.max(1, total);
+      }
+
+      const smooth = movingAverage(rowScore, 4);
+      const relevant = smooth.slice(startY);
+      const maxScore = Math.max(...relevant);
+      if (maxScore < 0.18) return null;
+
+      const base = percentile(relevant, 20);
+      const thresholdFactor = 0.34 - (sensitivity - 0.5) * 0.18;
+      const threshold = clamp(base + (maxScore - base) * thresholdFactor, 0.16, 0.74);
+      const minHeight = Math.max(10, Math.round(height * 0.025));
+      const bands = [];
+      let y = startY;
+
+      while (y < height) {
+        if (smooth[y] >= threshold && rowLum[y] > 115) {
+          const bandStart = y;
+          let scoreSum = 0, lumSum = 0;
+          while (y < height && smooth[y] >= threshold * 0.88 && rowLum[y] > 110) {
+            scoreSum += smooth[y]; lumSum += rowLum[y]; y += 1;
+          }
+          const bandEnd = y - 1;
+          const bandHeight = bandEnd - bandStart + 1;
+          if (bandHeight >= minHeight) {
+            const avg = scoreSum / bandHeight;
+            const avgLum = lumSum / bandHeight;
+            const bottomBias = bandEnd / height;
+            bands.push({ top: bandStart, bottom: bandEnd, avg, avgLum,
+              rank: avg * 0.72 + bottomBias * 0.22 + clamp(bandHeight / height, 0, 0.2) });
+          }
+        } else { y += 1; }
+      }
+
+      if (!bands.length) return null;
+      bands.sort((a, b) => b.rank - a.rank);
+      const best = bands[0];
+
+      let top = best.top, bottom = best.bottom;
+      while (top > startY && smooth[top - 1] > threshold * 0.62) top -= 1;
+      while (bottom < height - 1 && smooth[bottom + 1] > threshold * 0.62) bottom += 1;
+
+      const horizontal = detectRulerXRange(imageData, top, bottom);
+      const confidence = clamp((best.avg - threshold) / Math.max(0.01, maxScore - threshold), 0, 1);
+
+      return { top, bottom, left: horizontal.left, right: horizontal.right,
+        rowThreshold: threshold, score: best.avg, confidence };
+    }
+
+    function detectRulerXRange(imageData, top, bottom) {
+      const { data, width } = imageData;
+      const y0 = clamp(Math.round(top + 3), 0, imageData.height - 1);
+      const y1 = clamp(Math.round(bottom - 3), y0, imageData.height - 1);
+      const yStep = Math.max(1, Math.floor((y1 - y0 + 1) / 70));
+      const scores = new Array(width).fill(0);
+
+      for (let x = 0; x < width; x += 1) {
+        let light = 0, total = 0;
+        for (let y = y0; y <= y1; y += yStep) {
+          const i = (y * width + x) * 4;
+          const r = data[i], g = data[i + 1], b = data[i + 2];
+          const lum = luma(r, g, b);
+          const chroma = Math.max(r, g, b) - Math.min(r, g, b);
+          if ((lum > 145 && chroma < 85) || lum > 205) light += 1;
+          total += 1;
+        }
+        scores[x] = light / Math.max(1, total);
+      }
+
+      const smooth = movingAverage(scores, 8);
+      const maxScore = Math.max(...smooth);
+      const threshold = clamp(maxScore * 0.44, 0.18, 0.7);
+      const runs = [];
+      let x = 0;
+
+      while (x < width) {
+        if (smooth[x] >= threshold) {
+          const start = x;
+          let total = 0;
+          while (x < width && smooth[x] >= threshold * 0.88) { total += smooth[x]; x += 1; }
+          const end = x - 1;
+          const runWidth = end - start + 1;
+          if (runWidth > width * 0.12) runs.push({ start, end, score: total / runWidth, width: runWidth });
+        } else { x += 1; }
+      }
+
+      if (!runs.length) return { left: 0, right: width - 1 };
+      runs.sort((a, b) => (b.width * b.score) - (a.width * a.score));
+      return { left: runs[0].start, right: runs[0].end };
+    }
+
+    function detectTicks(imageData, ruler, sensitivity) {
+      const { data, width, height } = imageData;
+      const rulerHeight = ruler.bottom - ruler.top + 1;
+      const y0 = clamp(Math.round(ruler.top + Math.max(2, rulerHeight * 0.05)), 0, height - 1);
+      const y1 = clamp(Math.round(ruler.top + Math.min(rulerHeight * 0.78, 68)), y0 + 4, height - 1);
+      const x0 = clamp(ruler.left + 2, 0, width - 1);
+      const x1 = clamp(ruler.right - 2, x0, width - 1);
+      const lumSamples = [];
+      const xStep = Math.max(1, Math.floor((x1 - x0 + 1) / 900));
+      const yStep = Math.max(1, Math.floor((y1 - y0 + 1) / 80));
+
+      for (let y = y0; y <= y1; y += yStep) {
+        for (let x = x0; x <= x1; x += xStep) {
+          const i = (y * width + x) * 4;
+          lumSamples.push(luma(data[i], data[i + 1], data[i + 2]));
+        }
+      }
+
+      const darkBase = percentile(lumSamples, 5);
+      const brightBase = percentile(lumSamples, 78);
+      const darkLimit = clamp(darkBase + (brightBase - darkBase) * (0.28 + sensitivity * 0.08), 50, 155);
+      const columnScore = new Array(width).fill(0);
+      const columnAvg = new Array(width).fill(0);
+      const columnMin = new Array(width).fill(255);
+      const topPresence = new Array(width).fill(0);
+      const topLimit = y0 + Math.min(14, Math.max(6, Math.round((y1 - y0 + 1) * 0.32)));
+
+      for (let x = x0; x <= x1; x += 1) {
+        let score = 0, topDark = 0, lumSum = 0, lumMin = 255, count = 0;
+        for (let y = y0; y <= y1; y += 1) {
+          const i = (y * width + x) * 4;
+          const lum = luma(data[i], data[i + 1], data[i + 2]);
+          lumSum += lum;
+          lumMin = Math.min(lumMin, lum);
+          count += 1;
+          if (lum < darkLimit) {
+            score += 0.7 + (darkLimit - lum) / Math.max(1, darkLimit);
+            if (y <= topLimit) topDark += 1;
+          }
+        }
+        columnScore[x] = score;
+        columnAvg[x] = lumSum / Math.max(1, count);
+        columnMin[x] = lumMin;
+        topPresence[x] = topDark;
+      }
+
+      const contrastRadius = Math.max(4, Math.round((x1 - x0 + 1) / 180));
+      const localAvg = movingAverage(columnAvg, contrastRadius);
+      for (let x = x0; x <= x1; x += 1) {
+        const localRef = Math.max(localAvg[x], brightBase * 0.92);
+        const avgDip = Math.max(0, localRef - columnAvg[x]);
+        const minDip = Math.max(0, localRef - columnMin[x]);
+        columnScore[x] += avgDip / 8 + minDip / 24;
+        if (minDip > 12 && x > x0 + 1 && x < x1 - 1) topPresence[x] += 1;
+      }
+
+      const smooth = movingAverage(columnScore, 1);
+      const active = smooth.slice(x0, x1 + 1);
+      const base = percentile(active, 62);
+      const high = percentile(active, 98);
+      const threshold = Math.max(0.95, base + (high - base) * (0.1 - (sensitivity - 0.5) * 0.05));
+      const maxGroupWidth = Math.max(8, Math.round((x1 - x0 + 1) * 0.014));
+      const ticks = [];
+      let x = x0;
+
+      while (x <= x1) {
+        if (smooth[x] >= threshold) {
+          const start = x;
+          let weight = 0, weightedX = 0, maxScore = 0;
+          while (x <= x1 && smooth[x] >= threshold * 0.82) {
+            const value = smooth[x];
+            weight += value; weightedX += x * value;
+            maxScore = Math.max(maxScore, value); x += 1;
+          }
+          const end = x - 1;
+          const groupWidth = end - start + 1;
+          const center = weight > 0 ? weightedX / weight : (start + end) / 2;
+          const topDark = maxAround(topPresence, Math.round(center), 2);
+          if (groupWidth <= maxGroupWidth && (topDark > 0 || maxScore > threshold * 1.25)) {
+            ticks.push({ x: center, y0, y1, width: groupWidth, score: maxScore, topDark,
+              length: estimateTickLength(imageData, center, y0, y1, darkLimit) });
+          }
+        } else { x += 1; }
+      }
+
+      return mergeCloseTicks(ticks, 2.6);
+    }
+
+    function estimateTickLength(imageData, center, y0, y1, darkLimit) {
+      const { data, width } = imageData;
+      const cx = Math.round(center);
+      let bottomMost = 0;
+      for (let y = y0; y <= y1; y += 1) {
+        let dark = false;
+        for (let dx = -1; dx <= 1; dx += 1) {
+          const x = clamp(cx + dx, 0, width - 1);
+          const i = (y * width + x) * 4;
+          if (luma(data[i], data[i + 1], data[i + 2]) < darkLimit) { dark = true; break; }
+        }
+        if (dark) bottomMost = y - y0 + 1;
+      }
+      return bottomMost;
+    }
+
+    function mergeCloseTicks(ticks, minDistance) {
+      if (!ticks.length) return ticks;
+      const sorted = ticks.slice().sort((a, b) => a.x - b.x);
+      const merged = [sorted[0]];
+      for (let i = 1; i < sorted.length; i += 1) {
+        const previous = merged[merged.length - 1];
+        const current = sorted[i];
+        if (current.x - previous.x < minDistance) {
+          if (current.score > previous.score) merged[merged.length - 1] = current;
+        } else { merged.push(current); }
+      }
+      return merged;
+    }
+
+    function estimateSpacing(ticks, ruler, mmPerTick) {
+      const positions = ticks.map(t => t.x).filter(x => x >= ruler.left && x <= ruler.right).sort((a, b) => a - b);
+      if (positions.length < 6) return null;
+
+      const rulerWidth = Math.max(1, ruler.right - ruler.left + 1);
+      const minStep = Math.max(2.5, rulerWidth / 700);
+      const maxStep = Math.min(120, Math.max(18, rulerWidth / 8));
+      const anchors = positions.filter((_, index) => index % Math.max(1, Math.floor(positions.length / 24)) === 0);
+      let best = null;
+
+      for (let step = minStep; step <= maxStep; step += 0.05) {
+        const tolerance = Math.max(1.05, step * 0.22);
+        for (const anchor of anchors) {
+          const usedSlots = new Set();
+          let matched = 0, fit = 0;
+          for (const position of positions) {
+            const slot = Math.round((position - anchor) / step);
+            const projected = anchor + slot * step;
+            const error = Math.abs(position - projected);
+            if (error <= tolerance) {
+              matched += 1; fit += 1 - error / tolerance; usedSlots.add(slot);
+            }
+          }
+          const minSlot = Math.floor((ruler.left - anchor) / step);
+          const maxSlot = Math.ceil((ruler.right - anchor) / step);
+          const totalSlots = Math.max(1, maxSlot - minSlot + 1);
+          const coverage = usedSlots.size / totalSlots;
+          const matchRatio = matched / positions.length;
+          const score = fit * Math.pow(coverage, 0.78) * Math.pow(matchRatio, 1.15);
+          if (!best || score > best.score) {
+            best = { step, anchor, score, matched, fit, coverage, matchRatio, tolerance };
+          }
+        }
+      }
+
+      if (!best || best.matched < Math.max(6, positions.length * 0.38)) return null;
+      const fitQuality = best.fit / Math.max(1, best.matched);
+      const expectedSlots = Math.max(1, Math.round(rulerWidth / best.step));
+      const density = clamp(positions.length / Math.max(8, expectedSlots * 0.55), 0, 1);
+      const confidence = clamp(0.42 * fitQuality + 0.28 * best.coverage + 0.18 * best.matchRatio + 0.12 * density, 0, 1);
+      const majorAlignment = estimateMajorAlignment(ticks, ruler, best);
+
+      return {
+        stepPx: best.step, pxPerMm: best.step / mmPerTick,
+        pxPerCm: (best.step / mmPerTick) * 10, mmPerPx: mmPerTick / best.step,
+        anchor: best.anchor, majorOffset: majorAlignment.offset, majorAnchor: majorAlignment.anchor,
+        majorMatchedTicks: majorAlignment.matched, matched: best.matched,
+        estimatedTickCount: expectedSlots + 1, fitQuality, coverage: best.coverage, confidence
+      };
+    }
+
+    function estimateMajorAlignment(ticks, ruler, spacing) {
+      const visibleTicks = ticks.filter(t => t.x >= ruler.left && t.x <= ruler.right && Number.isFinite(t.length) && t.length > 0);
+      if (!visibleTicks.length) return { offset: 0, anchor: spacing.anchor, matched: 0 };
+
+      const lengths = visibleTicks.map(t => t.length);
+      const strongThreshold = percentile(lengths, 86);
+      let majorTicks = visibleTicks.filter(t => t.length >= strongThreshold);
+      if (majorTicks.length < 4) {
+        const relaxedThreshold = percentile(lengths, 74);
+        majorTicks = visibleTicks.filter(t => t.length >= relaxedThreshold);
+      }
+
+      const scores = new Array(10).fill(0);
+      const counts = new Array(10).fill(0);
+      const anchorSums = new Array(10).fill(0);
+      const anchorWeights = new Array(10).fill(0);
+      const tolerance = Math.max(1.2, spacing.step * 0.32);
+
+      for (const tick of majorTicks) {
+        const slot = Math.round((tick.x - spacing.anchor) / spacing.step);
+        const projected = spacing.anchor + slot * spacing.step;
+        const error = Math.abs(tick.x - projected);
+        if (error > tolerance * 1.75) continue;
+        const offset = positiveModulo(slot, 10);
+        const lengthWeight = tick.length / Math.max(1, strongThreshold);
+        const scoreWeight = Math.sqrt(Math.max(0.1, tick.score || 0.1));
+        const closeness = 1 - error / (tolerance * 1.75);
+        const weight = Math.max(0.05, closeness) * (0.8 + lengthWeight) * scoreWeight;
+        const cmSlot = (slot - offset) / 10;
+        const majorAnchor = tick.x - cmSlot * spacing.step * 10;
+        scores[offset] += weight;
+        anchorSums[offset] += majorAnchor * weight;
+        anchorWeights[offset] += weight;
+        counts[offset] += 1;
+      }
+
+      let bestOffset = 0;
+      for (let offset = 1; offset < scores.length; offset += 1) {
+        if (scores[offset] > scores[bestOffset]) bestOffset = offset;
+      }
+      if (scores[bestOffset] <= 0) return { offset: 0, anchor: spacing.anchor, matched: 0 };
+      return { offset: bestOffset, anchor: anchorSums[bestOffset] / Math.max(1, anchorWeights[bestOffset]), matched: counts[bestOffset] };
+    }
+
+    function nearestTick(ticks, targetX, tolerance) {
+      let best = null;
+      for (const tick of ticks) {
+        const distance = Math.abs(tick.x - targetX);
+        if (distance > tolerance) continue;
+        if (!best || distance < best.distance) best = { tick, distance };
+      }
+      return best;
+    }
+
+    function chooseTrustedScaleSegment(ruler, ticks, spacing) {
+      const gridAnchor = Number.isFinite(spacing.majorAnchor) ? spacing.majorAnchor : spacing.anchor;
+      const cmPx = spacing.stepPx * 10;
+      const inset = Math.max(6, spacing.stepPx * 0.75);
+      const firstCm = Math.ceil((ruler.left + inset - gridAnchor) / cmPx);
+      const lastCm = Math.floor((ruler.right - inset - gridAnchor - cmPx) / cmPx);
+      const tolerance = Math.max(1.3, spacing.stepPx * 0.36);
+      const candidates = [];
+
+      for (let cm = firstCm; cm <= lastCm; cm += 1) {
+        const x0 = gridAnchor + cm * cmPx;
+        const x1 = x0 + cmPx;
+        let score = 0, matched = 0;
+        for (let i = 0; i <= 10; i += 1) {
+          const targetX = x0 + i * spacing.stepPx;
+          const nearest = nearestTick(ticks, targetX, tolerance);
+          if (!nearest) continue;
+          const closeness = 1 - nearest.distance / tolerance;
+          const lengthWeight = 0.55 + Math.min(1.1, nearest.tick.length / Math.max(1, ruler.bottom - ruler.top));
+          const endpointWeight = i === 0 || i === 10 ? 1.6 : i === 5 ? 1.25 : 1;
+          score += closeness * lengthWeight * endpointWeight;
+          matched += 1;
+        }
+        const center = (x0 + x1) / 2;
+        const rulerCenter = (ruler.left + ruler.right) / 2;
+        const centerBias = 1 - Math.min(1, Math.abs(center - rulerCenter) / Math.max(1, (ruler.right - ruler.left) / 2));
+        score += centerBias * 1.4;
+        candidates.push({ x0, x1, score, matched });
+      }
+
+      if (!candidates.length) return null;
+      candidates.sort((a, b) => b.score - a.score);
+      return candidates[0];
+    }
+
+    function roundRect(context, x, y, width, height, radius) {
+      const r = Math.min(radius, Math.abs(width) / 2, Math.abs(height) / 2);
+      context.beginPath();
+      context.moveTo(x + r, y);
+      context.lineTo(x + width - r, y);
+      context.quadraticCurveTo(x + width, y, x + width, y + r);
+      context.lineTo(x + width, y + height - r);
+      context.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
+      context.lineTo(x + r, y + height);
+      context.quadraticCurveTo(x, y + height, x, y + height - r);
+      context.lineTo(x, y + r);
+      context.quadraticCurveTo(x, y, x + r, y);
+      context.closePath();
+    }
+
+    function buildAutoCalibOverlay(detection, w, h) {
+      const { ruler, ticks, spacing } = detection;
+      if (!spacing) return null;
+      const segment = chooseTrustedScaleSegment(ruler, ticks, spacing);
+      if (!segment) return null;
+
+      const oc = document.createElement('canvas');
+      oc.width = w; oc.height = h;
+      const c = oc.getContext('2d');
+
+      const rulerHeight = ruler.bottom - ruler.top + 1;
+      const boxHeight = clamp(Math.round(rulerHeight * 0.82), 22, 36);
+      const top = clamp(ruler.top + 2, ruler.top, Math.max(ruler.top, ruler.bottom - boxHeight - 1));
+      const bottom = Math.min(ruler.bottom - 1, top + boxHeight);
+      const pad = Math.max(5, spacing.stepPx * 0.55);
+      const x = Math.max(ruler.left, segment.x0 - pad);
+      const y = top;
+      const width = Math.min(ruler.right, segment.x1 + pad) - x;
+      const height = bottom - top;
+      const tickTop = y + Math.max(12, Math.round(height * 0.38));
+      const tickBottom = y + height - 3;
+      const labelSize = clamp(Math.round(height * 0.34), 9, 13);
+
+      c.fillStyle = "rgba(0, 0, 0, 0.72)";
+      roundRect(c, x, y, width, height, 4); c.fill();
+      c.strokeStyle = "rgba(255, 255, 255, 0.96)";
+      c.lineWidth = Math.max(1.1, w / 1600);
+      c.beginPath(); c.moveTo(segment.x0, tickTop); c.lineTo(segment.x1, tickTop); c.stroke();
+
+      for (let i = 0; i <= 10; i += 1) {
+        const tx = segment.x0 + i * spacing.stepPx;
+        const isEnd = i === 0 || i === 10;
+        const isHalf = i === 5;
+        const lineTop = isEnd ? y + 5 : isHalf ? tickTop - 4 : tickTop;
+        c.beginPath(); c.moveTo(tx, lineTop); c.lineTo(tx, tickBottom); c.stroke();
+      }
+
+      c.fillStyle = "#fff";
+      c.font = "700 " + labelSize + "px Arial, Helvetica, sans-serif";
+      c.textAlign = "center"; c.textBaseline = "middle";
+      c.fillText("10 mm", (segment.x0 + segment.x1) / 2, y + Math.max(7, Math.round(height * 0.2)));
+      return oc;
+    }
+
+    // Rotate imageData 90° clockwise: original (x,y) → rotated (H-1-y, x)
+    // Rotated image dims: width=origH, height=origW
+    function rotateImageData90CW(id) {
+      const { data, width: W, height: H } = id;
+      const out = new ImageData(H, W);
+      const od = out.data;
+      for (let y = 0; y < H; y++) {
+        for (let x = 0; x < W; x++) {
+          const src = (y * W + x) * 4;
+          const rx = H - 1 - y, ry = x;
+          const dst = (ry * H + rx) * 4;
+          od[dst] = data[src]; od[dst+1] = data[src+1];
+          od[dst+2] = data[src+2]; od[dst+3] = data[src+3];
+        }
+      }
+      return out;
+    }
+
+    function runAutoCalibration() {
+      autoCalibration = null;
+      autoCalibOverlay = null;
+      autoScaleAcceptBtn.disabled = true;
+      autoScaleStatus.textContent = 'Détection automatique de la règle…';
+
+      try {
+        const w = sourceImage.width, h = sourceImage.height;
+        tempCanvas.width = w; tempCanvas.height = h;
+        tempCtx.clearRect(0, 0, w, h);
+        tempCtx.drawImage(sourceImage, 0, 0);
+        const imageData = tempCtx.getImageData(0, 0, w, h);
+
+        const sensitivity = 0.55;
+        const mmPerTick = 1;
+
+        // Try horizontal ruler first
+        let ruler = detectRuler(imageData, sensitivity);
+        let usedData = imageData;
+        let isVertical = false;
+
+        // If not found, try rotating 90° (handles vertical rulers)
+        if (!ruler) {
+          const rotData = rotateImageData90CW(imageData);
+          const rulerV = detectRuler(rotData, sensitivity);
+          if (rulerV) {
+            ruler = rulerV;
+            usedData = rotData;
+            isVertical = true;
+          }
+        }
+
+        if (!ruler) {
+          autoScaleStatus.textContent = 'Règle non détectée. Calibrez manuellement.';
+          renderNormalPreview();
+          return;
+        }
+
+        const ticks = detectTicks(usedData, ruler, sensitivity);
+        const spacing = estimateSpacing(ticks, ruler, mmPerTick);
+        if (!spacing) {
+          autoScaleStatus.textContent = 'Graduations insuffisantes pour calculer l\'échelle.';
+          renderNormalPreview();
+          return;
+        }
+
+        autoCalibration = { ruler, ticks, spacing, isVertical, origW: w, origH: h };
+        // Overlay only for horizontal (vertical overlay transform too complex — status text suffices)
+        autoCalibOverlay = isVertical ? null : buildAutoCalibOverlay(autoCalibration, w, h);
+        const conf = Math.round(clamp(ruler.confidence * 0.35 + spacing.confidence * 0.65, 0, 1) * 100);
+        const orient = isVertical ? ' (règle verticale)' : '';
+        autoScaleStatus.textContent = `Règle détectée${orient} — ${spacing.pxPerMm.toFixed(2)} px/mm · confiance ${conf} %`;
+        autoScaleAcceptBtn.disabled = false;
+        renderNormalPreview();
+      } catch (e) {
+        console.error(e);
+        autoScaleStatus.textContent = 'Erreur de calibration : ' + (e?.message ?? String(e));
+      }
+    }
+
+    autoScaleAcceptBtn.addEventListener('click', () => {
+      if (!autoCalibration?.spacing) return;
+      pxPerMm = autoCalibration.spacing.pxPerMm;
+      // Provide selectedPoints: 2 endpoints of the trusted 10mm segment
+      const segment = chooseTrustedScaleSegment(autoCalibration.ruler, autoCalibration.ticks, autoCalibration.spacing);
+      if (segment) {
+        if (knownDistanceMm) knownDistanceMm.value = '10';
+        if (autoCalibration.isVertical) {
+          // Detection was done on rotated image (90° CW): rotated(x',y') → original(y', origH-1-x')
+          // segment.x0/x1 are X positions in rotated space → Y positions in original
+          // ruler.top/bottom are Y positions in rotated space → X positions in original (inverted)
+          const origH = autoCalibration.origH;
+          const xMid = origH - 1 - (autoCalibration.ruler.top + autoCalibration.ruler.bottom) / 2;
+          selectedPoints = [{ x: xMid, y: segment.x0 }, { x: xMid, y: segment.x1 }];
+        } else {
+          const yMid = (autoCalibration.ruler.top + autoCalibration.ruler.bottom) / 2;
+          selectedPoints = [{ x: segment.x0, y: yMid }, { x: segment.x1, y: yMid }];
+        }
+      }
+      setStage('ai-detect');
+      runAIDetection();
+    });
+
+    autoScaleManualBtn.addEventListener('click', () => {
+      autoCalibration = null;
+      autoCalibOverlay = null;
+      setStage('scale');
+      setStatus('Sélectionnez 2 points sur la règle pour calibrer l\'image.');
+      renderNormalPreview();
+    });
+
+    // ── AI contour detection ───────────────────────────────────────
+
+    function computeAIMetrics(mask, w, h, thr = 0.5) {
+      let areaPx = 0, perimeterPx = 0;
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const i = y * w + x;
+          if (mask[i] < thr) continue;
+          areaPx++;
+          if ((x === 0   || mask[i - 1] < thr) ||
+              (x === w-1 || mask[i + 1] < thr) ||
+              (y === 0   || mask[i - w] < thr) ||
+              (y === h-1 || mask[i + w] < thr)) perimeterPx++;
+        }
+      }
+      return { areaPx, perimeterPx };
+    }
+
+    function buildAIMaskOffscreen(mask, w, h, thr = 0.5) {
+      const imgData = new ImageData(w, h);
+      const d = imgData.data;
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          const i = y * w + x;
+          if (mask[i] < thr) continue;
+          const border =
+            (x === 0   || mask[i - 1] < thr) ||
+            (x === w-1 || mask[i + 1] < thr) ||
+            (y === 0   || mask[i - w] < thr) ||
+            (y === h-1 || mask[i + w] < thr);
+          const p = i * 4;
+          d[p] = 30; d[p+1] = 210; d[p+2] = 60;
+          d[p+3] = border ? 255 : 110;
+        }
+      }
+      const oc = document.createElement('canvas');
+      oc.width = w; oc.height = h;
+      oc.getContext('2d').putImageData(imgData, 0, 0);
+      return oc;
+    }
+
+    // slider value 0=Détail, 10=Silhouette → threshold 0.75 → 0.05
+    function reRenderAIMask(sliderVal) {
+      if (!aiDetectedMask || !sourceImage) return;
+      const w = sourceImage.width, h = sourceImage.height;
+      // Logarithmic scale: Détail (0) → thr≈0.85  |  mid (5) → thr≈0.10  |  Silhouette (10) → thr≈0.01
+      // Gives fine resolution in the 0.05–0.40 range where thin objects (chains, wires) need precision
+      const thr = 0.85 * Math.pow(0.01 / 0.85, sliderVal / 10);
+      aiMetrics = computeAIMetrics(aiDetectedMask, w, h, thr);
+      aiMaskOffscreen = buildAIMaskOffscreen(aiDetectedMask, w, h, thr);
+      renderNormalPreview();
+    }
+
+    aiCorrSlider.addEventListener('input', () => {
+      reRenderAIMask(+aiCorrSlider.value);
+    });
+
+    async function runAIDetection() {
+      aiDetectedMask = null;
+      aiMaskOffscreen = null;
+      aiMetrics = null;
+      aiAcceptBtn.disabled = true;
+      aiSliderWrap.style.opacity = '0.4';
+      aiSliderWrap.style.pointerEvents = 'none';
+      aiCorrSlider.value = 7;   // permissive default — user tightens if needed
+      aiStatusEl.textContent = 'Chargement du modèle IA…';
+
+      try {
+        const w = sourceImage.width, h = sourceImage.height;
+        const tc = document.createElement('canvas');
+        tc.width = w; tc.height = h;
+        tc.getContext('2d').drawImage(sourceImage, 0, 0);
+        const dataUrl = tc.toDataURL('image/png');
+
+        const maskRaw = await window.runRMBG(dataUrl, (p) => {
+          if (p.status === 'progress')
+            aiStatusEl.textContent = `Téléchargement du modèle… ${Math.round(p.progress ?? 0)} %`;
+          else if (p.status === 'initiate')
+            aiStatusEl.textContent = 'Téléchargement du modèle…';
+        });
+
+        const { data, width: mw, height: mh } = maskRaw;
+        const channels = data.length / (mw * mh);
+
+        aiDetectedMask = new Float32Array(w * h);
+        for (let y = 0; y < h; y++) {
+          const sy = y * (mh-1) / (h-1);
+          const sy0 = Math.floor(sy), sy1 = Math.min(mh-1, sy0+1), fy = sy - sy0;
+          for (let x = 0; x < w; x++) {
+            const sx = x * (mw-1) / (w-1);
+            const sx0 = Math.floor(sx), sx1 = Math.min(mw-1, sx0+1), fx = sx - sx0;
+            aiDetectedMask[y*w+x] = (
+              data[(sy0*mw+sx0)*channels]*(1-fx)*(1-fy) +
+              data[(sy0*mw+sx1)*channels]*fx*(1-fy) +
+              data[(sy1*mw+sx0)*channels]*(1-fx)*fy +
+              data[(sy1*mw+sx1)*channels]*fx*fy
+            ) / 255;
+          }
+        }
+
+        // Build initial mask using slider threshold (consistent with slider position)
+        reRenderAIMask(+aiCorrSlider.value);
+
+        aiSliderWrap.style.opacity = '1';
+        aiSliderWrap.style.pointerEvents = 'auto';
+
+        if (!aiMetrics || aiMetrics.areaPx === 0) {
+          aiStatusEl.textContent = '⚠ Aucun contour trouvé. Essayez le curseur vers Silhouette.';
+          aiAcceptBtn.disabled = true;
+          setStatus('Aucun contour détecté. Déplacez le curseur vers Silhouette pour élargir la détection.');
+        } else {
+          aiStatusEl.textContent = 'Contour détecté. Ajustez le curseur si besoin.';
+          aiAcceptBtn.disabled = false;
+          aiCompleteBtn.style.display = '';
+          aiClearManualBtn.style.display = 'none';
+          setStatus('Contour détecté. Ajustez le curseur Détail/Silhouette, ou "Compléter" pour ajouter des zones manquantes.');
+        }
+
+      } catch (e) {
+        aiStatusEl.textContent = 'Erreur IA : ' + (e?.message ?? String(e));
+        aiAcceptBtn.disabled = true;
+        console.error(e);
+      }
+    }
+
+    aiAcceptBtn.addEventListener('click', () => {
+      manualMode = false;
+      previewCanvas.style.cursor = '';
+      computeAndDisplayPrices();
+    });
+
+    aiManualBtn.addEventListener('click', () => {
+      aiDetectedMask = null;
+      aiMaskOffscreen = null;
+      aiMetrics = null;
+      hybridMode = false;
+      manualMode = true;
+      setStage('select');
+      if (manualHint) manualHint.style.display = 'block';
+      setStatus('Mode points activé. Cliquez pour placer les points du contour.');
+    });
+
+    aiCompleteBtn.addEventListener('click', () => {
+      hybridMode = true;
+      manualContours = [];
+      manualCurrent = [];
+      manualDrawing = false;
+      aiCompleteBtn.style.display = 'none';
+      aiClearManualBtn.style.display = '';
+      previewCanvas.style.cursor = 'crosshair';
+      setStatus('Tracez les zones manquantes (cliquez pour poser des points, revenez au 1er pour fermer). Puis "✓ Utiliser ce contour".');
+    });
+
+    aiClearManualBtn.addEventListener('click', () => {
+      manualContours = [];
+      manualCurrent = [];
+      manualDrawing = false;
+      renderNormalPreview();
+      setStatus('Zones effacées. Retracez les zones manquantes ou cliquez sur "✓ Utiliser ce contour".');
+    });
+
+    // Combined metrics: AI mask union manual polygons (canvas rasterisation at scaled resolution)
+    function computeCombinedMetrics() {
+      if (!aiDetectedMask || !sourceImage) return null;
+      const W = sourceImage.width, H = sourceImage.height;
+      const thr = 0.85 * Math.pow(0.01 / 0.85, +aiCorrSlider.value / 10);
+
+      // Work at reduced resolution to stay fast on large images
+      const SCALE = Math.min(1, 1024 / Math.max(W, H));
+      const sw = Math.max(1, Math.round(W * SCALE));
+      const sh = Math.max(1, Math.round(H * SCALE));
+
+      const combined = new Uint8Array(sw * sh);
+
+      // Fill from AI mask
+      for (let y = 0; y < sh; y++) {
+        const sy = Math.min(H - 1, Math.round(y / SCALE));
+        for (let x = 0; x < sw; x++) {
+          const sx = Math.min(W - 1, Math.round(x / SCALE));
+          if (aiDetectedMask[sy * W + sx] >= thr) combined[y * sw + x] = 1;
+        }
+      }
+
+      // Rasterise manual polygons onto combined mask
+      if (manualContours.length > 0) {
+        const mc = document.createElement('canvas');
+        mc.width = sw; mc.height = sh;
+        const mctx = mc.getContext('2d');
+        mctx.fillStyle = 'white';
+        for (const contour of manualContours) {
+          if (contour.points.length < 3) continue;
+          mctx.beginPath();
+          mctx.moveTo(contour.points[0].x * SCALE, contour.points[0].y * SCALE);
+          for (let i = 1; i < contour.points.length; i++)
+            mctx.lineTo(contour.points[i].x * SCALE, contour.points[i].y * SCALE);
+          mctx.closePath();
+          mctx.fill();
+        }
+        const id = mctx.getImageData(0, 0, sw, sh).data;
+        for (let i = 0; i < sw * sh; i++) {
+          if (id[i * 4 + 3] > 0) combined[i] = 1;
+        }
+      }
+
+      // Count area + perimeter at scaled resolution → scale back
+      let areaPx = 0, perimeterPx = 0;
+      for (let y = 0; y < sh; y++) {
+        for (let x = 0; x < sw; x++) {
+          if (!combined[y * sw + x]) continue;
+          areaPx++;
+          const border =
+            (x === 0    || !combined[y * sw + x - 1]) ||
+            (x === sw-1 || !combined[y * sw + x + 1]) ||
+            (y === 0    || !combined[(y-1) * sw + x]) ||
+            (y === sh-1 || !combined[(y+1) * sw + x]);
+          if (border) perimeterPx++;
+        }
+      }
+      return {
+        areaPx:      areaPx      / (SCALE * SCALE),
+        perimeterPx: perimeterPx / SCALE,
+        count: 1
+      };
+    }
+
     previewCanvas.addEventListener('click', (e) => {
       if (!sourceImage) return;
       const { x, y } = getCanvasXY(e);
@@ -3139,20 +4028,26 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         return;
       }
 
-      if (currentStage === 'select' && manualMode && !isPanning) {
+      const isDrawingMode = (currentStage === 'select' && manualMode) ||
+                            (currentStage === 'ai-detect' && hybridMode);
+      if (isDrawingMode && !isPanning) {
         if (manualNearStart) {
           manualContours.push({ points: [...manualCurrent] });
           manualCurrent = [];
           manualDrawing = false;
           manualHoverPoint = null;
           manualNearStart = false;
-          setStatus('Contour fermé. Valider ou ajouter des contours si besoin.');
+          if (hybridMode) {
+            setStatus(`Zone ajoutée (${manualContours.length}). Tracez d'autres zones ou cliquez sur "✓ Utiliser ce contour".`);
+          } else {
+            setStatus('Contour fermé. Valider ou ajouter des contours si besoin.');
+          }
           renderNormalPreview();
           return;
         }
         manualCurrent.push({ x, y });
         manualHoverPoint = null;
-        setStatus(`Points sélectionnés: ${manualCurrent.length}. Cliquez pour continuer, puis validez.`);
+        setStatus(`Points sélectionnés: ${manualCurrent.length}. Cliquez pour continuer, revenez au 1er point pour fermer.`);
         renderNormalPreview();
       }
     });
@@ -3180,7 +4075,9 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         renderNormalPreview();
         return;
       }
-      if (currentStage === 'select' && manualMode && manualCurrent.length) {
+      const isDrawingMode = (currentStage === 'select' && manualMode) ||
+                            (currentStage === 'ai-detect' && hybridMode);
+      if (isDrawingMode && manualCurrent.length) {
         const { x, y } = getCanvasXY(e);
         manualHoverPoint = { x, y };
         if (manualCurrent.length >= 3) {
@@ -3208,7 +4105,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         isPanning = false;
         panStart = null;
       }
-      if (currentStage === 'select' && manualMode) {
+      if ((currentStage === 'select' && manualMode) || (currentStage === 'ai-detect' && hybridMode)) {
         manualHoverPoint = null;
         manualNearStart = false;
       }
@@ -3285,6 +4182,28 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     }
     new ResizeObserver(sendHeight).observe(document.body);
     sendHeight();
+  </script>
+
+  <!-- RMBG-1.4 — chargé en module ES pour accéder aux transformers.js -->
+  <script type="module">
+    import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3';
+    env.allowRemoteModels = true;
+    env.allowLocalModels  = false;
+
+    let seg = null;
+
+    window.runRMBG = async function(dataUrl, onProgress) {
+      if (!seg) {
+        const device = navigator.gpu ? 'webgpu' : 'wasm';
+        seg = await pipeline('image-segmentation', 'briaai/RMBG-1.4', {
+          device,
+          dtype: 'fp32',
+          progress_callback: onProgress,
+        });
+      }
+      const results = await seg(dataUrl, { threshold: 0 });
+      return results[0].mask; // RawImage { data, width, height }
+    };
   </script>
 </body>
 </html>
