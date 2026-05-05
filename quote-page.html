@@ -3679,8 +3679,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       return oc;
     }
 
-    // Rotate imageData 90° clockwise: original (x,y) → rotated (H-1-y, x)
-    // Rotated image dims: width=origH, height=origW
+    // Rotate imageData 90° CW: original (x,y) → rotated (H-1-y, x), dims become (H, W)
     function rotateImageData90CW(id) {
       const { data, width: W, height: H } = id;
       const out = new ImageData(H, W);
@@ -3713,20 +3712,14 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         const sensitivity = 0.55;
         const mmPerTick = 1;
 
-        // Try horizontal ruler first
+        // Try horizontal ruler first, then vertical (rotate 90° CW)
         let ruler = detectRuler(imageData, sensitivity);
         let usedData = imageData;
         let isVertical = false;
-
-        // If not found, try rotating 90° (handles vertical rulers)
         if (!ruler) {
           const rotData = rotateImageData90CW(imageData);
           const rulerV = detectRuler(rotData, sensitivity);
-          if (rulerV) {
-            ruler = rulerV;
-            usedData = rotData;
-            isVertical = true;
-          }
+          if (rulerV) { ruler = rulerV; usedData = rotData; isVertical = true; }
         }
 
         if (!ruler) {
@@ -3744,10 +3737,9 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         }
 
         autoCalibration = { ruler, ticks, spacing, isVertical, origW: w, origH: h };
-        // Overlay only for horizontal (vertical overlay transform too complex — status text suffices)
         autoCalibOverlay = isVertical ? null : buildAutoCalibOverlay(autoCalibration, w, h);
         const conf = Math.round(clamp(ruler.confidence * 0.35 + spacing.confidence * 0.65, 0, 1) * 100);
-        const orient = isVertical ? ' (règle verticale)' : '';
+        const orient = isVertical ? ' (verticale)' : '';
         autoScaleStatus.textContent = `Règle détectée${orient} — ${spacing.pxPerMm.toFixed(2)} px/mm · confiance ${conf} %`;
         autoScaleAcceptBtn.disabled = false;
         renderNormalPreview();
@@ -3765,11 +3757,10 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       if (segment) {
         if (knownDistanceMm) knownDistanceMm.value = '10';
         if (autoCalibration.isVertical) {
-          // Detection was done on rotated image (90° CW): rotated(x',y') → original(y', origH-1-x')
-          // segment.x0/x1 are X positions in rotated space → Y positions in original
-          // ruler.top/bottom are Y positions in rotated space → X positions in original (inverted)
-          const origH = autoCalibration.origH;
-          const xMid = origH - 1 - (autoCalibration.ruler.top + autoCalibration.ruler.bottom) / 2;
+          // Detection done on 90° CW rotated image: rotated(x',y') → original(y', origH-1-x')
+          // segment.x0/x1 are X in rotated space → Y in original
+          // ruler mid Y in rotated → X in original (inverted)
+          const xMid = autoCalibration.origH - 1 - (autoCalibration.ruler.top + autoCalibration.ruler.bottom) / 2;
           selectedPoints = [{ x: xMid, y: segment.x0 }, { x: xMid, y: segment.x1 }];
         } else {
           const yMid = (autoCalibration.ruler.top + autoCalibration.ruler.bottom) / 2;
