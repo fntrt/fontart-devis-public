@@ -3252,9 +3252,9 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       return ((value % divisor) + divisor) % divisor;
     }
 
-    function detectRuler(imageData, sensitivity) {
+    function detectRuler(imageData, sensitivity, startY) {
       const { data, width, height } = imageData;
-      const startY = Math.max(0, Math.floor(height * 0.42));
+      if (startY === undefined) startY = Math.max(0, Math.floor(height * 0.42));
       const xStep = Math.max(1, Math.floor(width / 900));
       const rowScore = new Array(height).fill(0);
       const rowLum = new Array(height).fill(0);
@@ -3299,8 +3299,16 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
             const avg = scoreSum / bandHeight;
             const avgLum = lumSum / bandHeight;
             const bottomBias = bandEnd / height;
+            const isFullScan = startY === 0;
+            const bandFrac = bandHeight / height;
+            const widthPenalty = (isFullScan && bandFrac > 0.30)
+              ? Math.exp(-(bandFrac - 0.30) * 8)
+              : 1;
+            const rawRank = isFullScan
+              ? avg * 0.92 + clamp(0.18 - bandFrac, -0.4, 0.18)
+              : avg * 0.72 + bottomBias * 0.22 + clamp(bandHeight / height, 0, 0.2);
             bands.push({ top: bandStart, bottom: bandEnd, avg, avgLum,
-              rank: avg * 0.72 + bottomBias * 0.22 + clamp(bandHeight / height, 0, 0.2) });
+              rank: rawRank * widthPenalty });
           }
         } else { y += 1; }
       }
@@ -3362,9 +3370,126 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       return { left: runs[0].start, right: runs[0].end };
     }
 
+    function quickTickScore(ticks) {
+      if (ticks.length < 4) return 0;
+      const pos = ticks.map(t => t.x).sort((a, b) => a - b);
+      const gaps = [];
+      for (let i = 1; i < pos.length; i++) gaps.push(pos[i] - pos[i - 1]);
+      gaps.sort((a, b) => a - b);
+      const med = gaps[Math.floor(gaps.length / 2)];
+      if (med <= 0) return 0;
+      let good = 0;
+      for (const g of gaps) {
+        const ratio = g / med;
+        if (Math.abs(ratio - Math.round(ratio)) < 0.28) good++;
+      }
+      return ticks.length * (good / Math.max(1, gaps.length));
+    }
+
+    function detectTicksFromEdge(imageData, ruler, sensitivity, edge) {
+      const { data, width, height } = imageData;
+      const rulerHeight = ruler.bottom - ruler.top + 1;
+      const scanH = Math.min(rulerHeight, 68);
+      let y0, y1;
+      if (edge === "top") {
+        y0 = clamp(ruler.top + Math.max(1, Math.round(rulerHeight * 0.04)), 0, height - 1);
+        y1 = clamp(ruler.top + scanH, y0 + 2, height - 1);
+      } else {
+        y1 = clamp(ruler.bottom - Math.max(1, Math.round(rulerHeight * 0.04)), 0, height - 1);
+        y0 = clamp(ruler.bottom - scanH, 0, y1 - 2);
+      }
+      const x0 = clamp(ruler.left  + 2, 0, width - 1);
+      const x1 = clamp(ruler.right - 2, x0, width - 1);
+
+      const lumSamples = [];
+      const xStep = Math.max(1, Math.floor((x1 - x0 + 1) / 900));
+      const yStep = Math.max(1, Math.floor((y1 - y0 + 1) / 80));
+      for (let y = y0; y <= y1; y += yStep) {
+        for (let x = x0; x <= x1; x += xStep) {
+          const i = (y * width + x) * 4;
+          lumSamples.push(luma(data[i], data[i + 1], data[i + 2]));
+        }
+      }
+      const darkBase   = percentile(lumSamples, 5);
+      const brightBase = percentile(lumSamples, 78);
+      const darkLimit  = clamp(darkBase + (brightBase - darkBase) * (0.28 + sensitivity * 0.08), 50, 155);
+
+      const columnScore = new Array(width).fill(0);
+      const columnAvg   = new Array(width).fill(0);
+      const columnMin   = new Array(width).fill(255);
+      const topPresence = new Array(width).fill(0);
+      const topLimit    = y0 + Math.min(14, Math.max(6, Math.round((y1 - y0 + 1) * 0.32)));
+
+      for (let x = x0; x <= x1; x++) {
+        let score = 0, topDark = 0, lumSum = 0, lumMin = 255, count = 0;
+        for (let y = y0; y <= y1; y++) {
+          const i = (y * width + x) * 4;
+          const l = luma(data[i], data[i + 1], data[i + 2]);
+          lumSum += l; lumMin = Math.min(lumMin, l); count++;
+          if (l < darkLimit) {
+            score += 0.7 + (darkLimit - l) / Math.max(1, darkLimit);
+            if (y <= topLimit) topDark++;
+          }
+        }
+        columnScore[x] = score;
+        columnAvg[x]   = lumSum / Math.max(1, count);
+        columnMin[x]   = lumMin;
+        topPresence[x] = topDark;
+      }
+
+      const contrastRadius = Math.max(4, Math.round((x1 - x0 + 1) / 180));
+      const localAvg = movingAverage(columnAvg, contrastRadius);
+      for (let x = x0; x <= x1; x++) {
+        const localRef    = Math.max(localAvg[x], brightBase * 0.92);
+        const avgDip      = Math.max(0, localRef - columnAvg[x]);
+        const minDip      = Math.max(0, localRef - columnMin[x]);
+        columnScore[x] += avgDip / 8 + minDip / 24;
+        if (minDip > 12 && x > x0 + 1 && x < x1 - 1) topPresence[x]++;
+      }
+
+      const smooth  = movingAverage(columnScore, 1);
+      const active  = smooth.slice(x0, x1 + 1);
+      const base    = percentile(active, 62);
+      const high    = percentile(active, 98);
+      const threshold     = Math.max(0.95, base + (high - base) * (0.1 - (sensitivity - 0.5) * 0.05));
+      const maxGroupWidth = Math.max(8, Math.round((x1 - x0 + 1) * 0.014));
+      const ticks = [];
+      let x = x0;
+      while (x <= x1) {
+        if (smooth[x] >= threshold) {
+          const start = x;
+          let weight = 0, weightedX = 0, maxScore = 0;
+          while (x <= x1 && smooth[x] >= threshold * 0.82) {
+            const value = smooth[x];
+            weight += value; weightedX += x * value;
+            maxScore = Math.max(maxScore, value); x++;
+          }
+          const end = x - 1, groupWidth = end - start + 1;
+          const center = weight > 0 ? weightedX / weight : (start + end) / 2;
+          const topDark = maxAround(topPresence, Math.round(center), 2);
+          if (groupWidth <= maxGroupWidth && (topDark > 0 || maxScore > threshold * 1.25)) {
+            ticks.push({
+              x: center, y0, y1, width: groupWidth, score: maxScore, topDark,
+              length: estimateTickLength(imageData, center, y0, y1, darkLimit)
+            });
+          }
+        } else { x++; }
+      }
+      return mergeCloseTicks(ticks, 2.6);
+    }
+
     function detectTicks(imageData, ruler, sensitivity) {
       const { data, width, height } = imageData;
       const rulerHeight = ruler.bottom - ruler.top + 1;
+
+      // Pour les bandes étroites (règle ~20-60px après rotation),
+      // on scanne depuis le bord haut ET le bord bas, on garde le meilleur résultat.
+      if (rulerHeight < 90) {
+        const ticksTop = detectTicksFromEdge(imageData, ruler, sensitivity, "top");
+        const ticksBot = detectTicksFromEdge(imageData, ruler, sensitivity, "bottom");
+        return quickTickScore(ticksTop) >= quickTickScore(ticksBot) ? ticksTop : ticksBot;
+      }
+
       const y0 = clamp(Math.round(ruler.top + Math.max(2, rulerHeight * 0.05)), 0, height - 1);
       const y1 = clamp(Math.round(ruler.top + Math.min(rulerHeight * 0.78, 68)), y0 + 4, height - 1);
       const x0 = clamp(ruler.left + 2, 0, width - 1);
