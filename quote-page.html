@@ -3941,7 +3941,24 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         result.spacing = validateSpacingByMajors(result.ticks, result.spacing, mmPerTick);
 
         autoCalibration = { ruler: result.ruler, ticks: result.ticks, spacing: result.spacing, isVertical, origW: w, origH: h };
-        autoCalibOverlay = isVertical ? null : buildAutoCalibOverlay(autoCalibration, w, h);
+        if (isVertical) {
+          // Detection done on 90° CW rotated image (dims: h × w).
+          // Build overlay in rotated space then rotate it back 90° CCW.
+          const rotOverlay = buildAutoCalibOverlay(autoCalibration, h, w);
+          if (rotOverlay) {
+            const oc = document.createElement('canvas');
+            oc.width = w; oc.height = h;
+            const c = oc.getContext('2d');
+            c.translate(0, h);
+            c.rotate(-Math.PI / 2);
+            c.drawImage(rotOverlay, 0, 0);
+            autoCalibOverlay = oc;
+          } else {
+            autoCalibOverlay = null;
+          }
+        } else {
+          autoCalibOverlay = buildAutoCalibOverlay(autoCalibration, w, h);
+        }
         const conf = Math.round(clamp(result.ruler.confidence * 0.35 + result.spacing.confidence * 0.65, 0, 1) * 100);
         const orient = isVertical ? ' (verticale)' : '';
         autoScaleStatus.textContent = `Règle détectée${orient} — ${result.spacing.pxPerMm.toFixed(2)} px/mm · confiance ${conf} %`;
