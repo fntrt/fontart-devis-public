@@ -3995,17 +3995,34 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         const sensitivity = 0.55;
         const mmPerTick = 1;
 
+        // Phase 1: score 8 coarse angles on reduced image
         autoScaleStatus.textContent = '1/3 – Recherche de l\'orientation…';
         await yieldUI();
-        const coarseAngle = findBestAngleCalib(sensitivity);
+        const coarseAngles = [0, 90, -90, 180, 45, -45, 135, -135];
+        const scored = coarseAngles
+          .map(a => ({ angle: a, score: scoreAngleCalib(a, sensitivity) }))
+          .sort((a, b) => b.score - a.score);
 
+        // Phase 2: refine top 2 candidates (guards against false-positive periodic patterns)
         autoScaleStatus.textContent = '2/3 – Affinage de l\'angle…';
         await yieldUI();
-        const fineAngle = refineAngleCalib(coarseAngle, sensitivity);
+        const candidates = [];
+        for (const { angle } of scored.slice(0, 2)) {
+          const refined = refineAngleCalib(angle, sensitivity);
+          if (!candidates.some(c => Math.abs(c - refined) < 2)) candidates.push(refined);
+        }
 
+        // Phase 3: try each candidate on full image, keep best detection
         autoScaleStatus.textContent = '3/3 – Détection des graduations…';
         await yieldUI();
-        const best = tryDetectionAtAngleCalib(fineAngle, sensitivity, mmPerTick);
+        let best = null, fineAngle = candidates[0] ?? 0;
+        for (const angle of candidates) {
+          const result = tryDetectionAtAngleCalib(angle, sensitivity, mmPerTick);
+          if (result && (!best || result.score > best.score)) {
+            best = result;
+            fineAngle = angle;
+          }
+        }
 
         if (!best) {
           autoScaleStatus.textContent = 'Règle non détectée. Calibrez manuellement.';
