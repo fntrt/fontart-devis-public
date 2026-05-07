@@ -3821,6 +3821,73 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       return out;
     }
 
+    // Scan horizontal strips to find the band with the best tick periodicity
+    // (does not require detectRuler to succeed first)
+    function detectRulerByTicks(imageData, sensitivity) {
+      const { width, height } = imageData;
+      const stripH = clamp(Math.round(height * 0.07), 20, 80);
+      const step   = Math.max(3, Math.round(stripH * 0.35));
+
+      let bestScore = 0, bestRuler = null, bestTicks = [];
+
+      for (let y = 0; y <= height - stripH; y += step) {
+        const fakeRuler = {
+          top: y, bottom: y + stripH,
+          left: 0, right: width - 1,
+          confidence: 1
+        };
+        const ticks = detectTicks(imageData, fakeRuler, sensitivity);
+        const score = quickTickScore(ticks);
+        if (score > bestScore) {
+          bestScore = score;
+          bestRuler = { ...fakeRuler };
+          bestTicks = ticks;
+        }
+      }
+
+      if (bestScore < 0.5 || bestTicks.length < 5) return null;
+      bestRuler.confidence = Math.min(1, bestScore / 8);
+      return { ruler: bestRuler, ticks: bestTicks };
+    }
+
+    // Correct half-tick detection: if major-tick gaps are ~2× stepPx, double the step
+    function validateSpacingByMajors(ticks, spacing, mmPerTick) {
+      if (!spacing || ticks.length < 10) return spacing;
+
+      const lengths = ticks.map(t => t.length || 0).filter(l => l > 0).sort((a, b) => a - b);
+      if (lengths.length < 5) return spacing;
+      const medLen = lengths[Math.floor(lengths.length / 2)];
+
+      const majors = ticks
+        .filter(t => (t.length || 0) > medLen * 1.4)
+        .map(t => t.x)
+        .sort((a, b) => a - b);
+      if (majors.length < 3) return spacing;
+
+      const gaps = [];
+      for (let i = 1; i < majors.length; i++) {
+        const g = majors[i] - majors[i - 1];
+        if (g > spacing.stepPx * 2.5) gaps.push(g);
+      }
+      if (gaps.length < 2) return spacing;
+      gaps.sort((a, b) => a - b);
+      const medGap = gaps[Math.floor(gaps.length / 2)];
+      const ratio  = medGap / spacing.stepPx;
+
+      if (ratio > 14 && ratio < 28) {
+        const newStep = spacing.stepPx * 2;
+        return {
+          ...spacing,
+          stepPx: newStep,
+          pxPerMm: newStep / mmPerTick,
+          pxPerCm: (newStep / mmPerTick) * 10,
+          mmPerPx: mmPerTick / newStep,
+          _corrected: true
+        };
+      }
+      return spacing;
+    }
+
     function runAutoCalibration() {
       autoCalibration = null;
       autoCalibOverlay = null;
@@ -3837,35 +3904,47 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         const sensitivity = 0.55;
         const mmPerTick = 1;
 
-        // Try horizontal ruler first, then vertical (rotate 90° CW)
-        let ruler = detectRuler(imageData, sensitivity);
-        let usedData = imageData;
-        let isVertical = false;
-        if (!ruler) {
-          const rotData = rotateImageData90CW(imageData);
-          const rulerV = detectRuler(rotData, sensitivity);
-          if (rulerV) { ruler = rulerV; usedData = rotData; isVertical = true; }
+        // Helper: try detectRulerByTicks first, then fall back to detectRuler
+        function tryDetect(data) {
+          const tickResult = detectRulerByTicks(data, sensitivity);
+          if (tickResult) {
+            const sp = estimateSpacing(tickResult.ticks, tickResult.ruler, mmPerTick);
+            if (sp && sp.matched >= 5) {
+              return { ruler: tickResult.ruler, ticks: tickResult.ticks, spacing: sp };
+            }
+          }
+          const ruler = detectRuler(data, sensitivity);
+          if (!ruler) return null;
+          const ticks = detectTicks(data, ruler, sensitivity);
+          const sp = estimateSpacing(ticks, ruler, mmPerTick);
+          if (!sp) return null;
+          return { ruler, ticks, spacing: sp };
         }
 
-        if (!ruler) {
+        // Try horizontal first, then vertical (rotate 90° CW)
+        let result = tryDetect(imageData);
+        let usedData = imageData;
+        let isVertical = false;
+        if (!result) {
+          const rotData = rotateImageData90CW(imageData);
+          result = tryDetect(rotData);
+          if (result) { usedData = rotData; isVertical = true; }
+        }
+
+        if (!result) {
           autoScaleStatus.textContent = 'Règle non détectée. Calibrez manuellement.';
           renderNormalPreview();
           return;
         }
 
-        const ticks = detectTicks(usedData, ruler, sensitivity);
-        const spacing = estimateSpacing(ticks, ruler, mmPerTick);
-        if (!spacing) {
-          autoScaleStatus.textContent = 'Graduations insuffisantes pour calculer l\'échelle.';
-          renderNormalPreview();
-          return;
-        }
+        // Correct half-tick errors using major tick spacing
+        result.spacing = validateSpacingByMajors(result.ticks, result.spacing, mmPerTick);
 
-        autoCalibration = { ruler, ticks, spacing, isVertical, origW: w, origH: h };
+        autoCalibration = { ruler: result.ruler, ticks: result.ticks, spacing: result.spacing, isVertical, origW: w, origH: h };
         autoCalibOverlay = isVertical ? null : buildAutoCalibOverlay(autoCalibration, w, h);
-        const conf = Math.round(clamp(ruler.confidence * 0.35 + spacing.confidence * 0.65, 0, 1) * 100);
+        const conf = Math.round(clamp(result.ruler.confidence * 0.35 + result.spacing.confidence * 0.65, 0, 1) * 100);
         const orient = isVertical ? ' (verticale)' : '';
-        autoScaleStatus.textContent = `Règle détectée${orient} — ${spacing.pxPerMm.toFixed(2)} px/mm · confiance ${conf} %`;
+        autoScaleStatus.textContent = `Règle détectée${orient} — ${result.spacing.pxPerMm.toFixed(2)} px/mm · confiance ${conf} %`;
         autoScaleAcceptBtn.disabled = false;
         renderNormalPreview();
       } catch (e) {
