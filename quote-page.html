@@ -3888,80 +3888,157 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       return spacing;
     }
 
-    function runAutoCalibration() {
+    // ── 3-phase angle detection helpers (ported from calibrage-regle.html) ──
+
+    function yieldUI() { return new Promise(r => setTimeout(r, 0)); }
+
+    let _smallCalibCache = null;
+    function getSmallCalibImage() {
+      const img = sourceImage;
+      if (_smallCalibCache && _smallCalibCache.src === img) return _smallCalibCache;
+      const maxDim = 300;
+      const s  = Math.min(1, maxDim / Math.max(img.width, img.height));
+      const sW = Math.round(img.width  * s);
+      const sH = Math.round(img.height * s);
+      const oc = new OffscreenCanvas(sW, sH);
+      oc.getContext('2d').drawImage(img, 0, 0, sW, sH);
+      _smallCalibCache = { src: img, canvas: oc, sW, sH };
+      return _smallCalibCache;
+    }
+
+    function getSmallRotatedCalib(angleDeg) {
+      const { canvas, sW, sH } = getSmallCalibImage();
+      const rad = angleDeg * Math.PI / 180;
+      const cos = Math.abs(Math.cos(rad)), sin = Math.abs(Math.sin(rad));
+      const rW = Math.ceil(sW * cos + sH * sin);
+      const rH = Math.ceil(sW * sin + sH * cos);
+      const oc = new OffscreenCanvas(rW, rH);
+      const oc2 = oc.getContext('2d');
+      oc2.translate(rW / 2, rH / 2);
+      oc2.rotate(rad);
+      oc2.drawImage(canvas, -sW / 2, -sH / 2);
+      return oc2.getImageData(0, 0, rW, rH);
+    }
+
+    function scoreAngleCalib(angleDeg, sensitivity) {
+      const id = getSmallRotatedCalib(angleDeg);
+      const tickResult = detectRulerByTicks(id, sensitivity);
+      if (tickResult) return quickTickScore(tickResult.ticks);
+      const ruler = detectRuler(id, sensitivity, 0);
+      if (!ruler) return 0;
+      const ticks = detectTicks(id, ruler, sensitivity);
+      return quickTickScore(ticks) * 0.5;
+    }
+
+    function findBestAngleCalib(sensitivity) {
+      const angles = [0, 90, -90, 180, 45, -45, 135, -135];
+      let best = { angle: 0, score: -1 };
+      for (const a of angles) {
+        const score = scoreAngleCalib(a, sensitivity);
+        if (score > best.score) best = { angle: a, score };
+      }
+      return best.angle;
+    }
+
+    function refineAngleCalib(coarseAngle, sensitivity) {
+      let best = { angle: coarseAngle, score: scoreAngleCalib(coarseAngle, sensitivity) };
+      for (let a = coarseAngle - 3; a <= coarseAngle + 3; a++) {
+        if (a === coarseAngle) continue;
+        const score = scoreAngleCalib(a, sensitivity);
+        if (score > best.score) best = { angle: a, score };
+      }
+      return best.angle;
+    }
+
+    function getRotatedDataCalib(angleDeg) {
+      const img = sourceImage;
+      const rad = angleDeg * Math.PI / 180;
+      const W = img.width, H = img.height;
+      const cos = Math.abs(Math.cos(rad)), sin = Math.abs(Math.sin(rad));
+      const rW  = Math.ceil(W * cos + H * sin);
+      const rH  = Math.ceil(W * sin + H * cos);
+      const oc  = new OffscreenCanvas(rW, rH);
+      const oc2 = oc.getContext('2d');
+      oc2.translate(rW / 2, rH / 2);
+      oc2.rotate(rad);
+      oc2.drawImage(img, -W / 2, -H / 2);
+      return { imageData: oc2.getImageData(0, 0, rW, rH), rW, rH, W, H, rad, angleDeg };
+    }
+
+    function tryDetectionAtAngleCalib(angleDeg, sensitivity, mmPerTick) {
+      const rotData = getRotatedDataCalib(angleDeg);
+      const tickResult = detectRulerByTicks(rotData.imageData, sensitivity);
+      if (tickResult) {
+        const sp = estimateSpacing(tickResult.ticks, tickResult.ruler, mmPerTick);
+        if (sp && sp.matched >= 5) {
+          return { ruler: tickResult.ruler, ticks: tickResult.ticks, spacing: sp, rotData, score: sp.matched * sp.confidence };
+        }
+      }
+      const ruler = detectRuler(rotData.imageData, sensitivity, 0);
+      if (ruler) {
+        const ticks = detectTicks(rotData.imageData, ruler, sensitivity);
+        const sp = estimateSpacing(ticks, ruler, mmPerTick);
+        if (sp && sp.matched >= 5) {
+          return { ruler, ticks, spacing: sp, rotData, score: sp.matched * sp.confidence };
+        }
+      }
+      return null;
+    }
+
+    async function runAutoCalibration() {
       autoCalibration = null;
       autoCalibOverlay = null;
       autoScaleAcceptBtn.disabled = true;
-      autoScaleStatus.textContent = 'Détection automatique de la règle…';
+      _smallCalibCache = null;
 
       try {
-        const w = sourceImage.width, h = sourceImage.height;
-        tempCanvas.width = w; tempCanvas.height = h;
-        tempCtx.clearRect(0, 0, w, h);
-        tempCtx.drawImage(sourceImage, 0, 0);
-        const imageData = tempCtx.getImageData(0, 0, w, h);
-
         const sensitivity = 0.55;
         const mmPerTick = 1;
 
-        // Helper: try detectRulerByTicks first, then fall back to detectRuler
-        function tryDetect(data) {
-          const tickResult = detectRulerByTicks(data, sensitivity);
-          if (tickResult) {
-            const sp = estimateSpacing(tickResult.ticks, tickResult.ruler, mmPerTick);
-            if (sp && sp.matched >= 5) {
-              return { ruler: tickResult.ruler, ticks: tickResult.ticks, spacing: sp };
-            }
-          }
-          const ruler = detectRuler(data, sensitivity);
-          if (!ruler) return null;
-          const ticks = detectTicks(data, ruler, sensitivity);
-          const sp = estimateSpacing(ticks, ruler, mmPerTick);
-          if (!sp) return null;
-          return { ruler, ticks, spacing: sp };
-        }
+        autoScaleStatus.textContent = '1/3 – Recherche de l\'orientation…';
+        await yieldUI();
+        const coarseAngle = findBestAngleCalib(sensitivity);
 
-        // Try horizontal first, then vertical (rotate 90° CW)
-        let result = tryDetect(imageData);
-        let usedData = imageData;
-        let isVertical = false;
-        if (!result) {
-          const rotData = rotateImageData90CW(imageData);
-          result = tryDetect(rotData);
-          if (result) { usedData = rotData; isVertical = true; }
-        }
+        autoScaleStatus.textContent = '2/3 – Affinage de l\'angle…';
+        await yieldUI();
+        const fineAngle = refineAngleCalib(coarseAngle, sensitivity);
 
-        if (!result) {
+        autoScaleStatus.textContent = '3/3 – Détection des graduations…';
+        await yieldUI();
+        const best = tryDetectionAtAngleCalib(fineAngle, sensitivity, mmPerTick);
+
+        if (!best) {
           autoScaleStatus.textContent = 'Règle non détectée. Calibrez manuellement.';
           renderNormalPreview();
           return;
         }
 
-        // Correct half-tick errors using major tick spacing
-        result.spacing = validateSpacingByMajors(result.ticks, result.spacing, mmPerTick);
+        best.spacing = validateSpacingByMajors(best.ticks, best.spacing, mmPerTick);
+        const { ruler, ticks, spacing, rotData } = best;
+        const { W, H, rW, rH } = rotData;
 
-        autoCalibration = { ruler: result.ruler, ticks: result.ticks, spacing: result.spacing, isVertical, origW: w, origH: h };
-        if (isVertical) {
-          // Detection done on 90° CW rotated image (dims: h × w).
-          // Build overlay in rotated space then rotate it back 90° CCW.
-          const rotOverlay = buildAutoCalibOverlay(autoCalibration, h, w);
-          if (rotOverlay) {
-            const oc = document.createElement('canvas');
-            oc.width = w; oc.height = h;
-            const c = oc.getContext('2d');
-            c.translate(0, h);
-            c.rotate(-Math.PI / 2);
-            c.drawImage(rotOverlay, 0, 0);
-            autoCalibOverlay = oc;
-          } else {
-            autoCalibOverlay = null;
-          }
+        const absAngle = Math.abs(fineAngle % 180);
+        const isVertical = absAngle > 45 && absAngle < 135;
+        autoCalibration = { ruler, ticks, spacing, isVertical, fineAngle, origW: W, origH: H, rW, rH };
+
+        // Build overlay in rotated space, then rotate back to original orientation
+        const rotOverlay = buildAutoCalibOverlay(autoCalibration, rW, rH);
+        if (rotOverlay) {
+          const oc = document.createElement('canvas');
+          oc.width = W; oc.height = H;
+          const c = oc.getContext('2d');
+          c.translate(W / 2, H / 2);
+          c.rotate(-fineAngle * Math.PI / 180);
+          c.drawImage(rotOverlay, -rW / 2, -rH / 2);
+          autoCalibOverlay = oc;
         } else {
-          autoCalibOverlay = buildAutoCalibOverlay(autoCalibration, w, h);
+          autoCalibOverlay = null;
         }
-        const conf = Math.round(clamp(result.ruler.confidence * 0.35 + result.spacing.confidence * 0.65, 0, 1) * 100);
+
+        const conf = Math.round(clamp(ruler.confidence * 0.35 + spacing.confidence * 0.65, 0, 1) * 100);
         const orient = isVertical ? ' (verticale)' : '';
-        autoScaleStatus.textContent = `Règle détectée${orient} — ${result.spacing.pxPerMm.toFixed(2)} px/mm · confiance ${conf} %`;
+        const corrInfo = spacing._corrected ? ' [corrigé ×2]' : '';
+        autoScaleStatus.textContent = `Règle détectée${orient} — ${spacing.pxPerMm.toFixed(2)} px/mm · confiance ${conf} %${corrInfo}`;
         autoScaleAcceptBtn.disabled = false;
         renderNormalPreview();
       } catch (e) {
@@ -3973,20 +4050,19 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     autoScaleAcceptBtn.addEventListener('click', () => {
       if (!autoCalibration?.spacing) return;
       pxPerMm = autoCalibration.spacing.pxPerMm;
-      // Provide selectedPoints: 2 endpoints of the trusted 10mm segment
       const segment = chooseTrustedScaleSegment(autoCalibration.ruler, autoCalibration.ticks, autoCalibration.spacing);
       if (segment) {
         if (knownDistanceMm) knownDistanceMm.value = '10';
-        if (autoCalibration.isVertical) {
-          // Detection done on 90° CW rotated image: rotated(x',y') → original(y', origH-1-x')
-          // segment.x0/x1 are X in rotated space → Y in original
-          // ruler mid Y in rotated → X in original (inverted)
-          const xMid = autoCalibration.origH - 1 - (autoCalibration.ruler.top + autoCalibration.ruler.bottom) / 2;
-          selectedPoints = [{ x: xMid, y: segment.x0 }, { x: xMid, y: segment.x1 }];
-        } else {
-          const yMid = (autoCalibration.ruler.top + autoCalibration.ruler.bottom) / 2;
-          selectedPoints = [{ x: segment.x0, y: yMid }, { x: segment.x1, y: yMid }];
-        }
+        // Map detection-space endpoints back to original image coordinates
+        const { ruler, fineAngle = 0, origW: W, origH: H, rW = W, rH = H } = autoCalibration;
+        const rulerMidY = (ruler.top + ruler.bottom) / 2;
+        const rad = -fineAngle * Math.PI / 180;
+        const cos = Math.cos(rad), sin = Math.sin(rad);
+        const mapPoint = (rx, ry) => {
+          const dx = rx - rW / 2, dy = ry - rH / 2;
+          return { x: Math.round(dx * cos - dy * sin + W / 2), y: Math.round(dx * sin + dy * cos + H / 2) };
+        };
+        selectedPoints = [mapPoint(segment.x0, rulerMidY), mapPoint(segment.x1, rulerMidY)];
       }
       setStage('ai-detect');
       runAIDetection();
