@@ -3773,37 +3773,82 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       oc.width = w; oc.height = h;
       const c = oc.getContext('2d');
 
-      const rulerHeight = ruler.bottom - ruler.top + 1;
-      const boxHeight = clamp(Math.round(rulerHeight * 0.82), 22, 36);
-      const top = clamp(ruler.top + 2, ruler.top, Math.max(ruler.top, ruler.bottom - boxHeight - 1));
-      const bottom = Math.min(ruler.bottom - 1, top + boxHeight);
-      const pad = Math.max(5, spacing.stepPx * 0.55);
-      const x = Math.max(ruler.left, segment.x0 - pad);
-      const y = top;
-      const width = Math.min(ruler.right, segment.x1 + pad) - x;
-      const height = bottom - top;
-      const tickTop = y + Math.max(12, Math.round(height * 0.38));
-      const tickBottom = y + height - 3;
-      const labelSize = clamp(Math.round(height * 0.34), 9, 13);
+      // Scale all drawing dimensions relative to image width so the overlay
+      // remains visible on high-resolution images (e.g. 4000 px wide).
+      const scale = Math.max(1, w / 800);
 
-      c.fillStyle = "rgba(0, 0, 0, 0.72)";
-      roundRect(c, x, y, width, height, 4); c.fill();
-      c.strokeStyle = "rgba(255, 255, 255, 0.96)";
-      c.lineWidth = Math.max(1.1, w / 1600);
-      c.beginPath(); c.moveTo(segment.x0, tickTop); c.lineTo(segment.x1, tickTop); c.stroke();
+      // ── 1. Full-width semi-transparent band over the entire ruler strip ──
+      const bandTop    = Math.max(0, ruler.top    - Math.round(4  * scale));
+      const bandBottom = Math.min(h, ruler.bottom + Math.round(4  * scale));
+      c.fillStyle = "rgba(0, 180, 255, 0.18)";
+      c.fillRect(0, bandTop, w, bandBottom - bandTop);
 
-      for (let i = 0; i <= 10; i += 1) {
-        const tx = segment.x0 + i * spacing.stepPx;
-        const isEnd = i === 0 || i === 10;
-        const isHalf = i === 5;
-        const lineTop = isEnd ? y + 5 : isHalf ? tickTop - 4 : tickTop;
-        c.beginPath(); c.moveTo(tx, lineTop); c.lineTo(tx, tickBottom); c.stroke();
+      // Top & bottom border lines of the band
+      c.strokeStyle = "rgba(0, 200, 255, 0.70)";
+      c.lineWidth = Math.max(1.5, scale * 1.5);
+      c.beginPath();
+      c.moveTo(0, bandTop);    c.lineTo(w, bandTop);
+      c.moveTo(0, bandBottom); c.lineTo(w, bandBottom);
+      c.stroke();
+
+      // ── 2. Dark pill over the 10 mm segment ──
+      const rulerH  = ruler.bottom - ruler.top + 1;
+      const pillH   = clamp(Math.round(rulerH * 0.90), Math.round(28 * scale), Math.round(72 * scale));
+      const pillTop = Math.round((ruler.top + ruler.bottom) / 2 - pillH / 2);
+      const pad     = Math.max(Math.round(8 * scale), Math.round(spacing.stepPx * 0.55));
+      const pillX   = Math.max(ruler.left,  segment.x0 - pad);
+      const pillW   = Math.min(ruler.right, segment.x1 + pad) - pillX;
+      const pillR   = Math.round(6 * scale);
+
+      c.fillStyle = "rgba(0, 0, 0, 0.78)";
+      roundRect(c, pillX, pillTop, pillW, pillH, pillR); c.fill();
+
+      // Border around pill
+      c.strokeStyle = "rgba(0, 220, 255, 0.95)";
+      c.lineWidth = Math.max(1.5, scale * 1.5);
+      roundRect(c, pillX, pillTop, pillW, pillH, pillR); c.stroke();
+
+      // ── 3. Horizontal scale bar inside the pill ──
+      const barY    = Math.round(pillTop + pillH * 0.60);
+      const lw      = Math.max(2, Math.round(scale * 2));
+      c.strokeStyle = "#00ddff";
+      c.lineWidth   = lw;
+      c.beginPath();
+      c.moveTo(segment.x0, barY);
+      c.lineTo(segment.x1, barY);
+      c.stroke();
+
+      // End-cap serifs
+      const capH = Math.round(pillH * 0.30);
+      c.beginPath();
+      c.moveTo(segment.x0, barY - capH / 2); c.lineTo(segment.x0, barY + capH / 2);
+      c.moveTo(segment.x1, barY - capH / 2); c.lineTo(segment.x1, barY + capH / 2);
+      c.stroke();
+
+      // Intermediate tick marks (every mm)
+      c.lineWidth = Math.max(1, Math.round(scale));
+      c.strokeStyle = "rgba(0, 220, 255, 0.75)";
+      for (let i = 1; i < 10; i++) {
+        const tx  = segment.x0 + i * spacing.stepPx;
+        const th  = i === 5 ? Math.round(capH * 0.75) : Math.round(capH * 0.45);
+        c.beginPath();
+        c.moveTo(tx, barY - th / 2); c.lineTo(tx, barY + th / 2);
+        c.stroke();
       }
 
-      c.fillStyle = "#fff";
-      c.font = "700 " + labelSize + "px Arial, Helvetica, sans-serif";
-      c.textAlign = "center"; c.textBaseline = "middle";
-      c.fillText("10 mm", (segment.x0 + segment.x1) / 2, y + Math.max(7, Math.round(height * 0.2)));
+      // ── 4. "10 mm" label ──
+      const fontSize = clamp(Math.round(pillH * 0.32), Math.round(11 * scale), Math.round(22 * scale));
+      c.fillStyle    = "#ffffff";
+      c.font         = `700 ${fontSize}px Arial, Helvetica, sans-serif`;
+      c.textAlign    = "center";
+      c.textBaseline = "middle";
+      const labelY = Math.round(pillTop + pillH * 0.26);
+      // Shadow for legibility
+      c.shadowColor  = "rgba(0,0,0,0.9)";
+      c.shadowBlur   = Math.round(3 * scale);
+      c.fillText("10 mm", (segment.x0 + segment.x1) / 2, labelY);
+      c.shadowBlur   = 0;
+
       return oc;
     }
 
