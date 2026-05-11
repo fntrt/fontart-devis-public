@@ -657,6 +657,7 @@
           <span id="aiStatusEl" style="flex:1; font-size:.88rem; color:#555;">Analyse IA en cours…</span>
           <button id="aiCompleteBtn" class="secondary" type="button" style="white-space:nowrap; display:none;">+ Compléter</button>
           <button id="aiClearManualBtn" class="secondary" type="button" style="white-space:nowrap; display:none;">Effacer zones</button>
+          <button id="aiFillHolesBtn" class="secondary" type="button" style="white-space:nowrap; display:none;" title="Remplir l'intérieur des formes creuses (anneau, bague…)">⬤ Remplir trous</button>
           <button id="aiAcceptBtn" type="button" style="white-space:nowrap;" disabled>✓ Utiliser ce contour</button>
           <button id="aiManualBtn" class="secondary" type="button" style="white-space:nowrap;">Dessiner manuellement</button>
         </div>
@@ -2368,6 +2369,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     const aiManualBtn     = document.getElementById('aiManualBtn');
     const aiCompleteBtn   = document.getElementById('aiCompleteBtn');
     const aiClearManualBtn= document.getElementById('aiClearManualBtn');
+    const aiFillHolesBtn  = document.getElementById('aiFillHolesBtn');
     const aiSliderWrap    = document.getElementById('aiSliderWrap');
     const aiCorrSlider    = document.getElementById('aiCorrSlider');
     const autoScaleSection   = document.getElementById('autoScaleSection');
@@ -3033,6 +3035,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       hybridMode      = false;
       if (aiCompleteBtn)    { aiCompleteBtn.style.display = 'none'; }
       if (aiClearManualBtn) { aiClearManualBtn.style.display = 'none'; }
+      if (aiFillHolesBtn)   { aiFillHolesBtn.style.display  = 'none'; aiFillHolesBtn.disabled = false; }
       previewCanvas.style.cursor = '';
       binaryContours = [];
       binaryHierarchy = [];
@@ -4095,6 +4098,74 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
 
     // ── AI contour detection ───────────────────────────────────────
 
+    // Zero out the ruler band in the AI mask using calibration data
+    function excludeRulerFromMask(mask, w, h) {
+      if (!autoCalibration?.ruler) return;
+      const { ruler, fineAngle = 0, origW: W = w, origH: H = h, rW = W, rH = H } = autoCalibration;
+      const rad  = (fineAngle || 0) * Math.PI / 180;
+      const cosA = Math.cos(rad), sinA = Math.sin(rad);
+      const margin = 18; // extra px buffer around ruler band
+      const rx0 = ruler.left  - margin, rx1 = ruler.right  + margin;
+      const ry0 = ruler.top   - margin, ry1 = ruler.bottom + margin;
+
+      // Inverse-rotate the 4 ruler corners to find their bounding box in original space
+      const corners = [[rx0,ry0],[rx1,ry0],[rx1,ry1],[rx0,ry1]].map(([rx,ry]) => {
+        const dx = rx - rW/2, dy = ry - rH/2;
+        return [ dx*cosA + dy*sinA + W/2, -dx*sinA + dy*cosA + H/2 ];
+      });
+      const oxMin = Math.max(0, Math.floor(Math.min(...corners.map(c => c[0]))));
+      const oxMax = Math.min(w-1, Math.ceil (Math.max(...corners.map(c => c[0]))));
+      const oyMin = Math.max(0, Math.floor(Math.min(...corners.map(c => c[1]))));
+      const oyMax = Math.min(h-1, Math.ceil (Math.max(...corners.map(c => c[1]))));
+
+      // For each original pixel in that bounding box, forward-rotate and check if in ruler band
+      for (let oy = oyMin; oy <= oyMax; oy++) {
+        for (let ox = oxMin; ox <= oxMax; ox++) {
+          const dx = ox - W/2, dy = oy - H/2;
+          const rx = dx*cosA - dy*sinA + rW/2;
+          const ry = dx*sinA + dy*cosA + rH/2;
+          if (rx >= rx0 && rx <= rx1 && ry >= ry0 && ry <= ry1) {
+            mask[oy * w + ox] = 0;
+          }
+        }
+      }
+    }
+
+    // Fill enclosed holes in a binary mask (useful for rings / hollow objects).
+    // Uses a BFS flood-fill from the image border to find reachable background pixels;
+    // any background pixel not reachable from the border is an interior hole → set to 1.
+    function fillMaskHoles(mask, w, h) {
+      const THRESH = 0.5;
+      const visited = new Uint8Array(w * h);
+      // Use a typed array as a manual queue for performance on large images
+      const queue = new Int32Array(w * h);
+      let head = 0, tail = 0;
+
+      const push = (i) => {
+        if (!visited[i] && mask[i] < THRESH) { visited[i] = 1; queue[tail++] = i; }
+      };
+
+      // Seed from all 4 borders
+      for (let x = 0; x < w; x++) { push(x); push((h - 1) * w + x); }
+      for (let y = 1; y < h - 1; y++) { push(y * w); push(y * w + w - 1); }
+
+      while (head < tail) {
+        const i = queue[head++];
+        const x = i % w, y = (i / w) | 0;
+        if (x > 0)   push(i - 1);
+        if (x < w-1) push(i + 1);
+        if (y > 0)   push(i - w);
+        if (y < h-1) push(i + w);
+      }
+
+      // Unvisited background pixels = interior holes → fill to foreground
+      let filled = 0;
+      for (let i = 0; i < w * h; i++) {
+        if (!visited[i] && mask[i] < THRESH) { mask[i] = 1.0; filled++; }
+      }
+      return filled; // number of pixels filled (0 means no holes found)
+    }
+
     function computeAIMetrics(mask, w, h, thr = 0.5) {
       let areaPx = 0, perimeterPx = 0;
       for (let y = 0; y < h; y++) {
@@ -4193,11 +4264,15 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           }
         }
 
+        // Automatically remove the ruler band from the mask (it's not part of the object)
+        excludeRulerFromMask(aiDetectedMask, w, h);
+
         // Build initial mask using slider threshold (consistent with slider position)
         reRenderAIMask(+aiCorrSlider.value);
 
         aiSliderWrap.style.opacity = '1';
         aiSliderWrap.style.pointerEvents = 'auto';
+        aiFillHolesBtn.style.display = '';   // always offer "fill holes" once mask is ready
 
         if (!aiMetrics || aiMetrics.areaPx === 0) {
           aiStatusEl.textContent = '⚠ Aucun contour trouvé. Essayez le curseur vers Silhouette.';
@@ -4208,7 +4283,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           aiAcceptBtn.disabled = false;
           aiCompleteBtn.style.display = '';
           aiClearManualBtn.style.display = 'none';
-          setStatus('Contour détecté. Ajustez le curseur Détail/Silhouette, ou "Compléter" pour ajouter des zones manquantes.');
+          setStatus('Contour détecté. Ajustez le curseur Détail/Silhouette, ou "Remplir trous" pour les formes creuses.');
         }
 
       } catch (e) {
@@ -4252,6 +4327,20 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       manualDrawing = false;
       renderNormalPreview();
       setStatus('Zones effacées. Retracez les zones manquantes ou cliquez sur "✓ Utiliser ce contour".');
+    });
+
+    aiFillHolesBtn.addEventListener('click', () => {
+      if (!aiDetectedMask || !sourceImage) return;
+      const w = sourceImage.width, h = sourceImage.height;
+      const filled = fillMaskHoles(aiDetectedMask, w, h);
+      reRenderAIMask(+aiCorrSlider.value);
+      aiFillHolesBtn.disabled = true;   // idempotent: no more holes to fill
+      if (filled > 0) {
+        aiStatusEl.textContent = 'Trous remplis. Ajustez le curseur si besoin.';
+        setStatus('Trous intérieurs remplis — surface totale de la silhouette calculée.');
+      } else {
+        aiStatusEl.textContent = 'Aucun trou trouvé dans le contour.';
+      }
     });
 
     // Combined metrics: AI mask union manual polygons (canvas rasterisation at scaled resolution)
