@@ -4029,6 +4029,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
 
         if (!best) {
           autoScaleStatus.textContent = 'Règle non détectée. Calibrez manuellement.';
+          setStatus('Règle non détectée. Utilisez "Calibrer manuellement" pour sélectionner 2 points sur la règle.', true);
           renderNormalPreview();
           return;
         }
@@ -4059,11 +4060,13 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         const orient = isVertical ? ' (verticale)' : '';
         const corrInfo = spacing._corrected ? ' [corrigé ×2]' : '';
         autoScaleStatus.textContent = `Règle détectée${orient} — ${spacing.pxPerMm.toFixed(2)} px/mm · confiance ${conf} %${corrInfo}`;
+        setStatus(`Règle calibrée à ${spacing.pxPerMm.toFixed(2)} px/mm. Cliquez sur "✓ Utiliser cette calibration" pour continuer.`);
         autoScaleAcceptBtn.disabled = false;
         renderNormalPreview();
       } catch (e) {
         console.error(e);
         autoScaleStatus.textContent = 'Erreur de calibration : ' + (e?.message ?? String(e));
+        setStatus('Erreur lors de la détection de la règle. ' + (e?.message ?? ''), true);
       }
     }
 
