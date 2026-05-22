@@ -3307,14 +3307,15 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         const track = stream?.getVideoTracks()[0];
         if (!track) return;
         const caps = track.getCapabilities?.() ?? {};
-        if (!caps.focusDistance && !caps.focusMode) {
-          focusPanel.style.display = 'none';
-          return;
-        }
+
+        // Always show the panel — controls fail silently on cameras that
+        // don't support focus API (Firefox, most webcams).
         focusPanel.style.display = 'flex';
         focusManual = false;
         focusAutoBtn.style.background = 'rgba(250,204,21,0.85)';
+
         if (caps.focusDistance) {
+          // Camera exposes real focus distance range → use it
           const min = caps.focusDistance.min ?? 0;
           const max = caps.focusDistance.max ?? 1;
           focusSlider.min   = min;
@@ -3322,10 +3323,21 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           focusSlider.step  = caps.focusDistance.step ?? (max - min) / 100;
           const settings    = track.getSettings?.() ?? {};
           focusSlider.value = settings.focusDistance ?? (min + max) / 2;
+          focusSlider.style.display  = '';
+          focusNearBtn.style.display = '';
+          focusFarBtn.style.display  = '';
+          focusSlider.title = 'Mise au point (proche → loin)';
         } else {
-          focusSlider.style.display = 'none';
-          focusNearBtn.style.display= 'none';
-          focusFarBtn.style.display = 'none';
+          // No declared range: use a 0-1 normalised scale and let the
+          // browser/driver map it — may be ignored, but worth showing.
+          focusSlider.min   = 0;
+          focusSlider.max   = 1;
+          focusSlider.step  = 0.05;
+          focusSlider.value = 0.5;
+          focusSlider.style.display  = '';
+          focusNearBtn.style.display = '';
+          focusFarBtn.style.display  = '';
+          focusSlider.title = 'Mise au point (peut ne pas être supportée par cette caméra)';
         }
       }
 
@@ -3391,7 +3403,6 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         if (stream) stopStream();
         hideError();
         video.style.display = 'block';
-        focusPanel.style.display = 'none';
         try {
           stream = await navigator.mediaDevices.getUserMedia({
             video: { facingMode, width: { ideal: 3840 }, height: { ideal: 2160 } },
