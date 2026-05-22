@@ -328,9 +328,26 @@
              border:2px solid rgba(255,255,255,0.4); color:#fff; font-size:1.2rem;
              cursor:pointer; display:flex; align-items:center; justify-content:center;">✕</button>
   </div>
-  <p id="cameraError" style="display:none; position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
-     color:#fff; background:rgba(200,0,0,0.85); padding:16px 24px; border-radius:12px;
-     text-align:center; max-width:80%; font-size:.95rem;"></p>
+  <!-- Error panel (shown when getUserMedia fails) -->
+  <div id="cameraErrorPanel" style="display:none; position:absolute; top:50%; left:50%;
+       transform:translate(-50%,-50%); background:rgba(15,15,15,0.95);
+       border:1px solid rgba(255,255,255,0.15); padding:28px 28px 22px; border-radius:16px;
+       text-align:center; max-width:84%; width:360px; box-shadow:0 8px 32px rgba(0,0,0,0.7);">
+    <div id="cameraErrorIcon" style="font-size:2.4rem; margin-bottom:10px;">🚫</div>
+    <p id="cameraErrorText" style="color:#f8f8f8; font-size:.93rem; line-height:1.55; margin:0 0 18px;"></p>
+    <div style="display:flex; flex-direction:column; gap:10px;">
+      <button id="cameraRetryBtn" type="button"
+        style="background:#2563eb; color:#fff; border:none; border-radius:8px;
+               padding:10px 20px; font-size:.9rem; cursor:pointer; font-weight:600;">
+        🔄 Réessayer
+      </button>
+      <button id="cameraFallbackBtn" type="button"
+        style="background:rgba(255,255,255,0.12); color:#ddd; border:1px solid rgba(255,255,255,0.25);
+               border-radius:8px; padding:10px 20px; font-size:.9rem; cursor:pointer;">
+        📁 Choisir une photo depuis l'appareil
+      </button>
+    </div>
+  </div>
 </div>
 
 <div id="orderModal" style="display:none; position:fixed; inset:0; z-index:10000; background:rgba(0,0,0,0.5); align-items:center; justify-content:center;">
@@ -3202,21 +3219,40 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
 
     // ── Camera capture ────────────────────────────────────────────────────────
     (function setupCamera() {
-      const modal        = document.getElementById('cameraModal');
-      const video        = document.getElementById('cameraVideo');
-      const captureBtn   = document.getElementById('cameraCaptureBtn');
-      const switchBtn    = document.getElementById('cameraSwitchBtn');
-      const closeBtn     = document.getElementById('cameraCloseBtn');
-      const errorMsg     = document.getElementById('cameraError');
-      const openBtn      = document.getElementById('cameraBtn');
+      const modal          = document.getElementById('cameraModal');
+      const video          = document.getElementById('cameraVideo');
+      const captureBtn     = document.getElementById('cameraCaptureBtn');
+      const switchBtn      = document.getElementById('cameraSwitchBtn');
+      const closeBtn       = document.getElementById('cameraCloseBtn');
+      const errorPanel     = document.getElementById('cameraErrorPanel');
+      const errorIcon      = document.getElementById('cameraErrorIcon');
+      const errorText      = document.getElementById('cameraErrorText');
+      const retryBtn       = document.getElementById('cameraRetryBtn');
+      const fallbackBtn    = document.getElementById('cameraFallbackBtn');
+      const openBtn        = document.getElementById('cameraBtn');
       if (!openBtn) return;
 
       let stream = null;
       let facingMode = 'environment'; // start with rear camera
 
+      function showError(icon, msg) {
+        errorIcon.textContent = icon;
+        errorText.innerHTML   = msg;
+        errorPanel.style.display = 'block';
+        video.style.display      = 'none';
+        captureBtn.disabled      = true;
+        switchBtn.disabled       = true;
+      }
+
+      function hideError() {
+        errorPanel.style.display = 'none';
+        captureBtn.disabled      = false;
+        switchBtn.disabled       = false;
+      }
+
       async function startStream() {
         if (stream) stopStream();
-        errorMsg.style.display = 'none';
+        hideError();
         video.style.display = 'block';
         try {
           stream = await navigator.mediaDevices.getUserMedia({
@@ -3225,13 +3261,29 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           });
           video.srcObject = stream;
         } catch (err) {
-          console.warn('[camera]', err);
-          let msg = 'Impossible d\'accéder à la caméra.';
-          if (err.name === 'NotAllowedError')   msg = 'Permission caméra refusée. Autorisez l\'accès dans les paramètres du navigateur.';
-          if (err.name === 'NotFoundError')     msg = 'Aucune caméra détectée sur cet appareil.';
-          if (err.name === 'NotSupportedError') msg = 'Caméra non supportée (HTTPS requis sur mobile).';
-          errorMsg.textContent = msg;
-          errorMsg.style.display = 'block';
+          console.warn('[camera]', err.name, err.message);
+          const inIframe = window !== window.top;
+          let icon = '🚫', msg = 'Impossible d\'accéder à la caméra.';
+          if (err.name === 'NotAllowedError') {
+            icon = '🔒';
+            msg = inIframe
+              ? 'Permission caméra refusée.<br><br>Cette page est intégrée dans un cadre (<em>iframe</em>). Le site parent doit autoriser l\'accès caméra avec l\'attribut <code>allow="camera"</code>.'
+              : 'Permission caméra refusée.<br><br>Cliquez sur l\'icône 🔒 dans la barre d\'adresse et autorisez la caméra, puis réessayez.';
+          } else if (err.name === 'NotFoundError') {
+            icon = '📷';
+            msg = 'Aucune caméra détectée sur cet appareil.';
+          } else if (err.name === 'NotSupportedError' || err.name === 'SecurityError') {
+            icon = '⚠️';
+            msg = 'Caméra non disponible.<br>La page doit être servie en <strong>HTTPS</strong> pour accéder à la caméra sur mobile.';
+          } else if (err.name === 'OverconstrainedError') {
+            // Retry with less strict constraints
+            try {
+              stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+              video.srcObject = stream;
+              return;
+            } catch(e2) { /* fall through to generic error */ }
+          }
+          showError(icon, msg);
           video.style.display = 'none';
         }
       }
@@ -3248,11 +3300,12 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
 
       function closeModal() {
         stopStream();
+        hideError();
         modal.style.display = 'none';
       }
 
       async function capture() {
-        if (!stream && !video.srcObject) return;
+        if (!stream || !video.srcObject) return;
         const vw = video.videoWidth  || video.clientWidth;
         const vh = video.videoHeight || video.clientHeight;
         if (!vw || !vh) return;
@@ -3299,13 +3352,19 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       openBtn.addEventListener('click', openModal);
       captureBtn.addEventListener('click', capture);
       closeBtn.addEventListener('click', closeModal);
+      retryBtn.addEventListener('click', startStream);
+      fallbackBtn.addEventListener('click', () => {
+        closeModal();
+        // Trigger the regular file picker
+        photoInput.click();
+      });
       switchBtn.addEventListener('click', () => {
         facingMode = facingMode === 'environment' ? 'user' : 'environment';
         startStream();
       });
-      // Close on backdrop click
+      // Close on backdrop click (only when no error shown)
       modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
-      // Hide button if getUserMedia unavailable (old browsers)
+      // Hide button if getUserMedia unavailable (old browsers / no HTTPS check at load time)
       if (!navigator.mediaDevices?.getUserMedia) openBtn.style.display = 'none';
     })();
     // ── End camera capture ────────────────────────────────────────────────────
