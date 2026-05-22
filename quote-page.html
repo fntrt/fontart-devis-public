@@ -308,6 +308,31 @@
 <div id="photoPreview"><img src="" alt="" /></div>
 
 <!-- Popup confirmation commande -->
+<!-- ── Camera capture modal ── -->
+<div id="cameraModal" style="display:none; position:fixed; inset:0; z-index:10001; background:#000; flex-direction:column; align-items:center; justify-content:center;">
+  <video id="cameraVideo" autoplay playsinline muted
+    style="width:100%; height:calc(100dvh - 110px); object-fit:contain; display:block;"></video>
+  <div style="position:absolute; bottom:0; left:0; right:0; padding:14px 20px;
+               background:rgba(0,0,0,0.75); display:flex; align-items:center;
+               justify-content:center; gap:20px;">
+    <button id="cameraSwitchBtn" type="button" title="Basculer caméra avant / arrière"
+      style="width:48px; height:48px; border-radius:50%; background:rgba(255,255,255,0.15);
+             border:2px solid rgba(255,255,255,0.4); color:#fff; font-size:1.3rem;
+             cursor:pointer; display:flex; align-items:center; justify-content:center;">🔄</button>
+    <button id="cameraCaptureBtn" type="button" title="Prendre la photo"
+      style="width:68px; height:68px; border-radius:50%; background:#fff;
+             border:5px solid #ccc; cursor:pointer; font-size:2rem;
+             display:flex; align-items:center; justify-content:center; flex-shrink:0;">📸</button>
+    <button id="cameraCloseBtn" type="button" title="Annuler"
+      style="width:48px; height:48px; border-radius:50%; background:rgba(255,255,255,0.15);
+             border:2px solid rgba(255,255,255,0.4); color:#fff; font-size:1.2rem;
+             cursor:pointer; display:flex; align-items:center; justify-content:center;">✕</button>
+  </div>
+  <p id="cameraError" style="display:none; position:absolute; top:50%; left:50%; transform:translate(-50%,-50%);
+     color:#fff; background:rgba(200,0,0,0.85); padding:16px 24px; border-radius:12px;
+     text-align:center; max-width:80%; font-size:.95rem;"></p>
+</div>
+
 <div id="orderModal" style="display:none; position:fixed; inset:0; z-index:10000; background:rgba(0,0,0,0.5); align-items:center; justify-content:center;">
   <div style="background:white; border-radius:16px; padding:40px 36px; max-width:480px; width:90%; text-align:center; box-shadow:0 20px 60px rgba(0,0,0,0.3); position:relative;">
     <div style="font-size:3rem; margin-bottom:16px;">🎉</div>
@@ -613,7 +638,10 @@
         </div>
         <div>
           <label for="photoInput">Photo de l'article*</label>
-          <input id="photoInput" type="file" required accept="image/*" />
+          <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+            <input id="photoInput" type="file" required accept="image/*" style="flex:1; min-width:0;" />
+            <button id="cameraBtn" type="button" class="secondary" style="white-space:nowrap; flex-shrink:0;" title="Prendre une photo avec la caméra">📷 Caméra</button>
+          </div>
         </div>
       </div>
       <p class="status" id="formStatus" style="display:none;"></p>
@@ -3171,6 +3199,116 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         setFormStatus('Impossible de charger l\'image.', true);
       }
     });
+
+    // ── Camera capture ────────────────────────────────────────────────────────
+    (function setupCamera() {
+      const modal        = document.getElementById('cameraModal');
+      const video        = document.getElementById('cameraVideo');
+      const captureBtn   = document.getElementById('cameraCaptureBtn');
+      const switchBtn    = document.getElementById('cameraSwitchBtn');
+      const closeBtn     = document.getElementById('cameraCloseBtn');
+      const errorMsg     = document.getElementById('cameraError');
+      const openBtn      = document.getElementById('cameraBtn');
+      if (!openBtn) return;
+
+      let stream = null;
+      let facingMode = 'environment'; // start with rear camera
+
+      async function startStream() {
+        if (stream) stopStream();
+        errorMsg.style.display = 'none';
+        video.style.display = 'block';
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode, width: { ideal: 3840 }, height: { ideal: 2160 } },
+            audio: false
+          });
+          video.srcObject = stream;
+        } catch (err) {
+          console.warn('[camera]', err);
+          let msg = 'Impossible d\'accéder à la caméra.';
+          if (err.name === 'NotAllowedError')   msg = 'Permission caméra refusée. Autorisez l\'accès dans les paramètres du navigateur.';
+          if (err.name === 'NotFoundError')     msg = 'Aucune caméra détectée sur cet appareil.';
+          if (err.name === 'NotSupportedError') msg = 'Caméra non supportée (HTTPS requis sur mobile).';
+          errorMsg.textContent = msg;
+          errorMsg.style.display = 'block';
+          video.style.display = 'none';
+        }
+      }
+
+      function stopStream() {
+        if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+        video.srcObject = null;
+      }
+
+      function openModal() {
+        modal.style.display = 'flex';
+        startStream();
+      }
+
+      function closeModal() {
+        stopStream();
+        modal.style.display = 'none';
+      }
+
+      async function capture() {
+        if (!stream && !video.srcObject) return;
+        const vw = video.videoWidth  || video.clientWidth;
+        const vh = video.videoHeight || video.clientHeight;
+        if (!vw || !vh) return;
+        const oc = new OffscreenCanvas(vw, vh);
+        oc.getContext('2d').drawImage(video, 0, 0, vw, vh);
+        closeModal();
+
+        // Convert to blob → HTMLImageElement, same pipeline as file upload
+        const blob = await oc.convertToBlob({ type: 'image/jpeg', quality: 0.95 });
+        try {
+          const { ok, missing } = hasRequiredInputs();
+          if (!ok) {
+            setFormStatus(`Champs obligatoires manquants : ${missing.join(', ')}.`, true);
+            return;
+          }
+          if (formStatus) formStatus.style.display = 'none';
+          const url = URL.createObjectURL(blob);
+          const img = await new Promise((res, rej) => {
+            const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url;
+          });
+          URL.revokeObjectURL(url);
+          sourceImage = img;
+          tempCanvas.width  = sourceImage.width;
+          tempCanvas.height = sourceImage.height;
+          tempCtx.clearRect(0, 0, tempCanvas.width, tempCanvas.height);
+          tempCtx.drawImage(sourceImage, 0, 0);
+          resetWorkflowForImage();
+          if (workspaceCard) workspaceCard.classList.remove('hidden');
+          const nouvelArticleCard = document.getElementById('nouvelArticleCard');
+          if (nouvelArticleCard) nouvelArticleCard.classList.add('hidden');
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+          try { window.parent?.postMessage({ type: 'scrollToIframe' }, '*'); } catch(e) {}
+          setStage('auto-scale');
+          setStatus('Détection automatique de la règle en cours…');
+          setFormStatus('Photo capturée. Calibration automatique…', false);
+          renderNormalPreview();
+          runAutoCalibration();
+        } catch (err) {
+          console.error(err);
+          setFormStatus('Impossible de charger la photo capturée.', true);
+        }
+      }
+
+      openBtn.addEventListener('click', openModal);
+      captureBtn.addEventListener('click', capture);
+      closeBtn.addEventListener('click', closeModal);
+      switchBtn.addEventListener('click', () => {
+        facingMode = facingMode === 'environment' ? 'user' : 'environment';
+        startStream();
+      });
+      // Close on backdrop click
+      modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+      // Hide button if getUserMedia unavailable (old browsers)
+      if (!navigator.mediaDevices?.getUserMedia) openBtn.style.display = 'none';
+    })();
+    // ── End camera capture ────────────────────────────────────────────────────
 
     resetPointsBtn.addEventListener('click', () => {
       selectedPoints = [];
