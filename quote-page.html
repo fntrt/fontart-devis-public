@@ -739,6 +739,7 @@
           <button id="aiCompleteBtn" class="secondary" type="button" style="white-space:nowrap; display:none;">+ Compléter</button>
           <button id="aiClearManualBtn" class="secondary" type="button" style="white-space:nowrap; display:none;">Effacer zones</button>
           <button id="aiFillHolesBtn" class="secondary" type="button" style="white-space:nowrap; display:none;" title="Remplir l'intérieur des formes creuses (anneau, bague…)">⬤ Remplir trous</button>
+          <button id="aiCropBtn" class="secondary" type="button" style="white-space:nowrap; display:none;" title="Recadrer l'image autour de la pièce en conservant la règle">✂️ Recadrer</button>
           <button id="aiAcceptBtn" type="button" style="white-space:nowrap;" disabled>✓ Utiliser ce contour</button>
           <button id="aiManualBtn" class="secondary" type="button" style="white-space:nowrap;">Dessiner manuellement</button>
         </div>
@@ -2451,6 +2452,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     const aiCompleteBtn   = document.getElementById('aiCompleteBtn');
     const aiClearManualBtn= document.getElementById('aiClearManualBtn');
     const aiFillHolesBtn  = document.getElementById('aiFillHolesBtn');
+    const aiCropBtn       = document.getElementById('aiCropBtn');
     const aiSliderWrap    = document.getElementById('aiSliderWrap');
     const aiCorrSlider    = document.getElementById('aiCorrSlider');
     const autoScaleSection   = document.getElementById('autoScaleSection');
@@ -3117,6 +3119,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       if (aiCompleteBtn)    { aiCompleteBtn.style.display = 'none'; }
       if (aiClearManualBtn) { aiClearManualBtn.style.display = 'none'; }
       if (aiFillHolesBtn)   { aiFillHolesBtn.style.display  = 'none'; aiFillHolesBtn.disabled = false; }
+      if (aiCropBtn)        { aiCropBtn.style.display = 'none'; }
       previewCanvas.style.cursor = '';
       binaryContours = [];
       binaryHierarchy = [];
@@ -4677,12 +4680,14 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         if (!aiMetrics || aiMetrics.areaPx === 0) {
           aiStatusEl.textContent = '⚠ Aucun contour trouvé. Essayez le curseur vers Silhouette.';
           aiAcceptBtn.disabled = true;
+          aiCropBtn.style.display = 'none';
           setStatus('Aucun contour détecté. Déplacez le curseur vers Silhouette pour élargir la détection.');
         } else {
           aiStatusEl.textContent = 'Contour détecté. Ajustez le curseur si besoin.';
           aiAcceptBtn.disabled = false;
           aiCompleteBtn.style.display = '';
           aiClearManualBtn.style.display = 'none';
+          aiCropBtn.style.display = '';
           setStatus('Contour détecté. Ajustez le curseur Détail/Silhouette, ou "Remplir trous" pour les formes creuses.');
         }
 
@@ -4742,6 +4747,122 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         aiStatusEl.textContent = 'Aucun trou trouvé dans le contour.';
       }
     });
+
+    // ── Auto-crop to object ───────────────────────────────────────────────────
+    aiCropBtn.addEventListener('click', async () => {
+      if (!aiDetectedMask || !sourceImage) return;
+
+      aiCropBtn.disabled = true;
+      aiCropBtn.textContent = '✂️ Recadrage…';
+
+      const w = sourceImage.width, h = sourceImage.height;
+      const thr = +aiCorrSlider.value;
+
+      // 1. Bounding box of the detected object (mask pixels > threshold)
+      let mx0 = w, mx1 = 0, my0 = h, my1 = 0;
+      for (let y = 0; y < h; y++) {
+        for (let x = 0; x < w; x++) {
+          if (aiDetectedMask[y * w + x] > thr) {
+            if (x < mx0) mx0 = x;
+            if (x > mx1) mx1 = x;
+            if (y < my0) my0 = y;
+            if (y > my1) my1 = y;
+          }
+        }
+      }
+      if (mx0 >= mx1 || my0 >= my1) {
+        aiCropBtn.disabled = false;
+        aiCropBtn.textContent = '✂️ Recadrer';
+        setStatus('Recadrage impossible : aucun contour détecté.', true);
+        return;
+      }
+
+      // 2. Padding around the object (8 % of image size, min 40 px)
+      const padX = Math.max(40, Math.round(w * 0.08));
+      const padY = Math.max(40, Math.round(h * 0.08));
+      let cx0 = Math.max(0, mx0 - padX);
+      let cx1 = Math.min(w, mx1 + padX);
+      let cy0 = Math.max(0, my0 - padY);
+      let cy1 = Math.min(h, my1 + padY);
+
+      // 3. Always include the full ruler strip so calibration still works
+      if (autoCalibration?.ruler) {
+        const { ruler, fineAngle = 0, origW: W = w, origH: H = h, rW = W, rH = H } = autoCalibration;
+        // Map ruler rect corners from rotated detection space → original image space
+        const rad  = (fineAngle || 0) * Math.PI / 180;
+        const cosA = Math.cos(rad), sinA = Math.sin(rad);
+        const corners = [
+          [ruler.left, ruler.top], [ruler.right, ruler.top],
+          [ruler.right, ruler.bottom], [ruler.left, ruler.bottom]
+        ].map(([rx, ry]) => {
+          const dx = rx - rW / 2, dy = ry - rH / 2;
+          return [dx * cosA + dy * sinA + W / 2, -dx * sinA + dy * cosA + H / 2];
+        });
+        const rx0 = Math.max(0, Math.floor(Math.min(...corners.map(c => c[0]))));
+        const rx1 = Math.min(w, Math.ceil (Math.max(...corners.map(c => c[0]))));
+        const ry0 = Math.max(0, Math.floor(Math.min(...corners.map(c => c[1]))));
+        const ry1 = Math.min(h, Math.ceil (Math.max(...corners.map(c => c[1]))));
+
+        const absAngle = Math.abs((fineAngle || 0) % 180);
+        if (absAngle <= 45 || absAngle >= 135) {
+          // Horizontal ruler: extend crop Y to fully contain ruler strip
+          cy0 = Math.min(cy0, ry0);
+          cy1 = Math.max(cy1, ry1);
+          // Restrict X to the jewelry extent (ruler runs full-width, no need to keep all of it)
+          // but ensure at least 30 mm of ruler is visible for robust calibration
+          if (autoCalibration.spacing?.pxPerMm) {
+            const minRulerPx = Math.round(30 * autoCalibration.spacing.pxPerMm);
+            const centerX = (mx0 + mx1) / 2;
+            cx0 = Math.min(cx0, Math.max(0,  Math.round(centerX - minRulerPx / 2)));
+            cx1 = Math.max(cx1, Math.min(w, Math.round(centerX + minRulerPx / 2)));
+          }
+        } else {
+          // Vertical ruler: extend crop X to fully contain ruler strip
+          cx0 = Math.min(cx0, rx0);
+          cx1 = Math.max(cx1, rx1);
+          if (autoCalibration.spacing?.pxPerMm) {
+            const minRulerPx = Math.round(30 * autoCalibration.spacing.pxPerMm);
+            const centerY = (my0 + my1) / 2;
+            cy0 = Math.min(cy0, Math.max(0,  Math.round(centerY - minRulerPx / 2)));
+            cy1 = Math.max(cy1, Math.min(h, Math.round(centerY + minRulerPx / 2)));
+          }
+        }
+      }
+
+      // 4. Apply crop via OffscreenCanvas → new sourceImage
+      const cropW = cx1 - cx0, cropH = cy1 - cy0;
+      const oc = new OffscreenCanvas(cropW, cropH);
+      oc.getContext('2d').drawImage(sourceImage, cx0, cy0, cropW, cropH, 0, 0, cropW, cropH);
+
+      try {
+        const blob = await oc.convertToBlob({ type: 'image/jpeg', quality: 0.96 });
+        const url  = URL.createObjectURL(blob);
+        const img  = await new Promise((res, rej) => {
+          const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url;
+        });
+        URL.revokeObjectURL(url);
+
+        sourceImage = img;
+        tempCanvas.width  = img.width;
+        tempCanvas.height = img.height;
+        tempCtx.clearRect(0, 0, img.width, img.height);
+        tempCtx.drawImage(img, 0, 0);
+
+        _smallCalibCache = null;
+        resetWorkflowForImage();
+        if (workspaceCard) workspaceCard.classList.remove('hidden');
+        setStage('auto-scale');
+        setStatus('Image recadrée. Nouvelle calibration en cours…');
+        renderNormalPreview();
+        runAutoCalibration();
+      } catch (err) {
+        console.error(err);
+        aiCropBtn.disabled = false;
+        aiCropBtn.textContent = '✂️ Recadrer';
+        setStatus('Erreur lors du recadrage : ' + (err?.message ?? ''), true);
+      }
+    });
+    // ── End auto-crop ─────────────────────────────────────────────────────────
 
     // Combined metrics: AI mask union manual polygons (canvas rasterisation at scaled resolution)
     function computeCombinedMetrics() {
