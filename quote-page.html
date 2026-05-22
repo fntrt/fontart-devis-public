@@ -310,8 +310,44 @@
 <!-- Popup confirmation commande -->
 <!-- ── Camera capture modal ── -->
 <div id="cameraModal" style="display:none; position:fixed; inset:0; z-index:10001; background:#000; flex-direction:column; align-items:center; justify-content:center;">
-  <video id="cameraVideo" autoplay playsinline muted
-    style="width:100%; height:calc(100dvh - 110px); object-fit:contain; display:block;"></video>
+  <!-- video + tap-to-focus wrapper -->
+  <div style="position:relative; width:100%; height:calc(100dvh - 110px); overflow:hidden;">
+    <video id="cameraVideo" autoplay playsinline muted
+      style="width:100%; height:100%; object-fit:contain; display:block; cursor:crosshair;"></video>
+    <!-- tap-to-focus crosshair indicator -->
+    <div id="cameraFocusRing" style="display:none; position:absolute; width:56px; height:56px;
+         border:2px solid #facc15; border-radius:50%; pointer-events:none;
+         transform:translate(-50%,-50%); box-shadow:0 0 0 1px rgba(0,0,0,0.5);
+         animation:focusRingPulse .4s ease-out forwards;">
+    </div>
+    <!-- focus controls panel (shown only if camera supports focus) -->
+    <div id="cameraFocusPanel" style="display:none; position:absolute; right:12px; top:50%;
+         transform:translateY(-50%); flex-direction:column; align-items:center; gap:8px;">
+      <button id="focusFarBtn" type="button" title="Mise au point loin"
+        style="width:44px; height:44px; border-radius:50%; background:rgba(0,0,0,0.55);
+               border:1px solid rgba(255,255,255,0.35); color:#fff; font-size:1.1rem;
+               cursor:pointer; display:flex; align-items:center; justify-content:center;">🔭</button>
+      <div style="display:flex; flex-direction:column; align-items:center; gap:3px;">
+        <input id="focusSlider" type="range" orient="vertical"
+          style="writing-mode:vertical-lr; direction:rtl; width:32px; height:100px;
+                 cursor:pointer; accent-color:#facc15;" />
+      </div>
+      <button id="focusNearBtn" type="button" title="Mise au point proche (macro)"
+        style="width:44px; height:44px; border-radius:50%; background:rgba(0,0,0,0.55);
+               border:1px solid rgba(255,255,255,0.35); color:#fff; font-size:1.1rem;
+               cursor:pointer; display:flex; align-items:center; justify-content:center;">🔬</button>
+      <button id="focusAutoBtn" type="button" title="Autofocus continu"
+        style="width:44px; height:36px; border-radius:8px; background:rgba(250,204,21,0.85);
+               border:none; color:#000; font-size:.72rem; font-weight:700;
+               cursor:pointer; line-height:1;">AF<br>auto</button>
+    </div>
+  </div>
+  <style>
+    @keyframes focusRingPulse {
+      0%   { opacity:1; transform:translate(-50%,-50%) scale(1.4); }
+      100% { opacity:.6; transform:translate(-50%,-50%) scale(1); }
+    }
+  </style>
   <div style="position:absolute; bottom:0; left:0; right:0; padding:14px 20px;
                background:rgba(0,0,0,0.75); display:flex; align-items:center;
                justify-content:center; gap:20px;">
@@ -3250,16 +3286,120 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         switchBtn.disabled       = false;
       }
 
+      // ── Focus controls ──────────────────────────────────────────────────────
+      const focusPanel  = document.getElementById('cameraFocusPanel');
+      const focusSlider = document.getElementById('focusSlider');
+      const focusNearBtn= document.getElementById('focusNearBtn');
+      const focusFarBtn = document.getElementById('focusFarBtn');
+      const focusAutoBtn= document.getElementById('focusAutoBtn');
+      const focusRing   = document.getElementById('cameraFocusRing');
+      let   focusManual = false;   // true = manual mode active
+
+      async function applyFocus(distance) {
+        const track = stream?.getVideoTracks()[0];
+        if (!track) return;
+        try {
+          await track.applyConstraints({ advanced: [{ focusMode: 'manual', focusDistance: distance }] });
+        } catch(e) { console.warn('[focus]', e.message); }
+      }
+
+      async function setupFocusControls() {
+        const track = stream?.getVideoTracks()[0];
+        if (!track) return;
+        const caps = track.getCapabilities?.() ?? {};
+        if (!caps.focusDistance && !caps.focusMode) {
+          focusPanel.style.display = 'none';
+          return;
+        }
+        focusPanel.style.display = 'flex';
+        focusManual = false;
+        focusAutoBtn.style.background = 'rgba(250,204,21,0.85)';
+        if (caps.focusDistance) {
+          const min = caps.focusDistance.min ?? 0;
+          const max = caps.focusDistance.max ?? 1;
+          focusSlider.min   = min;
+          focusSlider.max   = max;
+          focusSlider.step  = caps.focusDistance.step ?? (max - min) / 100;
+          const settings    = track.getSettings?.() ?? {};
+          focusSlider.value = settings.focusDistance ?? (min + max) / 2;
+        } else {
+          focusSlider.style.display = 'none';
+          focusNearBtn.style.display= 'none';
+          focusFarBtn.style.display = 'none';
+        }
+      }
+
+      focusSlider.addEventListener('input', () => {
+        focusManual = true;
+        focusAutoBtn.style.background = 'rgba(255,255,255,0.2)';
+        applyFocus(Number(focusSlider.value));
+      });
+
+      focusNearBtn.addEventListener('click', () => {
+        focusManual = true;
+        focusAutoBtn.style.background = 'rgba(255,255,255,0.2)';
+        const step = (Number(focusSlider.max) - Number(focusSlider.min)) / 20;
+        focusSlider.value = Math.max(Number(focusSlider.min), Number(focusSlider.value) - step);
+        applyFocus(Number(focusSlider.value));
+      });
+
+      focusFarBtn.addEventListener('click', () => {
+        focusManual = true;
+        focusAutoBtn.style.background = 'rgba(255,255,255,0.2)';
+        const step = (Number(focusSlider.max) - Number(focusSlider.min)) / 20;
+        focusSlider.value = Math.min(Number(focusSlider.max), Number(focusSlider.value) + step);
+        applyFocus(Number(focusSlider.value));
+      });
+
+      focusAutoBtn.addEventListener('click', async () => {
+        focusManual = false;
+        focusAutoBtn.style.background = 'rgba(250,204,21,0.85)';
+        const track = stream?.getVideoTracks()[0];
+        if (!track) return;
+        try { await track.applyConstraints({ advanced: [{ focusMode: 'continuous' }] }); }
+        catch(e) { console.warn('[focus auto]', e.message); }
+      });
+
+      // Tap-to-focus on the video
+      video.addEventListener('click', async (e) => {
+        const track = stream?.getVideoTracks()[0];
+        if (!track) return;
+        const rect = video.getBoundingClientRect();
+        const rx = (e.clientX - rect.left) / rect.width;
+        const ry = (e.clientY - rect.top)  / rect.height;
+        // Show animated ring
+        focusRing.style.left = e.clientX + 'px';
+        focusRing.style.top  = e.clientY + 'px';
+        focusRing.style.display = 'block';
+        focusRing.style.animation = 'none';
+        // Force reflow to restart animation
+        void focusRing.offsetWidth;
+        focusRing.style.animation = 'focusRingPulse .4s ease-out forwards';
+        setTimeout(() => { focusRing.style.display = 'none'; }, 800);
+        // Apply focus point
+        focusManual = true;
+        focusAutoBtn.style.background = 'rgba(255,255,255,0.2)';
+        try {
+          await track.applyConstraints({
+            advanced: [{ pointsOfInterest: [{ x: rx, y: ry }], focusMode: 'single-shot' }]
+          });
+        } catch(e) { console.warn('[tap-focus]', e.message); }
+      });
+      // ── End focus controls ───────────────────────────────────────────────────
+
       async function startStream() {
         if (stream) stopStream();
         hideError();
         video.style.display = 'block';
+        focusPanel.style.display = 'none';
         try {
           stream = await navigator.mediaDevices.getUserMedia({
             video: { facingMode, width: { ideal: 3840 }, height: { ideal: 2160 } },
             audio: false
           });
           video.srcObject = stream;
+          // Setup focus controls once video metadata is ready
+          video.addEventListener('loadedmetadata', setupFocusControls, { once: true });
         } catch (err) {
           console.warn('[camera]', err.name, err.message);
           const inIframe = window !== window.top;
@@ -3272,16 +3412,19 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           } else if (err.name === 'NotFoundError') {
             icon = '📷';
             msg = 'Aucune caméra détectée sur cet appareil.';
+          } else if (err.name === 'NotReadableError') {
+            icon = '⚠️';
+            msg = 'La caméra est déjà utilisée par une autre application.<br>Fermez l\'autre logiciel et réessayez.';
           } else if (err.name === 'NotSupportedError' || err.name === 'SecurityError') {
             icon = '⚠️';
             msg = 'Caméra non disponible.<br>La page doit être servie en <strong>HTTPS</strong> pour accéder à la caméra sur mobile.';
           } else if (err.name === 'OverconstrainedError') {
-            // Retry with less strict constraints
             try {
               stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
               video.srcObject = stream;
+              video.addEventListener('loadedmetadata', setupFocusControls, { once: true });
               return;
-            } catch(e2) { /* fall through to generic error */ }
+            } catch(e2) { /* fall through */ }
           }
           showError(icon, msg);
           video.style.display = 'none';
@@ -3291,6 +3434,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       function stopStream() {
         if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
         video.srcObject = null;
+        focusPanel.style.display = 'none';
       }
 
       function openModal() {
