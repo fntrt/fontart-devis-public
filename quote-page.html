@@ -4510,8 +4510,8 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       const bgB = samples.sort((a,b)=>a[2]-b[2])[mid][2];
 
       // ── 2. Per-row and per-column: fraction of pixels that differ from bg ──
-      const COLOR_THR  = 32;   // colour-distance threshold per pixel
-      const SCANLINE_F = 0.07; // a row/col needs ≥ 7 % non-bg pixels to be "content"
+      const COLOR_THR  = 28;   // colour-distance threshold per pixel
+      const SCANLINE_F = 0.18; // a row/col needs ≥ 18 % non-bg pixels to be "content"
 
       const rowFrac = new Float32Array(sh);
       const colFrac = new Float32Array(sw);
@@ -4548,8 +4548,8 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       if (fx0 >= fx1 || fy0 >= fy1) { fx0=0; fx1=w; fy0=0; fy1=h; } // safety fallback
 
       // ── 4. Padding: 3 % of image, min 20 px ──
-      const padX = Math.max(20, Math.round(w * 0.03));
-      const padY = Math.max(20, Math.round(h * 0.03));
+      const padX = Math.max(12, Math.round(w * 0.015));
+      const padY = Math.max(12, Math.round(h * 0.015));
       let cx0 = Math.max(0, fx0 - padX);
       let cx1 = Math.min(w, fx1 + padX);
       let cy0 = Math.max(0, fy0 - padY);
