@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="fr">
 <head>
   <meta charset="UTF-8" />
@@ -673,7 +673,14 @@
         </div>
         <div>
           <label for="weight">Poids (g)*</label>
-          <input id="weight" type="number" required step="0.01" min="0" placeholder="Ex: 12.50" />
+          <div style="display: flex; gap: 8px;">
+            <input id="weight" type="number" required step="0.01" min="0" placeholder="Ex: 12.50" style="flex: 1;" />
+            <button type="button" id="serialConnectBtn" style="white-space: nowrap; padding: 9px 12px; display: inline-flex; align-items: center; gap: 6px; font-size: 0.9rem; background-color: var(--soft); color: var(--ink); border: 1px solid var(--line);">
+              <span id="serialIndicator" style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background-color: #94a3b8; transition: background-color 0.3s;"></span>
+              <span>Balance</span>
+            </button>
+          </div>
+          <div id="serialStatus" class="hint" style="font-size: 0.8rem; margin-top: 4px;">Balance : déconnectée.</div>
         </div>
       </div>
       <input id="supplierRef" type="hidden" />
@@ -3297,6 +3304,146 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     descriptionInput.addEventListener('input', updateStartAvailability);
     weightInput.addEventListener('input', updateStartAvailability);
     weightInput.addEventListener('change', () => parseWeight());
+
+    // ── Gestion de la balance via Web Serial API ──────────────────────
+    const serialConnectBtn = document.getElementById('serialConnectBtn');
+    const serialIndicator = document.getElementById('serialIndicator');
+    const serialStatus = document.getElementById('serialStatus');
+
+    let serialPort = null;
+    let serialReader = null;
+    let keepReadingSerial = false;
+    let serialReadPromise = null;
+
+    function updateSerialUI(isConnected, text, isUnstable = false) {
+      if (serialIndicator) {
+        serialIndicator.style.backgroundColor = isConnected ? (isUnstable ? '#f59e0b' : '#10b981') : '#ef4444';
+      }
+      if (serialStatus) {
+        serialStatus.textContent = text;
+      }
+      if (serialConnectBtn) {
+        const btnText = serialConnectBtn.querySelector('span:not(#serialIndicator)');
+        if (btnText) {
+          btnText.textContent = isConnected ? 'Déconnecter' : 'Balance';
+        }
+      }
+    }
+
+    function parseScaleLine(line) {
+      // Nettoyage de la trame : on remplace les virgules par des points
+      const cleanLine = line.replace(',', '.');
+      // Regex pour trouver le poids : un signe optionnel, des espaces optionnels, suivis d'un nombre (optionnellement avec décimale)
+      const match = cleanLine.match(/([+-]?\s*\d+(?:\.\d+)?)/);
+      if (match) {
+        // Enlève les espaces internes pour avoir un nombre propre (ex: "+  12.50" -> "+12.50")
+        const numStr = match[0].replace(/\s+/g, '');
+        const weight = parseFloat(numStr);
+        if (!isNaN(weight)) {
+          // Mise à jour de l'affichage dans le champ du poids
+          weightInput.value = weight.toFixed(2);
+          // Dispatch de l'évènement 'input' pour recalculer automatiquement les dépendances et activer/désactiver le bouton de chargement de photo
+          weightInput.dispatchEvent(new Event('input'));
+          
+          // Vérification de la stabilité (souvent US pour unstable, ST pour stable)
+          const isStable = !line.includes('US') && !line.includes('unstable');
+          const stabilityText = isStable ? 'stable' : 'en mouvement';
+          updateSerialUI(true, `Balance : connectée. Poids : ${weight.toFixed(2)} g (${stabilityText})`, !isStable);
+        }
+      } else {
+        updateSerialUI(true, `Balance : connectée. Donnée reçue : ${line.trim()}`);
+      }
+    }
+
+    async function readSerial() {
+      while (serialPort && serialPort.readable && keepReadingSerial) {
+        try {
+          const decoder = new TextDecoderStream();
+          const inputDone = serialPort.readable.pipeTo(decoder.writable);
+          const inputStream = decoder.readable;
+          serialReader = inputStream.getReader();
+
+          let buffer = '';
+          while (keepReadingSerial) {
+            const { value, done } = await serialReader.read();
+            if (done) break;
+            if (value) {
+              buffer += value;
+              const lines = buffer.split(/\r?\n/);
+              buffer = lines.pop(); // Conserve la dernière ligne incomplète
+              for (const line of lines) {
+                if (line.trim()) {
+                  parseScaleLine(line);
+                }
+              }
+            }
+          }
+          serialReader.releaseLock();
+          await inputDone;
+        } catch (err) {
+          console.error("Serial read error:", err);
+          updateSerialUI(false, "Erreur de lecture: " + err.message);
+          break;
+        }
+      }
+    }
+
+    async function connectSerial() {
+      if (!('serial' in navigator)) {
+        updateSerialUI(false, "API Web Serial non supportée sur ce navigateur (utilisez Chrome ou Edge).");
+        return;
+      }
+      try {
+        serialPort = await navigator.serial.requestPort();
+        // Configuration standard U.S. Solid balance: 9600 baud, 8 bits, 1 stop bit, pas de parité
+        await serialPort.open({ baudRate: 9600, dataBits: 8, stopBits: 1, parity: 'none' });
+        keepReadingSerial = true;
+        serialReadPromise = readSerial();
+        updateSerialUI(true, "Balance : connectée. Posez une pièce...");
+      } catch (err) {
+        console.error("Failed to connect to serial port:", err);
+        updateSerialUI(false, "Connexion échouée : " + err.message);
+      }
+    }
+
+    async function disconnectSerial() {
+      keepReadingSerial = false;
+      if (serialReader) {
+        try {
+          await serialReader.cancel();
+        } catch (e) {
+          console.warn("Reader cancel error:", e);
+        }
+      }
+      if (serialReadPromise) {
+        await serialReadPromise;
+        serialReadPromise = null;
+      }
+      if (serialPort) {
+        try {
+          await serialPort.close();
+        } catch (e) {
+          console.warn("Port close error:", e);
+        }
+        serialPort = null;
+      }
+      updateSerialUI(false, "Balance : déconnectée.");
+    }
+
+    serialConnectBtn?.addEventListener('click', async () => {
+      if (serialPort) {
+        await disconnectSerial();
+      } else {
+        await connectSerial();
+      }
+    });
+
+    // Nettoyer proprement la balance en cas de fermeture/rechargement de la page
+    window.addEventListener('beforeunload', async () => {
+      if (serialPort) {
+        await disconnectSerial();
+      }
+    });
 
 
 
