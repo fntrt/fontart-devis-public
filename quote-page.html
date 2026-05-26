@@ -4575,16 +4575,22 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           }
       const bgR = sumR / sumN, bgG = sumG / sumN, bgB = sumB / sumN;
 
-      // ── 2. Per-row and per-column: fraction of pixels that differ from bg ──
-      // Higher threshold: copper ring vs green felt distance ≈ 100, felt texture ≈ 25-35.
-      // 50 cleanly separates them.
-      const COLOR_THR = 50;
+      // ── 2. Classify each pixel as bg/fg using HISTOGRAM BIN MEMBERSHIP
+      // (more robust than a fixed colour-distance threshold).
+      // A pixel is "background" if its bin is within ±BG_RANGE of the peak bin
+      // in EACH colour channel. With BG_RANGE = 2 and 16-wide bins, this covers
+      // up to ±32 raw RGB values per channel — wide enough for typical felt
+      // shadows/lighting, narrow enough to exclude copper.
+      const BG_RANGE = 2;
+      const isBgBin = (r, g, b) =>
+        Math.abs(r - cr) <= BG_RANGE &&
+        Math.abs(g - cg) <= BG_RANGE &&
+        Math.abs(b - cb) <= BG_RANGE;
 
       const rowFrac = new Float32Array(sh);
       const colFrac = new Float32Array(sw);
 
-      // Process rows: exclude ruler rows (zero contribution) and ruler columns
-      // (so the ruler doesn't pad rowFrac numerator). Denominator = non-ruler cols.
+      // Per-row: count non-bg pixels among non-ruler columns
       for (let y = 0; y < sh; y++) {
         if (isHorizRuler && y >= sry0 && y <= sry1) { rowFrac[y] = 0; continue; }
         let cnt = 0, tot = 0;
@@ -4592,8 +4598,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           if (!isHorizRuler && x >= srx0 && x <= srx1) continue;
           tot++;
           const i = (y * sw + x) * 4;
-          const dr = data[i]-bgR, dg = data[i+1]-bgG, db = data[i+2]-bgB;
-          if (dr*dr + dg*dg + db*db > COLOR_THR*COLOR_THR) cnt++;
+          if (!isBgBin(data[i] >> 4, data[i+1] >> 4, data[i+2] >> 4)) cnt++;
         }
         rowFrac[y] = tot > 0 ? cnt / tot : 0;
       }
@@ -4604,8 +4609,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           if (isHorizRuler && y >= sry0 && y <= sry1) continue;
           tot++;
           const i = (y * sw + x) * 4;
-          const dr = data[i]-bgR, dg = data[i+1]-bgG, db = data[i+2]-bgB;
-          if (dr*dr + dg*dg + db*db > COLOR_THR*COLOR_THR) cnt++;
+          if (!isBgBin(data[i] >> 4, data[i+1] >> 4, data[i+2] >> 4)) cnt++;
         }
         colFrac[x] = tot > 0 ? cnt / tot : 0;
       }
