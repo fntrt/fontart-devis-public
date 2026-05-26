@@ -2464,9 +2464,10 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       pipelineLoader.style.display  = 'block';
       pipelineLoaderStep.textContent   = title;
       pipelineLoaderDetail.textContent = detail;
-      const order = { calib: 1, 'ai-crop': 2, recalib: 3, contour: 4 };
+      // 3-step pipeline now: calibration → AI + crop → contour
+      const order = { calib: 1, 'ai-crop': 2, contour: 3 };
       const idx = order[stepKey] ?? 0;
-      pipelineLoaderBar.style.width = (idx / 4 * 100) + '%';
+      pipelineLoaderBar.style.width = (idx / 3 * 100) + '%';
       // Hide canvas + every control section so nothing leaks through
       if (canvasWrapEl)      canvasWrapEl.style.display = 'none';
       if (autoScaleSection)  autoScaleSection.classList.add('hidden');
@@ -2552,6 +2553,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     let hybridMode      = false;  // AI + manual complement mode
     let autoCalibration = null;   // { ruler, ticks, spacing } — detected ruler info
     let _pendingAutoPipeline = false; // true between photo load and first crop; drives chained auto-pipeline
+    let _precomputedAIMask   = null;  // if set, runAIDetection will skip RMBG and use this mask
     let autoCalibOverlay = null;  // HTMLCanvasElement — cached "10 mm" overlay
     let manualMode = false;
     let manualContours = [];
@@ -4469,6 +4471,100 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       return null;
     }
 
+    // Transform autoCalibration to a new image space after a translation-only crop.
+    // pxPerMm is invariant; we just shift the ruler / ticks coordinates.
+    function transformAutoCalibForCrop(cx0, cy0, newW, newH) {
+      if (!autoCalibration) return;
+      const { ruler, ticks, fineAngle = 0,
+              origW: oldW, origH: oldH,
+              rW: oldRW, rH: oldRH } = autoCalibration;
+
+      const rad  = (fineAngle || 0) * Math.PI / 180;
+      const cosA = Math.cos(rad), sinA = Math.sin(rad);
+      const absCos = Math.abs(cosA), absSin = Math.abs(sinA);
+      // Same formula getRotatedDataCalib uses for sizing the rotated canvas
+      const newRW = Math.ceil(newW * absCos + newH * absSin);
+      const newRH = Math.ceil(newW * absSin + newH * absCos);
+
+      // Old rotated (rx, ry) → new rotated (nrx, nry) via the original image space.
+      const transformPoint = (rx, ry) => {
+        // 1. old rotated → old image (rotate by -rad around old rotated centre)
+        const dx = rx - oldRW / 2, dy = ry - oldRH / 2;
+        const oldIx =  dx * cosA + dy * sinA + oldW / 2;
+        const oldIy = -dx * sinA + dy * cosA + oldH / 2;
+        // 2. old image → new image (subtract crop offset)
+        const newIx = oldIx - cx0;
+        const newIy = oldIy - cy0;
+        // 3. new image → new rotated (rotate by +rad around new rotated centre)
+        const ndx = newIx - newW / 2, ndy = newIy - newH / 2;
+        return [
+          ndx * cosA - ndy * sinA + newRW / 2,
+          ndx * sinA + ndy * cosA + newRH / 2
+        ];
+      };
+
+      // Ruler corners → new rotated bbox
+      const corners = [
+        [ruler.left, ruler.top],
+        [ruler.right, ruler.top],
+        [ruler.right, ruler.bottom],
+        [ruler.left, ruler.bottom]
+      ].map(([rx, ry]) => transformPoint(rx, ry));
+      const newRuler = {
+        ...ruler,
+        left:   Math.min(...corners.map(c => c[0])),
+        right:  Math.max(...corners.map(c => c[0])),
+        top:    Math.min(...corners.map(c => c[1])),
+        bottom: Math.max(...corners.map(c => c[1]))
+      };
+
+      // Ticks (each has x along ruler axis, y0/y1 perpendicular range)
+      const newTicks = (ticks || []).map(t => {
+        const midY = (t.y0 + t.y1) / 2;
+        const [nrx, nry] = transformPoint(t.x, midY);
+        const halfH = (t.y1 - t.y0) / 2;
+        return { ...t, x: nrx, y0: nry - halfH, y1: nry + halfH };
+      });
+
+      autoCalibration = {
+        ...autoCalibration,
+        ruler: newRuler,
+        ticks: newTicks,
+        origW: newW,
+        origH: newH,
+        rW: newRW,
+        rH: newRH
+        // spacing.pxPerMm is invariant under translation — keep as-is
+      };
+      // Discard the old overlay; we don't need to show it because we skip
+      // straight to the AI contour stage.
+      autoCalibOverlay = null;
+    }
+
+    // Accept calibration: set pxPerMm + selectedPoints from autoCalibration.
+    // Factored out so the auto-pipeline can call it without going through
+    // the autoScaleAcceptBtn click handler.
+    function acceptAutoCalibration() {
+      if (!autoCalibration?.spacing) return false;
+      pxPerMm = autoCalibration.spacing.pxPerMm;
+      const segment = chooseTrustedScaleSegment(
+        autoCalibration.ruler, autoCalibration.ticks, autoCalibration.spacing);
+      if (segment) {
+        if (knownDistanceMm) knownDistanceMm.value = '10';
+        const { ruler, fineAngle = 0, origW: W, origH: H, rW = W, rH = H } = autoCalibration;
+        const rulerMidY = (ruler.top + ruler.bottom) / 2;
+        const rad = -fineAngle * Math.PI / 180;
+        const cos = Math.cos(rad), sin = Math.sin(rad);
+        const mapPoint = (rx, ry) => {
+          const dx = rx - rW / 2, dy = ry - rH / 2;
+          return { x: Math.round(dx * cos - dy * sin + W / 2),
+                   y: Math.round(dx * sin + dy * cos + H / 2) };
+        };
+        selectedPoints = [mapPoint(segment.x0, rulerMidY), mapPoint(segment.x1, rulerMidY)];
+      }
+      return true;
+    }
+
     async function runAutoCalibration() {
       autoCalibration = null;
       autoCalibOverlay = null;
@@ -4549,17 +4645,14 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         calibCropBtn.style.display = '';
         renderNormalPreview();
 
-        // ── Auto-pipeline: on first run after photo load, chain crop + AI ──
+        // ── Auto-pipeline: after the (single) calibration, jump to AI crop ──
+        // The crop handler will transform the calibration to the cropped image
+        // space and go directly to the contour stage with a precomputed mask.
         if (_pendingAutoPipeline) {
           _pendingAutoPipeline = false;
           showPipelineLoader('ai-crop', 'Analyse IA & recadrage…',
             'Détection du contour du bijou par modèle de vision');
           setTimeout(() => calibCropBtn.click(), 50);
-        } else if (pipelineLoader && pipelineLoader.style.display !== 'none') {
-          // We're in the chain — auto-advance to AI contour stage
-          showPipelineLoader('contour', 'Détection des contours…',
-            'Calcul du masque haute résolution');
-          setTimeout(() => autoScaleAcceptBtn.click(), 50);
         }
       } catch (e) {
         console.error(e);
@@ -4697,8 +4790,10 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         console.log('[crop AI] final crop:', cx0, cy0, '→', cx1, cy1,
                     '(', (cx1 - cx0), '×', (cy1 - cy0), ')');
 
-        // ── 7. Apply crop ──
+        // ── 7. Apply crop to BOTH the image and the mask ──
         const cropW = cx1 - cx0, cropH = cy1 - cy0;
+
+        // Crop the image
         const oc = new OffscreenCanvas(cropW, cropH);
         oc.getContext('2d').drawImage(sourceImage, cx0, cy0, cropW, cropH, 0, 0, cropW, cropH);
         const blob = await oc.convertToBlob({ type: 'image/jpeg', quality: 0.96 });
@@ -4708,6 +4803,20 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         });
         URL.revokeObjectURL(url);
 
+        // Crop the mask to match the new image dims — reused by runAIDetection
+        const croppedMask = new Float32Array(cropW * cropH);
+        for (let y = 0; y < cropH; y++) {
+          const srcRow = (y + cy0) * w + cx0;
+          const dstRow = y * cropW;
+          for (let x = 0; x < cropW; x++) {
+            croppedMask[dstRow + x] = mask[srcRow + x];
+          }
+        }
+
+        // Save state we need to preserve across resetWorkflowForImage()
+        const savedCalibration = autoCalibration;
+
+        // Install the new source image
         sourceImage = img;
         tempCanvas.width  = img.width;
         tempCanvas.height = img.height;
@@ -4715,12 +4824,24 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         tempCtx.drawImage(img, 0, 0);
 
         _smallCalibCache = null;
-        resetWorkflowForImage();
-        setStage('auto-scale');
-        showPipelineLoader('recalib', 'Nouvelle calibration…', 'Re-détection de la règle sur l\'image recadrée');
-        setStatus('Image recadrée par l\'IA. Nouvelle calibration en cours…');
+        resetWorkflowForImage();          // clears autoCalibration, etc.
+        autoCalibration = savedCalibration; // restore — we'll transform it next
+
+        // Transform the existing calibration to the new image's coordinate space
+        transformAutoCalibForCrop(cx0, cy0, img.width, img.height);
+
+        // Accept calibration (sets pxPerMm + selectedPoints from autoCalibration)
+        acceptAutoCalibration();
+
+        // Stash the cropped mask for runAIDetection (skips a second RMBG call)
+        _precomputedAIMask = croppedMask;
+
+        // Move directly to the AI contour stage — no second calibration pass
+        showPipelineLoader('contour', 'Préparation du contour…',
+          'Application du masque sur l\'image recadrée');
+        setStage('ai-detect');
         renderNormalPreview();
-        runAutoCalibration();
+        runAIDetection();
       } catch (err) {
         console.error(err);
         calibCropBtn.disabled = false;
@@ -4733,22 +4854,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     // ── End AI-driven crop ────────────────────────────────────────────────────
 
     autoScaleAcceptBtn.addEventListener('click', () => {
-      if (!autoCalibration?.spacing) return;
-      pxPerMm = autoCalibration.spacing.pxPerMm;
-      const segment = chooseTrustedScaleSegment(autoCalibration.ruler, autoCalibration.ticks, autoCalibration.spacing);
-      if (segment) {
-        if (knownDistanceMm) knownDistanceMm.value = '10';
-        // Map detection-space endpoints back to original image coordinates
-        const { ruler, fineAngle = 0, origW: W, origH: H, rW = W, rH = H } = autoCalibration;
-        const rulerMidY = (ruler.top + ruler.bottom) / 2;
-        const rad = -fineAngle * Math.PI / 180;
-        const cos = Math.cos(rad), sin = Math.sin(rad);
-        const mapPoint = (rx, ry) => {
-          const dx = rx - rW / 2, dy = ry - rH / 2;
-          return { x: Math.round(dx * cos - dy * sin + W / 2), y: Math.round(dx * sin + dy * cos + H / 2) };
-        };
-        selectedPoints = [mapPoint(segment.x0, rulerMidY), mapPoint(segment.x1, rulerMidY)];
-      }
+      if (!acceptAutoCalibration()) return;
       setStage('ai-detect');
       runAIDetection();
     });
@@ -4898,39 +5004,51 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
 
       try {
         const w = sourceImage.width, h = sourceImage.height;
-        const tc = document.createElement('canvas');
-        tc.width = w; tc.height = h;
-        tc.getContext('2d').drawImage(sourceImage, 0, 0);
-        const dataUrl = tc.toDataURL('image/png');
 
-        const maskRaw = await window.runRMBG(dataUrl, (p) => {
-          if (p.status === 'progress')
-            aiStatusEl.textContent = `Téléchargement du modèle… ${Math.round(p.progress ?? 0)} %`;
-          else if (p.status === 'initiate')
-            aiStatusEl.textContent = 'Téléchargement du modèle…';
-        });
+        // Fast path: a mask was pre-computed by the auto-pipeline (cropped from
+        // the original image's AI run). Reuse it instead of running RMBG again.
+        if (_precomputedAIMask && _precomputedAIMask.length === w * h) {
+          aiStatusEl.textContent = 'Préparation du contour…';
+          aiDetectedMask = _precomputedAIMask;
+          _precomputedAIMask = null;
+          // Ruler-exclusion was applied before crop; redo it here against the
+          // (transformed) calibration so anything that leaked across is zeroed.
+          excludeRulerFromMask(aiDetectedMask, w, h);
+        } else {
+          const tc = document.createElement('canvas');
+          tc.width = w; tc.height = h;
+          tc.getContext('2d').drawImage(sourceImage, 0, 0);
+          const dataUrl = tc.toDataURL('image/png');
 
-        const { data, width: mw, height: mh } = maskRaw;
-        const channels = data.length / (mw * mh);
+          const maskRaw = await window.runRMBG(dataUrl, (p) => {
+            if (p.status === 'progress')
+              aiStatusEl.textContent = `Téléchargement du modèle… ${Math.round(p.progress ?? 0)} %`;
+            else if (p.status === 'initiate')
+              aiStatusEl.textContent = 'Téléchargement du modèle…';
+          });
 
-        aiDetectedMask = new Float32Array(w * h);
-        for (let y = 0; y < h; y++) {
-          const sy = y * (mh-1) / (h-1);
-          const sy0 = Math.floor(sy), sy1 = Math.min(mh-1, sy0+1), fy = sy - sy0;
-          for (let x = 0; x < w; x++) {
-            const sx = x * (mw-1) / (w-1);
-            const sx0 = Math.floor(sx), sx1 = Math.min(mw-1, sx0+1), fx = sx - sx0;
-            aiDetectedMask[y*w+x] = (
-              data[(sy0*mw+sx0)*channels]*(1-fx)*(1-fy) +
-              data[(sy0*mw+sx1)*channels]*fx*(1-fy) +
-              data[(sy1*mw+sx0)*channels]*(1-fx)*fy +
-              data[(sy1*mw+sx1)*channels]*fx*fy
-            ) / 255;
+          const { data, width: mw, height: mh } = maskRaw;
+          const channels = data.length / (mw * mh);
+
+          aiDetectedMask = new Float32Array(w * h);
+          for (let y = 0; y < h; y++) {
+            const sy = y * (mh-1) / (h-1);
+            const sy0 = Math.floor(sy), sy1 = Math.min(mh-1, sy0+1), fy = sy - sy0;
+            for (let x = 0; x < w; x++) {
+              const sx = x * (mw-1) / (w-1);
+              const sx0 = Math.floor(sx), sx1 = Math.min(mw-1, sx0+1), fx = sx - sx0;
+              aiDetectedMask[y*w+x] = (
+                data[(sy0*mw+sx0)*channels]*(1-fx)*(1-fy) +
+                data[(sy0*mw+sx1)*channels]*fx*(1-fy) +
+                data[(sy1*mw+sx0)*channels]*(1-fx)*fy +
+                data[(sy1*mw+sx1)*channels]*fx*fy
+              ) / 255;
+            }
           }
-        }
 
-        // Automatically remove the ruler band from the mask (it's not part of the object)
-        excludeRulerFromMask(aiDetectedMask, w, h);
+          // Automatically remove the ruler band from the mask (it's not part of the object)
+          excludeRulerFromMask(aiDetectedMask, w, h);
+        }
 
         // Build initial mask using slider threshold (consistent with slider position)
         reRenderAIMask(+aiCorrSlider.value);
