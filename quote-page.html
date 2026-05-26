@@ -2505,6 +2505,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     let aiMetrics       = null;   // { areaPx, perimeterPx } from AI mask
     let hybridMode      = false;  // AI + manual complement mode
     let autoCalibration = null;   // { ruler, ticks, spacing } — detected ruler info
+    let _pendingAutoPipeline = false; // true between photo load and first crop; drives chained auto-pipeline
     let autoCalibOverlay = null;  // HTMLCanvasElement — cached "10 mm" overlay
     let manualMode = false;
     let manualContours = [];
@@ -3242,6 +3243,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         tempCtx.clearRect(0, 0, tempCanvas.width, tempCanvas.height);
         tempCtx.drawImage(sourceImage, 0, 0);
         resetWorkflowForImage();
+        _pendingAutoPipeline = true;     // trigger full auto pipeline on first calibration success
         if (workspaceCard) workspaceCard.classList.remove('hidden');
         const nouvelArticleCard = document.getElementById('nouvelArticleCard');
         if (nouvelArticleCard) nouvelArticleCard.classList.add('hidden');
@@ -3493,6 +3495,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           tempCtx.clearRect(0, 0, tempCanvas.width, tempCanvas.height);
           tempCtx.drawImage(sourceImage, 0, 0);
           resetWorkflowForImage();
+          _pendingAutoPipeline = true;     // trigger full auto pipeline on first calibration success
           if (workspaceCard) workspaceCard.classList.remove('hidden');
           const nouvelArticleCard = document.getElementById('nouvelArticleCard');
           if (nouvelArticleCard) nouvelArticleCard.classList.add('hidden');
@@ -4433,6 +4436,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         if (!best) {
           autoScaleStatus.textContent = 'Règle non détectée. Calibrez manuellement.';
           setStatus('Règle non détectée. Utilisez "Calibrer manuellement" pour sélectionner 2 points sur la règle.', true);
+          _pendingAutoPipeline = false; // give up the auto-chain
           renderNormalPreview();
           return;
         }
@@ -4463,14 +4467,28 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         const orient = isVertical ? ' (verticale)' : '';
         const corrInfo = spacing._corrected ? ' [corrigé ×2]' : '';
         autoScaleStatus.textContent = `Règle détectée${orient} — ${spacing.pxPerMm.toFixed(2)} px/mm · confiance ${conf} %${corrInfo}`;
-        setStatus(`Règle calibrée à ${spacing.pxPerMm.toFixed(2)} px/mm. Cliquez sur "✓ Utiliser cette calibration" pour continuer.`);
+        setStatus(`Règle calibrée à ${spacing.pxPerMm.toFixed(2)} px/mm.`);
         autoScaleAcceptBtn.disabled = false;
         calibCropBtn.style.display = '';
         renderNormalPreview();
+
+        // ── Auto-pipeline: on first run after photo load, chain crop + AI ──
+        if (_pendingAutoPipeline) {
+          _pendingAutoPipeline = false;
+          // Step 1: trigger AI crop. Crop handler will re-run calibration.
+          // Second pass will skip this branch (flag is false) and auto-advance.
+          setTimeout(() => calibCropBtn.click(), 50);
+        } else {
+          // Second pass after crop (or any non-pipeline calibration): advance
+          // automatically to the AI contour stage so the user lands directly
+          // on the detected-contour view.
+          setTimeout(() => autoScaleAcceptBtn.click(), 50);
+        }
       } catch (e) {
         console.error(e);
         autoScaleStatus.textContent = 'Erreur de calibration : ' + (e?.message ?? String(e));
         setStatus('Erreur lors de la détection de la règle. ' + (e?.message ?? ''), true);
+        _pendingAutoPipeline = false; // give up the auto-chain on failure
       }
     }
 
