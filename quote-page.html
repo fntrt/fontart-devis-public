@@ -4491,23 +4491,25 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       smallCtx.drawImage(sourceImage, 0, 0, sw, sh);
       const { data } = smallCtx.getImageData(0, 0, sw, sh);
 
-      // ── 1. Sample background colour from the 4 corners (5 % of each side) ──
-      const csz = Math.max(2, Math.round(Math.min(sw, sh) * 0.05));
-      const samples = [];
-      for (let cy = 0; cy < csz; cy++) {
-        for (let cx = 0; cx < csz; cx++) {
-          for (const [px, py] of [[cx,cy],[sw-1-cx,cy],[cx,sh-1-cy],[sw-1-cx,sh-1-cy]]) {
-            const i = (py * sw + px) * 4;
-            samples.push([data[i], data[i+1], data[i+2]]);
-          }
-        }
+      // ── 1. Detect background colour by HISTOGRAM MODE ──
+      // The background occupies more pixels than anything else, so the most
+      // common colour in a coarse histogram is always the background.
+      // Robust against vignetting, shadows, dirty corners, letterbox bars, etc.
+      const BINS = 16;                   // 16 bins per channel = 4096 buckets
+      const hist = new Uint32Array(BINS * BINS * BINS);
+      for (let i = 0; i < data.length; i += 4) {
+        const r = data[i]   >> 4;        // 256 / 16 = 16-wide bins
+        const g = data[i+1] >> 4;
+        const b = data[i+2] >> 4;
+        hist[(r * BINS + g) * BINS + b]++;
       }
-      // Use median per channel to be robust against one dirty corner
-      samples.sort((a,b) => a[0]-b[0]);
-      const mid = Math.floor(samples.length / 2);
-      const bgR = samples.sort((a,b)=>a[0]-b[0])[mid][0];
-      const bgG = samples.sort((a,b)=>a[1]-b[1])[mid][1];
-      const bgB = samples.sort((a,b)=>a[2]-b[2])[mid][2];
+      let bestBin = 0, bestCount = 0;
+      for (let i = 0; i < hist.length; i++) {
+        if (hist[i] > bestCount) { bestCount = hist[i]; bestBin = i; }
+      }
+      const bgR = ((bestBin / (BINS * BINS)) | 0) * 16 + 8;
+      const bgG = (((bestBin / BINS) | 0) % BINS) * 16 + 8;
+      const bgB = (bestBin % BINS) * 16 + 8;
 
       // ── 2. Per-row and per-column: fraction of pixels that differ from bg ──
       // Higher threshold: copper ring vs green felt distance ≈ 100, felt texture ≈ 25-35.
@@ -4563,6 +4565,19 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
 
       console.log('[crop] content bbox (in small img):', fx0, fy0, '→', fx1, fy1,
                   'of', sw, '×', sh);
+
+      // Fallback: if bbox is collapsed/inverted (threshold too strict), use 50 %
+      // of the peak — this always yields a meaningful box.
+      if (fx0 >= fx1 || fy0 >= fy1) {
+        const softRow = rowMax * 0.5;
+        const softCol = colMax * 0.5;
+        fy0 = 0; fy1 = sh - 1; fx0 = 0; fx1 = sw - 1;
+        while (fy0 < sh - 1 && rowFrac[fy0] < softRow) fy0++;
+        while (fy1 > 0       && rowFrac[fy1] < softRow) fy1--;
+        while (fx0 < sw - 1  && colFrac[fx0] < softCol) fx0++;
+        while (fx1 > 0       && colFrac[fx1] < softCol) fx1--;
+        console.log('[crop] fallback bbox at peak/2:', fx0, fy0, '→', fx1, fy1);
+      }
 
       // Scale back to full resolution
       fx0 = Math.round(fx0 / SCALE); fx1 = Math.round(fx1 / SCALE);
