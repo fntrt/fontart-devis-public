@@ -4510,7 +4510,9 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       const bgB = samples.sort((a,b)=>a[2]-b[2])[mid][2];
 
       // ── 2. Per-row and per-column: fraction of pixels that differ from bg ──
-      const COLOR_THR = 28;   // colour-distance threshold per pixel
+      // Higher threshold: copper ring vs green felt distance ≈ 100, felt texture ≈ 25-35.
+      // 50 cleanly separates them.
+      const COLOR_THR = 50;
 
       const rowFrac = new Float32Array(sh);
       const colFrac = new Float32Array(sw);
@@ -4534,23 +4536,33 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         colFrac[x] = cnt / sh;
       }
 
-      // ── 3. Adaptive threshold: 3× the median noise level of background rows/cols ──
-      // The median is dominated by the (more numerous) background rows, giving us
-      // the "noise floor" of the JPEG / felt texture. Anything 3× above that is real content.
+      // ── 3. Adaptive threshold: max of (noise-floor × 4) and (peak / 4) ──
       const medianOf = (arr) => {
         const sorted = Float32Array.from(arr).sort();
         return sorted[Math.floor(sorted.length / 2)];
       };
-      const rowMed = medianOf(rowFrac);
-      const colMed = medianOf(colFrac);
-      const rowThr = Math.max(0.08, rowMed * 3);   // floor at 8 % so super-clean bg still works
-      const colThr = Math.max(0.08, colMed * 3);
+      const maxOf = (arr) => { let m = 0; for (const v of arr) if (v > m) m = v; return m; };
+
+      const rowMed = medianOf(rowFrac), colMed = medianOf(colFrac);
+      const rowMax = maxOf(rowFrac),    colMax = maxOf(colFrac);
+      // Threshold is somewhere between the noise floor and the peak.
+      // Take max(4× median, peak / 4) — this auto-scales to the actual contrast.
+      const rowThr = Math.max(rowMed * 4 + 0.01, rowMax * 0.25, 0.05);
+      const colThr = Math.max(colMed * 4 + 0.01, colMax * 0.25, 0.05);
+
+      console.log('[crop] bg=', [bgR|0,bgG|0,bgB|0], 'rowMed=', rowMed.toFixed(3),
+                  'rowMax=', rowMax.toFixed(3), 'rowThr=', rowThr.toFixed(3),
+                  'colMed=', colMed.toFixed(3), 'colMax=', colMax.toFixed(3),
+                  'colThr=', colThr.toFixed(3));
 
       let fy0 = 0, fy1 = sh - 1, fx0 = 0, fx1 = sw - 1;
       while (fy0 < sh - 1 && rowFrac[fy0] < rowThr) fy0++;
       while (fy1 > 0       && rowFrac[fy1] < rowThr) fy1--;
       while (fx0 < sw - 1  && colFrac[fx0] < colThr) fx0++;
       while (fx1 > 0       && colFrac[fx1] < colThr) fx1--;
+
+      console.log('[crop] content bbox (in small img):', fx0, fy0, '→', fx1, fy1,
+                  'of', sw, '×', sh);
 
       // Scale back to full resolution
       fx0 = Math.round(fx0 / SCALE); fx1 = Math.round(fx1 / SCALE);
