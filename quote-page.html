@@ -2705,17 +2705,19 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           const len = Math.hypot(dx, dy) || 1;
           let perpX = -dy / len;
           let perpY = dx / len;
-          if (perpY < 0) { perpX = -perpX; perpY = -perpY; }
+          // Force perpendicular to point UPWARD (negative y in canvas)
+          if (perpY > 0) { perpX = -perpX; perpY = -perpY; }
           const offset = 36 * baseScale / viewScale;
-          const lx = mx + perpX * offset;
-          const ly = my + perpY * offset;
           const fontSize = 26 * baseScale / viewScale;
+          const pad = 10 * baseScale / viewScale;
+          const lx = mx + perpX * offset;
+          // Lift the label by its own height so the pill sits ENTIRELY above the line
+          const ly = my + perpY * offset - (fontSize + pad * 2);
           const text = `${dist} mm`;
           ctx.font = `bold ${fontSize}px sans-serif`;
           ctx.textAlign = 'center';
           ctx.textBaseline = 'top';
           const tw = ctx.measureText(text).width;
-          const pad = 10 * baseScale / viewScale;
           // Solid amber pill for high contrast
           ctx.fillStyle = '#f59e0b';
           ctx.beginPath();
