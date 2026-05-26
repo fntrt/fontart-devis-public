@@ -4474,7 +4474,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       }
     }
 
-    // ── Crop before calibration (background-colour-based) ─────────────────────
+    // ── Crop before calibration (scanline approach) ───────────────────────────
     calibCropBtn.addEventListener('click', async () => {
       if (!sourceImage || !autoCalibration?.ruler) return;
       calibCropBtn.disabled = true;
@@ -4482,8 +4482,8 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
 
       const w = sourceImage.width, h = sourceImage.height;
 
-      // Read pixel data at reduced resolution for speed (max 800px wide)
-      const SCALE = Math.min(1, 800 / Math.max(w, h));
+      // Work at reduced resolution for speed (max 600 px on longest side)
+      const SCALE = Math.min(1, 600 / Math.max(w, h));
       const sw = Math.max(1, Math.round(w * SCALE));
       const sh = Math.max(1, Math.round(h * SCALE));
       const smallOc  = new OffscreenCanvas(sw, sh);
@@ -4491,43 +4491,63 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       smallCtx.drawImage(sourceImage, 0, 0, sw, sh);
       const { data } = smallCtx.getImageData(0, 0, sw, sh);
 
-      // Sample background colour from border strip (outer 4 % of each side)
-      const border = Math.max(2, Math.round(Math.min(sw, sh) * 0.04));
-      let rSum = 0, gSum = 0, bSum = 0, n = 0;
-      for (let y = 0; y < sh; y++) {
-        for (let x = 0; x < sw; x++) {
-          if (x < border || x >= sw - border || y < border || y >= sh - border) {
-            const i = (y * sw + x) * 4;
-            rSum += data[i]; gSum += data[i+1]; bSum += data[i+2]; n++;
+      // ── 1. Sample background colour from the 4 corners (5 % of each side) ──
+      const csz = Math.max(2, Math.round(Math.min(sw, sh) * 0.05));
+      const samples = [];
+      for (let cy = 0; cy < csz; cy++) {
+        for (let cx = 0; cx < csz; cx++) {
+          for (const [px, py] of [[cx,cy],[sw-1-cx,cy],[cx,sh-1-cy],[sw-1-cx,sh-1-cy]]) {
+            const i = (py * sw + px) * 4;
+            samples.push([data[i], data[i+1], data[i+2]]);
           }
         }
       }
-      const bgR = rSum / n, bgG = gSum / n, bgB = bSum / n;
+      // Use median per channel to be robust against one dirty corner
+      samples.sort((a,b) => a[0]-b[0]);
+      const mid = Math.floor(samples.length / 2);
+      const bgR = samples.sort((a,b)=>a[0]-b[0])[mid][0];
+      const bgG = samples.sort((a,b)=>a[1]-b[1])[mid][1];
+      const bgB = samples.sort((a,b)=>a[2]-b[2])[mid][2];
 
-      // Find bounding box of pixels that differ significantly from the background
-      const thr = 38; // colour-distance threshold
-      let fx0 = sw, fx1 = 0, fy0 = sh, fy1 = 0;
+      // ── 2. Per-row and per-column: fraction of pixels that differ from bg ──
+      const COLOR_THR  = 32;   // colour-distance threshold per pixel
+      const SCANLINE_F = 0.07; // a row/col needs ≥ 7 % non-bg pixels to be "content"
+
+      const rowFrac = new Float32Array(sh);
+      const colFrac = new Float32Array(sw);
+
       for (let y = 0; y < sh; y++) {
+        let cnt = 0;
         for (let x = 0; x < sw; x++) {
-          const i  = (y * sw + x) * 4;
-          const dr = data[i] - bgR, dg = data[i+1] - bgG, db = data[i+2] - bgB;
-          if (Math.sqrt(dr*dr + dg*dg + db*db) > thr) {
-            if (x < fx0) fx0 = x;
-            if (x > fx1) fx1 = x;
-            if (y < fy0) fy0 = y;
-            if (y > fy1) fy1 = y;
-          }
+          const i = (y * sw + x) * 4;
+          const dr = data[i]-bgR, dg = data[i+1]-bgG, db = data[i+2]-bgB;
+          if (dr*dr + dg*dg + db*db > COLOR_THR*COLOR_THR) cnt++;
         }
+        rowFrac[y] = cnt / sw;
+      }
+      for (let x = 0; x < sw; x++) {
+        let cnt = 0;
+        for (let y = 0; y < sh; y++) {
+          const i = (y * sw + x) * 4;
+          const dr = data[i]-bgR, dg = data[i+1]-bgG, db = data[i+2]-bgB;
+          if (dr*dr + dg*dg + db*db > COLOR_THR*COLOR_THR) cnt++;
+        }
+        colFrac[x] = cnt / sh;
       }
 
-      // Scale bbox back to original resolution
+      // ── 3. Scan from each edge to find first content row / column ──
+      let fy0 = 0, fy1 = sh - 1, fx0 = 0, fx1 = sw - 1;
+      while (fy0 < sh - 1 && rowFrac[fy0] < SCANLINE_F) fy0++;
+      while (fy1 > 0       && rowFrac[fy1] < SCANLINE_F) fy1--;
+      while (fx0 < sw - 1  && colFrac[fx0] < SCANLINE_F) fx0++;
+      while (fx1 > 0       && colFrac[fx1] < SCANLINE_F) fx1--;
+
+      // Scale back to full resolution
       fx0 = Math.round(fx0 / SCALE); fx1 = Math.round(fx1 / SCALE);
       fy0 = Math.round(fy0 / SCALE); fy1 = Math.round(fy1 / SCALE);
+      if (fx0 >= fx1 || fy0 >= fy1) { fx0=0; fx1=w; fy0=0; fy1=h; } // safety fallback
 
-      // Fallback: use full image if nothing found
-      if (fx0 >= fx1 || fy0 >= fy1) { fx0 = 0; fx1 = w; fy0 = 0; fy1 = h; }
-
-      // Padding: 3 % of image, min 20 px
+      // ── 4. Padding: 3 % of image, min 20 px ──
       const padX = Math.max(20, Math.round(w * 0.03));
       const padY = Math.max(20, Math.round(h * 0.03));
       let cx0 = Math.max(0, fx0 - padX);
@@ -4535,7 +4555,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       let cy0 = Math.max(0, fy0 - padY);
       let cy1 = Math.min(h, fy1 + padY);
 
-      // Ensure the full ruler strip is included (using inverse-rotation transform)
+      // ── 5. Ruler anchor: include ruler strip in the perpendicular axis only ──
       const { ruler, fineAngle = 0, origW: W = w, origH: H = h, rW = W, rH = H } = autoCalibration;
       const rad  = (fineAngle || 0) * Math.PI / 180;
       const cosA = Math.cos(rad), sinA = Math.sin(rad);
@@ -4546,19 +4566,18 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         const dx = rx - rW / 2, dy = ry - rH / 2;
         return [dx * cosA + dy * sinA + W / 2, -dx * sinA + dy * cosA + H / 2];
       });
-      const rx0 = Math.max(0, Math.floor(Math.min(...rulerCorners.map(c => c[0]))));
-      const rx1 = Math.min(w, Math.ceil (Math.max(...rulerCorners.map(c => c[0]))));
       const ry0 = Math.max(0, Math.floor(Math.min(...rulerCorners.map(c => c[1]))));
       const ry1 = Math.min(h, Math.ceil (Math.max(...rulerCorners.map(c => c[1]))));
+      const rx0 = Math.max(0, Math.floor(Math.min(...rulerCorners.map(c => c[0]))));
+      const rx1 = Math.min(w, Math.ceil (Math.max(...rulerCorners.map(c => c[0]))));
 
       const absAngle = Math.abs((fineAngle || 0) % 180);
       const isHorizRuler = absAngle <= 45 || absAngle >= 135;
 
       if (isHorizRuler) {
-        // Horizontal ruler: extend Y to include the ruler strip, keep X tight
-        cy0 = Math.min(cy0, ry0);
+        cy0 = Math.min(cy0, ry0);   // extend Y to include ruler strip
         cy1 = Math.max(cy1, ry1);
-        // Guarantee at least 30 mm of ruler visible, centred on content
+        // Guarantee at least 30 mm of ruler centred on content (don't take full width)
         if (autoCalibration.spacing?.pxPerMm) {
           const minPx   = Math.round(30 * autoCalibration.spacing.pxPerMm);
           const centerX = (fx0 + fx1) / 2;
@@ -4566,7 +4585,6 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           cx1 = Math.max(cx1, Math.min(w, Math.round(centerX + minPx / 2)));
         }
       } else {
-        // Vertical ruler: extend X to include the ruler strip, keep Y tight
         cx0 = Math.min(cx0, rx0);
         cx1 = Math.max(cx1, rx1);
         if (autoCalibration.spacing?.pxPerMm) {
@@ -4577,17 +4595,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         }
       }
 
-      // Skip only if crop saves less than 15 % of pixels
-      const cropArea = (cx1 - cx0) * (cy1 - cy0);
-      const fullArea = w * h;
-      if (cropArea > fullArea * 0.85) {
-        calibCropBtn.disabled = false;
-        calibCropBtn.textContent = '✂️ Recadrer';
-        setStatus('L\'image est déjà bien cadrée, aucun recadrage nécessaire.');
-        return;
-      }
-
-      // Apply crop
+      // ── 6. Apply crop (no minimum-gain guard — user explicitly requested it) ──
       const cropW = cx1 - cx0, cropH = cy1 - cy0;
       const oc = new OffscreenCanvas(cropW, cropH);
       oc.getContext('2d').drawImage(sourceImage, cx0, cy0, cropW, cropH, 0, 0, cropW, cropH);
