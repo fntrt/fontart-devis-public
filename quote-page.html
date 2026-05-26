@@ -4551,15 +4551,36 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       const ry0 = Math.max(0, Math.floor(Math.min(...rulerCorners.map(c => c[1]))));
       const ry1 = Math.min(h, Math.ceil (Math.max(...rulerCorners.map(c => c[1]))));
 
-      cx0 = Math.min(cx0, rx0);
-      cx1 = Math.max(cx1, rx1);
-      cy0 = Math.min(cy0, ry0);
-      cy1 = Math.max(cy1, ry1);
+      const absAngle = Math.abs((fineAngle || 0) % 180);
+      const isHorizRuler = absAngle <= 45 || absAngle >= 135;
 
-      // Skip if crop is nearly the full image (< 10 % gain)
+      if (isHorizRuler) {
+        // Horizontal ruler: extend Y to include the ruler strip, keep X tight
+        cy0 = Math.min(cy0, ry0);
+        cy1 = Math.max(cy1, ry1);
+        // Guarantee at least 30 mm of ruler visible, centred on content
+        if (autoCalibration.spacing?.pxPerMm) {
+          const minPx   = Math.round(30 * autoCalibration.spacing.pxPerMm);
+          const centerX = (fx0 + fx1) / 2;
+          cx0 = Math.min(cx0, Math.max(0, Math.round(centerX - minPx / 2)));
+          cx1 = Math.max(cx1, Math.min(w, Math.round(centerX + minPx / 2)));
+        }
+      } else {
+        // Vertical ruler: extend X to include the ruler strip, keep Y tight
+        cx0 = Math.min(cx0, rx0);
+        cx1 = Math.max(cx1, rx1);
+        if (autoCalibration.spacing?.pxPerMm) {
+          const minPx   = Math.round(30 * autoCalibration.spacing.pxPerMm);
+          const centerY = (fy0 + fy1) / 2;
+          cy0 = Math.min(cy0, Math.max(0, Math.round(centerY - minPx / 2)));
+          cy1 = Math.max(cy1, Math.min(h, Math.round(centerY + minPx / 2)));
+        }
+      }
+
+      // Skip only if crop saves less than 15 % of pixels
       const cropArea = (cx1 - cx0) * (cy1 - cy0);
       const fullArea = w * h;
-      if (cropArea > fullArea * 0.90) {
+      if (cropArea > fullArea * 0.85) {
         calibCropBtn.disabled = false;
         calibCropBtn.textContent = '✂️ Recadrer';
         setStatus('L\'image est déjà bien cadrée, aucun recadrage nécessaire.');
