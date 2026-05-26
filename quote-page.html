@@ -4648,25 +4648,32 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       const absAngle = Math.abs((fineAngle || 0) % 180);
       const isHorizRuler = absAngle <= 45 || absAngle >= 135;
 
+      // ── Centre the crop symmetrically around the object ──
       if (isHorizRuler) {
-        cy0 = Math.min(cy0, ry0);   // extend Y to include ruler strip
+        // Horizontal ruler: extend Y to include ruler strip
+        cy0 = Math.min(cy0, ry0);
         cy1 = Math.max(cy1, ry1);
-        // Guarantee at least 30 mm of ruler centred on content (don't take full width)
+        // Centre horizontally on the object
+        const objCx   = (fx0 + fx1) / 2;
+        let halfX     = Math.max(fx1 - objCx, objCx - fx0) + padX;
+        // Ensure enough ruler visible (≥ 30 mm)
         if (autoCalibration.spacing?.pxPerMm) {
-          const minPx   = Math.round(30 * autoCalibration.spacing.pxPerMm);
-          const centerX = (fx0 + fx1) / 2;
-          cx0 = Math.min(cx0, Math.max(0, Math.round(centerX - minPx / 2)));
-          cx1 = Math.max(cx1, Math.min(w, Math.round(centerX + minPx / 2)));
+          halfX = Math.max(halfX, (30 * autoCalibration.spacing.pxPerMm) / 2);
         }
+        cx0 = Math.max(0, Math.round(objCx - halfX));
+        cx1 = Math.min(w, Math.round(objCx + halfX));
       } else {
+        // Vertical ruler: extend X to include ruler strip
         cx0 = Math.min(cx0, rx0);
         cx1 = Math.max(cx1, rx1);
+        // Centre vertically on the object
+        const objCy   = (fy0 + fy1) / 2;
+        let halfY     = Math.max(fy1 - objCy, objCy - fy0) + padY;
         if (autoCalibration.spacing?.pxPerMm) {
-          const minPx   = Math.round(30 * autoCalibration.spacing.pxPerMm);
-          const centerY = (fy0 + fy1) / 2;
-          cy0 = Math.min(cy0, Math.max(0, Math.round(centerY - minPx / 2)));
-          cy1 = Math.max(cy1, Math.min(h, Math.round(centerY + minPx / 2)));
+          halfY = Math.max(halfY, (30 * autoCalibration.spacing.pxPerMm) / 2);
         }
+        cy0 = Math.max(0, Math.round(objCy - halfY));
+        cy1 = Math.min(h, Math.round(objCy + halfY));
       }
 
       // ── 6. Apply crop (no minimum-gain guard — user explicitly requested it) ──
