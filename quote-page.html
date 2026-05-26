@@ -714,6 +714,7 @@
       <div id="autoScaleSection" class="hidden" style="margin-top: 8px;">
         <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
           <span id="autoScaleStatus" style="flex:1; font-size:.88rem; color:#555;">Détection automatique de la règle…</span>
+          <button id="calibCropBtn" class="secondary" type="button" style="white-space:nowrap; display:none;" title="Recadrer l'image autour du bijou et de la règle, puis recalibrer">✂️ Recadrer</button>
           <button id="autoScaleAcceptBtn" type="button" style="white-space:nowrap;" disabled>✓ Utiliser cette calibration</button>
           <button id="autoScaleManualBtn" class="secondary" type="button" style="white-space:nowrap;">Calibrer manuellement</button>
         </div>
@@ -2459,6 +2460,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     const autoScaleStatus    = document.getElementById('autoScaleStatus');
     const autoScaleAcceptBtn = document.getElementById('autoScaleAcceptBtn');
     const autoScaleManualBtn = document.getElementById('autoScaleManualBtn');
+    const calibCropBtn       = document.getElementById('calibCropBtn');
     const pointsInfo = document.getElementById('pointsInfo');
     const workspaceCard = document.getElementById('workspaceCard');
     const scaleSection = document.getElementById('scaleSection');
@@ -4392,6 +4394,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       autoCalibration = null;
       autoCalibOverlay = null;
       autoScaleAcceptBtn.disabled = true;
+      calibCropBtn.style.display = 'none';
       _smallCalibCache = null;
 
       try {
@@ -4462,6 +4465,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         autoScaleStatus.textContent = `Règle détectée${orient} — ${spacing.pxPerMm.toFixed(2)} px/mm · confiance ${conf} %${corrInfo}`;
         setStatus(`Règle calibrée à ${spacing.pxPerMm.toFixed(2)} px/mm. Cliquez sur "✓ Utiliser cette calibration" pour continuer.`);
         autoScaleAcceptBtn.disabled = false;
+        calibCropBtn.style.display = '';
         renderNormalPreview();
       } catch (e) {
         console.error(e);
@@ -4469,6 +4473,131 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         setStatus('Erreur lors de la détection de la règle. ' + (e?.message ?? ''), true);
       }
     }
+
+    // ── Crop before calibration (background-colour-based) ─────────────────────
+    calibCropBtn.addEventListener('click', async () => {
+      if (!sourceImage || !autoCalibration?.ruler) return;
+      calibCropBtn.disabled = true;
+      calibCropBtn.textContent = '✂️…';
+
+      const w = sourceImage.width, h = sourceImage.height;
+
+      // Read pixel data at reduced resolution for speed (max 800px wide)
+      const SCALE = Math.min(1, 800 / Math.max(w, h));
+      const sw = Math.max(1, Math.round(w * SCALE));
+      const sh = Math.max(1, Math.round(h * SCALE));
+      const smallOc  = new OffscreenCanvas(sw, sh);
+      const smallCtx = smallOc.getContext('2d');
+      smallCtx.drawImage(sourceImage, 0, 0, sw, sh);
+      const { data } = smallCtx.getImageData(0, 0, sw, sh);
+
+      // Sample background colour from border strip (outer 4 % of each side)
+      const border = Math.max(2, Math.round(Math.min(sw, sh) * 0.04));
+      let rSum = 0, gSum = 0, bSum = 0, n = 0;
+      for (let y = 0; y < sh; y++) {
+        for (let x = 0; x < sw; x++) {
+          if (x < border || x >= sw - border || y < border || y >= sh - border) {
+            const i = (y * sw + x) * 4;
+            rSum += data[i]; gSum += data[i+1]; bSum += data[i+2]; n++;
+          }
+        }
+      }
+      const bgR = rSum / n, bgG = gSum / n, bgB = bSum / n;
+
+      // Find bounding box of pixels that differ significantly from the background
+      const thr = 38; // colour-distance threshold
+      let fx0 = sw, fx1 = 0, fy0 = sh, fy1 = 0;
+      for (let y = 0; y < sh; y++) {
+        for (let x = 0; x < sw; x++) {
+          const i  = (y * sw + x) * 4;
+          const dr = data[i] - bgR, dg = data[i+1] - bgG, db = data[i+2] - bgB;
+          if (Math.sqrt(dr*dr + dg*dg + db*db) > thr) {
+            if (x < fx0) fx0 = x;
+            if (x > fx1) fx1 = x;
+            if (y < fy0) fy0 = y;
+            if (y > fy1) fy1 = y;
+          }
+        }
+      }
+
+      // Scale bbox back to original resolution
+      fx0 = Math.round(fx0 / SCALE); fx1 = Math.round(fx1 / SCALE);
+      fy0 = Math.round(fy0 / SCALE); fy1 = Math.round(fy1 / SCALE);
+
+      // Fallback: use full image if nothing found
+      if (fx0 >= fx1 || fy0 >= fy1) { fx0 = 0; fx1 = w; fy0 = 0; fy1 = h; }
+
+      // Padding: 3 % of image, min 20 px
+      const padX = Math.max(20, Math.round(w * 0.03));
+      const padY = Math.max(20, Math.round(h * 0.03));
+      let cx0 = Math.max(0, fx0 - padX);
+      let cx1 = Math.min(w, fx1 + padX);
+      let cy0 = Math.max(0, fy0 - padY);
+      let cy1 = Math.min(h, fy1 + padY);
+
+      // Ensure the full ruler strip is included (using inverse-rotation transform)
+      const { ruler, fineAngle = 0, origW: W = w, origH: H = h, rW = W, rH = H } = autoCalibration;
+      const rad  = (fineAngle || 0) * Math.PI / 180;
+      const cosA = Math.cos(rad), sinA = Math.sin(rad);
+      const rulerCorners = [
+        [ruler.left, ruler.top], [ruler.right, ruler.top],
+        [ruler.right, ruler.bottom], [ruler.left, ruler.bottom]
+      ].map(([rx, ry]) => {
+        const dx = rx - rW / 2, dy = ry - rH / 2;
+        return [dx * cosA + dy * sinA + W / 2, -dx * sinA + dy * cosA + H / 2];
+      });
+      const rx0 = Math.max(0, Math.floor(Math.min(...rulerCorners.map(c => c[0]))));
+      const rx1 = Math.min(w, Math.ceil (Math.max(...rulerCorners.map(c => c[0]))));
+      const ry0 = Math.max(0, Math.floor(Math.min(...rulerCorners.map(c => c[1]))));
+      const ry1 = Math.min(h, Math.ceil (Math.max(...rulerCorners.map(c => c[1]))));
+
+      cx0 = Math.min(cx0, rx0);
+      cx1 = Math.max(cx1, rx1);
+      cy0 = Math.min(cy0, ry0);
+      cy1 = Math.max(cy1, ry1);
+
+      // Skip if crop is nearly the full image (< 10 % gain)
+      const cropArea = (cx1 - cx0) * (cy1 - cy0);
+      const fullArea = w * h;
+      if (cropArea > fullArea * 0.90) {
+        calibCropBtn.disabled = false;
+        calibCropBtn.textContent = '✂️ Recadrer';
+        setStatus('L\'image est déjà bien cadrée, aucun recadrage nécessaire.');
+        return;
+      }
+
+      // Apply crop
+      const cropW = cx1 - cx0, cropH = cy1 - cy0;
+      const oc = new OffscreenCanvas(cropW, cropH);
+      oc.getContext('2d').drawImage(sourceImage, cx0, cy0, cropW, cropH, 0, 0, cropW, cropH);
+      try {
+        const blob = await oc.convertToBlob({ type: 'image/jpeg', quality: 0.96 });
+        const url  = URL.createObjectURL(blob);
+        const img  = await new Promise((res, rej) => {
+          const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url;
+        });
+        URL.revokeObjectURL(url);
+
+        sourceImage = img;
+        tempCanvas.width  = img.width;
+        tempCanvas.height = img.height;
+        tempCtx.clearRect(0, 0, img.width, img.height);
+        tempCtx.drawImage(img, 0, 0);
+
+        _smallCalibCache = null;
+        resetWorkflowForImage();
+        setStage('auto-scale');
+        setStatus('Image recadrée. Nouvelle calibration en cours…');
+        renderNormalPreview();
+        runAutoCalibration();
+      } catch (err) {
+        console.error(err);
+        calibCropBtn.disabled = false;
+        calibCropBtn.textContent = '✂️ Recadrer';
+        setStatus('Erreur lors du recadrage : ' + (err?.message ?? ''), true);
+      }
+    });
+    // ── End crop before calibration ───────────────────────────────────────────
 
     autoScaleAcceptBtn.addEventListener('click', () => {
       if (!autoCalibration?.spacing) return;
