@@ -4510,8 +4510,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       const bgB = samples.sort((a,b)=>a[2]-b[2])[mid][2];
 
       // ── 2. Per-row and per-column: fraction of pixels that differ from bg ──
-      const COLOR_THR  = 28;   // colour-distance threshold per pixel
-      const SCANLINE_F = 0.18; // a row/col needs ≥ 18 % non-bg pixels to be "content"
+      const COLOR_THR = 28;   // colour-distance threshold per pixel
 
       const rowFrac = new Float32Array(sh);
       const colFrac = new Float32Array(sw);
@@ -4535,12 +4534,23 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         colFrac[x] = cnt / sh;
       }
 
-      // ── 3. Scan from each edge to find first content row / column ──
+      // ── 3. Adaptive threshold: 3× the median noise level of background rows/cols ──
+      // The median is dominated by the (more numerous) background rows, giving us
+      // the "noise floor" of the JPEG / felt texture. Anything 3× above that is real content.
+      const medianOf = (arr) => {
+        const sorted = Float32Array.from(arr).sort();
+        return sorted[Math.floor(sorted.length / 2)];
+      };
+      const rowMed = medianOf(rowFrac);
+      const colMed = medianOf(colFrac);
+      const rowThr = Math.max(0.08, rowMed * 3);   // floor at 8 % so super-clean bg still works
+      const colThr = Math.max(0.08, colMed * 3);
+
       let fy0 = 0, fy1 = sh - 1, fx0 = 0, fx1 = sw - 1;
-      while (fy0 < sh - 1 && rowFrac[fy0] < SCANLINE_F) fy0++;
-      while (fy1 > 0       && rowFrac[fy1] < SCANLINE_F) fy1--;
-      while (fx0 < sw - 1  && colFrac[fx0] < SCANLINE_F) fx0++;
-      while (fx1 > 0       && colFrac[fx1] < SCANLINE_F) fx1--;
+      while (fy0 < sh - 1 && rowFrac[fy0] < rowThr) fy0++;
+      while (fy1 > 0       && rowFrac[fy1] < rowThr) fy1--;
+      while (fx0 < sw - 1  && colFrac[fx0] < colThr) fx0++;
+      while (fx1 > 0       && colFrac[fx1] < colThr) fx1--;
 
       // Scale back to full resolution
       fx0 = Math.round(fx0 / SCALE); fx1 = Math.round(fx1 / SCALE);
