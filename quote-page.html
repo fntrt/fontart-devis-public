@@ -4717,12 +4717,48 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         // ── 3. Exclude the ruler strip from the mask (existing helper) ──
         excludeRulerFromMask(mask, w, h);
 
-        // ── 4. Bounding box of mask pixels above 0.5 confidence ──
+        // ── 4. Rotate BOTH the image and the mask into the calibration's
+        // rotated frame (where the ruler is horizontal by construction).
+        // We then crop in this frame so the output image is upright.
+        const { ruler, fineAngle = 0, rW: rotW, rH: rotH } = autoCalibration;
+        const rad = (fineAngle || 0) * Math.PI / 180;
+        updatePipelineLoaderDetail('Redressement de l\'image…');
+        await yieldUI();
+
+        // Rotated source image
+        const rotImgCanvas = new OffscreenCanvas(rotW, rotH);
+        const rotImgCtx    = rotImgCanvas.getContext('2d');
+        rotImgCtx.translate(rotW / 2, rotH / 2);
+        rotImgCtx.rotate(rad);
+        rotImgCtx.drawImage(sourceImage, -w / 2, -h / 2);
+
+        // Rotated mask (round-trip through an alpha-only canvas to preserve precision)
+        const maskCanvas = new OffscreenCanvas(w, h);
+        const maskCtx    = maskCanvas.getContext('2d');
+        const maskId     = maskCtx.createImageData(w, h);
+        for (let i = 0; i < w * h; i++) {
+          const v = Math.round(mask[i] * 255);
+          maskId.data[i*4]   = v;
+          maskId.data[i*4+1] = v;
+          maskId.data[i*4+2] = v;
+          maskId.data[i*4+3] = 255;
+        }
+        maskCtx.putImageData(maskId, 0, 0);
+        const rotMaskCanvas = new OffscreenCanvas(rotW, rotH);
+        const rotMaskCtx    = rotMaskCanvas.getContext('2d');
+        rotMaskCtx.translate(rotW / 2, rotH / 2);
+        rotMaskCtx.rotate(rad);
+        rotMaskCtx.drawImage(maskCanvas, -w / 2, -h / 2);
+        const rotMaskData = rotMaskCtx.getImageData(0, 0, rotW, rotH).data;
+        const rotMask = new Float32Array(rotW * rotH);
+        for (let i = 0; i < rotW * rotH; i++) rotMask[i] = rotMaskData[i*4] / 255;
+
+        // ── 5. Bounding box of mask pixels (in the rotated frame) ──
         const THR = 0.5;
-        let fx0 = w, fx1 = 0, fy0 = h, fy1 = 0;
-        for (let y = 0; y < h; y++) {
-          for (let x = 0; x < w; x++) {
-            if (mask[y * w + x] > THR) {
+        let fx0 = rotW, fx1 = 0, fy0 = rotH, fy1 = 0;
+        for (let y = 0; y < rotH; y++) {
+          for (let x = 0; x < rotW; x++) {
+            if (rotMask[y * rotW + x] > THR) {
               if (x < fx0) fx0 = x;
               if (x > fx1) fx1 = x;
               if (y < fy0) fy0 = y;
@@ -4730,7 +4766,8 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
             }
           }
         }
-        console.log('[crop AI] mask bbox:', fx0, fy0, '→', fx1, fy1, 'of', w, '×', h);
+        console.log('[crop AI] mask bbox (rotated):', fx0, fy0, '→', fx1, fy1,
+                    'of', rotW, '×', rotH);
 
         if (fx0 >= fx1 || fy0 >= fy1) {
           autoScaleStatus.textContent = '⚠ Bijou non détecté par l\'IA. Recadrage abandonné.';
@@ -4739,84 +4776,55 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           return;
         }
 
-        // ── 5. Locate ruler in image space (inverse rotation) ──
-        const { ruler, fineAngle = 0, origW: W = w, origH: H = h, rW = W, rH = H } = autoCalibration;
-        const rad  = (fineAngle || 0) * Math.PI / 180;
-        const cosA = Math.cos(rad), sinA = Math.sin(rad);
-        const rulerCorners = [
-          [ruler.left, ruler.top], [ruler.right, ruler.top],
-          [ruler.right, ruler.bottom], [ruler.left, ruler.bottom]
-        ].map(([rx, ry]) => {
-          const dx = rx - rW / 2, dy = ry - rH / 2;
-          return [dx * cosA + dy * sinA + W / 2, -dx * sinA + dy * cosA + H / 2];
-        });
-        const ry0 = Math.max(0, Math.floor(Math.min(...rulerCorners.map(c => c[1]))));
-        const ry1 = Math.min(h, Math.ceil (Math.max(...rulerCorners.map(c => c[1]))));
-        const rx0 = Math.max(0, Math.floor(Math.min(...rulerCorners.map(c => c[0]))));
-        const rx1 = Math.min(w, Math.ceil (Math.max(...rulerCorners.map(c => c[0]))));
-        const absAngle    = Math.abs((fineAngle || 0) % 180);
-        const isHorizRuler = absAngle <= 45 || absAngle >= 135;
+        // ── 6. Compute crop in the rotated frame (ruler is now horizontal) ──
+        // Ruler bbox is ALREADY in rotated coords, so use it directly.
+        const ry0 = Math.max(0, Math.floor(ruler.top));
+        const ry1 = Math.min(rotH, Math.ceil(ruler.bottom));
+        const padX = Math.max(15, Math.round(rotW * 0.02));
+        const padY = Math.max(15, Math.round(rotH * 0.02));
 
-        // ── 6. Build the crop: symmetric around object centre, including ruler ──
-        const padX = Math.max(15, Math.round(w * 0.02));
-        const padY = Math.max(15, Math.round(h * 0.02));
-        let cx0, cx1, cy0, cy1;
-
-        if (isHorizRuler) {
-          // Centre horizontally on the object
-          const objCx = (fx0 + fx1) / 2;
-          let halfX   = Math.max(fx1 - objCx, objCx - fx0) + padX;
-          if (autoCalibration.spacing?.pxPerMm) {
-            halfX = Math.max(halfX, (30 * autoCalibration.spacing.pxPerMm) / 2);
-          }
-          cx0 = Math.max(0, Math.round(objCx - halfX));
-          cx1 = Math.min(w, Math.round(objCx + halfX));
-          // Include ruler in Y
-          cy0 = Math.max(0, Math.min(fy0 - padY, ry0));
-          cy1 = Math.min(h, Math.max(fy1 + padY, ry1));
-        } else {
-          // Vertical ruler — symmetric vertically
-          const objCy = (fy0 + fy1) / 2;
-          let halfY   = Math.max(fy1 - objCy, objCy - fy0) + padY;
-          if (autoCalibration.spacing?.pxPerMm) {
-            halfY = Math.max(halfY, (30 * autoCalibration.spacing.pxPerMm) / 2);
-          }
-          cy0 = Math.max(0, Math.round(objCy - halfY));
-          cy1 = Math.min(h, Math.round(objCy + halfY));
-          cx0 = Math.max(0, Math.min(fx0 - padX, rx0));
-          cx1 = Math.min(w, Math.max(fx1 + padX, rx1));
+        // Centre horizontally on the object
+        const objCx = (fx0 + fx1) / 2;
+        let halfX   = Math.max(fx1 - objCx, objCx - fx0) + padX;
+        if (autoCalibration.spacing?.pxPerMm) {
+          halfX = Math.max(halfX, (30 * autoCalibration.spacing.pxPerMm) / 2);
         }
+        const cx0 = Math.max(0, Math.round(objCx - halfX));
+        const cx1 = Math.min(rotW, Math.round(objCx + halfX));
+        // Include the ruler strip in Y
+        const cy0 = Math.max(0, Math.min(fy0 - padY, ry0));
+        const cy1 = Math.min(rotH, Math.max(fy1 + padY, ry1));
 
-        console.log('[crop AI] final crop:', cx0, cy0, '→', cx1, cy1,
-                    '(', (cx1 - cx0), '×', (cy1 - cy0), ')');
+        console.log('[crop AI] final crop (rotated frame):',
+                    cx0, cy0, '→', cx1, cy1, '(', (cx1-cx0), '×', (cy1-cy0), ')');
 
-        // ── 7. Apply crop to BOTH the image and the mask ──
+        // ── 7. Crop the rotated image + mask to the final bbox ──
         const cropW = cx1 - cx0, cropH = cy1 - cy0;
 
-        // Crop the image
-        const oc = new OffscreenCanvas(cropW, cropH);
-        oc.getContext('2d').drawImage(sourceImage, cx0, cy0, cropW, cropH, 0, 0, cropW, cropH);
-        const blob = await oc.convertToBlob({ type: 'image/jpeg', quality: 0.96 });
+        const finalImgCanvas = new OffscreenCanvas(cropW, cropH);
+        finalImgCanvas.getContext('2d').drawImage(
+          rotImgCanvas, cx0, cy0, cropW, cropH, 0, 0, cropW, cropH
+        );
+        const blob = await finalImgCanvas.convertToBlob({ type: 'image/jpeg', quality: 0.96 });
         const url  = URL.createObjectURL(blob);
         const img  = await new Promise((res, rej) => {
           const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url;
         });
         URL.revokeObjectURL(url);
 
-        // Crop the mask to match the new image dims — reused by runAIDetection
         const croppedMask = new Float32Array(cropW * cropH);
         for (let y = 0; y < cropH; y++) {
-          const srcRow = (y + cy0) * w + cx0;
+          const srcRow = (y + cy0) * rotW + cx0;
           const dstRow = y * cropW;
           for (let x = 0; x < cropW; x++) {
-            croppedMask[dstRow + x] = mask[srcRow + x];
+            croppedMask[dstRow + x] = rotMask[srcRow + x];
           }
         }
 
-        // Save state we need to preserve across resetWorkflowForImage()
+        // Save calibration before reset
         const savedCalibration = autoCalibration;
 
-        // Install the new source image
+        // Install the new (upright, cropped) source image
         sourceImage = img;
         tempCanvas.width  = img.width;
         tempCanvas.height = img.height;
@@ -4824,11 +4832,28 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         tempCtx.drawImage(img, 0, 0);
 
         _smallCalibCache = null;
-        resetWorkflowForImage();          // clears autoCalibration, etc.
-        autoCalibration = savedCalibration; // restore — we'll transform it next
-
-        // Transform the existing calibration to the new image's coordinate space
-        transformAutoCalibForCrop(cx0, cy0, img.width, img.height);
+        resetWorkflowForImage();
+        // Build new calibration: ruler/ticks shifted by crop offset, no more rotation
+        autoCalibration = {
+          ...savedCalibration,
+          fineAngle: 0,
+          isVertical: false,
+          origW: cropW, origH: cropH,
+          rW:    cropW, rH:    cropH,
+          ruler: {
+            ...savedCalibration.ruler,
+            left:   savedCalibration.ruler.left   - cx0,
+            right:  savedCalibration.ruler.right  - cx0,
+            top:    savedCalibration.ruler.top    - cy0,
+            bottom: savedCalibration.ruler.bottom - cy0
+          },
+          ticks: (savedCalibration.ticks || []).map(t => ({
+            ...t,
+            x:  t.x  - cx0,
+            y0: t.y0 - cy0,
+            y1: t.y1 - cy0
+          }))
+        };
 
         // Accept calibration (sets pxPerMm + selectedPoints from autoCalibration)
         acceptAutoCalibration();
