@@ -702,12 +702,32 @@
 
     <div class="card hidden" id="workspaceCard">
       <h2>Calibration & points règle</h2>
-      <div class="canvas-wrap" style="margin-top: 8px;">
+      <div class="canvas-wrap" style="margin-top: 8px; position:relative;">
         <canvas id="previewCanvas"></canvas>
         <div class="zoom-controls">
           <button type="button" id="zoomOutBtn">−</button>
           <button type="button" id="zoomResetBtn">100%</button>
           <button type="button" id="zoomInBtn">+</button>
+        </div>
+        <!-- Loading overlay shown during the auto-pipeline -->
+        <div id="pipelineLoader" style="display:none; position:absolute; inset:0;
+             background:rgba(15,23,42,0.92); align-items:center; justify-content:center;
+             flex-direction:column; gap:18px; padding:24px; border-radius:inherit;
+             z-index:5;">
+          <div style="font-size:2.4rem;">🔍</div>
+          <div id="pipelineLoaderStep" style="color:#fff; font-size:1.05rem; font-weight:600; text-align:center;">
+            Préparation…
+          </div>
+          <div id="pipelineLoaderDetail" style="color:#cbd5e1; font-size:.88rem; text-align:center; min-height:1.2em;"></div>
+          <div style="width:min(360px, 80%); height:8px; background:rgba(255,255,255,0.15); border-radius:4px; overflow:hidden;">
+            <div id="pipelineLoaderBar" style="height:100%; width:0%; background:linear-gradient(90deg,#3b82f6,#22d3ee); transition:width .4s ease;"></div>
+          </div>
+          <div id="pipelineLoaderSteps" style="display:flex; gap:16px; margin-top:6px; color:#94a3b8; font-size:.78rem;">
+            <span data-step="calib"  >① Calibration</span>
+            <span data-step="ai-crop">② IA + Crop</span>
+            <span data-step="recalib">③ Recalibration</span>
+            <span data-step="contour">④ Contour</span>
+          </div>
         </div>
       </div>
 
@@ -2440,6 +2460,37 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     <script>
     const photoInput = document.getElementById('photoInput');
     const previewCanvas = document.getElementById('previewCanvas');
+
+    // ── Pipeline loader helpers ───────────────────────────────────────────────
+    const pipelineLoader      = document.getElementById('pipelineLoader');
+    const pipelineLoaderStep  = document.getElementById('pipelineLoaderStep');
+    const pipelineLoaderDetail= document.getElementById('pipelineLoaderDetail');
+    const pipelineLoaderBar   = document.getElementById('pipelineLoaderBar');
+    const pipelineLoaderSteps = document.getElementById('pipelineLoaderSteps');
+
+    function showPipelineLoader(stepKey, title, detail = '') {
+      if (!pipelineLoader) return;
+      pipelineLoader.style.display = 'flex';
+      pipelineLoaderStep.textContent  = title;
+      pipelineLoaderDetail.textContent = detail;
+      const order = { calib: 1, 'ai-crop': 2, recalib: 3, contour: 4 };
+      const idx = order[stepKey] ?? 0;
+      pipelineLoaderBar.style.width = (idx / 4 * 100) + '%';
+      [...pipelineLoaderSteps.children].forEach((el) => {
+        const key = el.dataset.step;
+        const myIdx = order[key];
+        el.style.color = myIdx <  idx ? '#22d3ee'
+                       : myIdx === idx ? '#fff'
+                       : '#475569';
+        el.style.fontWeight = myIdx === idx ? '700' : '400';
+      });
+    }
+    function updatePipelineLoaderDetail(text) {
+      if (pipelineLoaderDetail) pipelineLoaderDetail.textContent = text;
+    }
+    function hidePipelineLoader() {
+      if (pipelineLoader) pipelineLoader.style.display = 'none';
+    }
     const ctx = previewCanvas.getContext('2d');
     const resetPointsBtn = document.getElementById('resetPointsBtn');
     const validateScaleBtn = document.getElementById('validateScaleBtn');
@@ -2611,16 +2662,29 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       ctx.setTransform(viewScale, 0, 0, viewScale, -viewOffsetX * viewScale, -viewOffsetY * viewScale);
       ctx.drawImage(baseImg, 0, 0);
 
-      const radius = 6 / viewScale;
-      const labelSize = 14 / viewScale;
-      const labelOffset = 8 / viewScale;
+      // Scale calibration markers relative to image size so they remain
+      // visible on high-resolution photos (not just relative to view zoom).
+      const baseScale = Math.max(baseImg.width / 800, 1);
+      const radius      = 10 * baseScale / viewScale;
+      const labelSize   = 22 * baseScale / viewScale;
+      const labelOffset = 14 * baseScale / viewScale;
 
       selectedPoints.forEach((p, i) => {
+        // Outer white halo for legibility on any background
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, radius + 2.5 * baseScale / viewScale, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(255,255,255,0.95)';
+        ctx.fill();
+        // Inner coloured dot
         ctx.beginPath();
         ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
         ctx.fillStyle = i === 0 ? '#ef4444' : '#2563eb';
         ctx.fill();
-        ctx.font = `${labelSize}px sans-serif`;
+        // Bold label with stroke for legibility
+        ctx.font = `bold ${labelSize}px sans-serif`;
+        ctx.lineWidth = 4 * baseScale / viewScale;
+        ctx.strokeStyle = 'rgba(255,255,255,0.95)';
+        ctx.strokeText(String(i + 1), p.x + labelOffset, p.y - labelOffset);
         ctx.fillStyle = '#111827';
         ctx.fillText(String(i + 1), p.x + labelOffset, p.y - labelOffset);
       });
@@ -2634,7 +2698,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         ctx.moveTo(selectedPoints[0].x, selectedPoints[0].y);
         ctx.lineTo(selectedPoints[1].x, selectedPoints[1].y);
         ctx.strokeStyle = '#f59e0b';
-        ctx.lineWidth = 3 / viewScale;
+        ctx.lineWidth = 6 * baseScale / viewScale;
         ctx.stroke();
 
         const dist = Number(knownDistanceMm.value);
@@ -2644,23 +2708,35 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           const dx = selectedPoints[1].x - selectedPoints[0].x;
           const dy = selectedPoints[1].y - selectedPoints[0].y;
           const len = Math.hypot(dx, dy) || 1;
-          // Vecteur perpendiculaire orienté vers le bas (y positif en canvas)
           let perpX = -dy / len;
           let perpY = dx / len;
           if (perpY < 0) { perpX = -perpX; perpY = -perpY; }
-          const offset = 18 / viewScale;
+          const offset = 36 * baseScale / viewScale;
           const lx = mx + perpX * offset;
           const ly = my + perpY * offset;
-          const fontSize = 13 / viewScale;
+          const fontSize = 26 * baseScale / viewScale;
           const text = `${dist} mm`;
           ctx.font = `bold ${fontSize}px sans-serif`;
           ctx.textAlign = 'center';
           ctx.textBaseline = 'top';
           const tw = ctx.measureText(text).width;
-          const pad = 4 / viewScale;
-          ctx.fillStyle = 'rgba(255,255,255,0.85)';
-          ctx.fillRect(lx - tw / 2 - pad, ly - pad, tw + pad * 2, fontSize + pad * 2);
-          ctx.fillStyle = '#b45309';
+          const pad = 10 * baseScale / viewScale;
+          // Solid amber pill for high contrast
+          ctx.fillStyle = '#f59e0b';
+          ctx.beginPath();
+          const pillX = lx - tw / 2 - pad;
+          const pillY = ly - pad;
+          const pillW = tw + pad * 2;
+          const pillH = fontSize + pad * 2;
+          const pillR = pillH / 2;
+          ctx.moveTo(pillX + pillR, pillY);
+          ctx.lineTo(pillX + pillW - pillR, pillY);
+          ctx.arc(pillX + pillW - pillR, pillY + pillR, pillR, -Math.PI/2, Math.PI/2);
+          ctx.lineTo(pillX + pillR, pillY + pillH);
+          ctx.arc(pillX + pillR, pillY + pillR, pillR, Math.PI/2, -Math.PI/2);
+          ctx.closePath();
+          ctx.fill();
+          ctx.fillStyle = '#ffffff';
           ctx.fillText(text, lx, ly);
           ctx.textAlign = 'left';
           ctx.textBaseline = 'alphabetic';
@@ -3250,12 +3326,14 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         window.scrollTo({ top: 0, behavior: 'smooth' });
         try { window.parent?.postMessage({ type: 'scrollToIframe' }, '*'); } catch(e) {}
         setStage('auto-scale');
+        showPipelineLoader('calib', 'Détection de la règle…', 'Recherche de l\'orientation et des graduations');
         setStatus('Détection automatique de la règle en cours…');
         setFormStatus('Image chargée. Calibration automatique…', false);
         renderNormalPreview();
         runAutoCalibration();
       } catch (err) {
         console.error(err);
+        hidePipelineLoader();
         setFormStatus('Impossible de charger l\'image.', true);
       }
     });
@@ -3497,6 +3575,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           resetWorkflowForImage();
           _pendingAutoPipeline = true;     // trigger full auto pipeline on first calibration success
           if (workspaceCard) workspaceCard.classList.remove('hidden');
+          showPipelineLoader('calib', 'Détection de la règle…', 'Recherche de l\'orientation et des graduations');
           const nouvelArticleCard = document.getElementById('nouvelArticleCard');
           if (nouvelArticleCard) nouvelArticleCard.classList.add('hidden');
           window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -4437,6 +4516,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           autoScaleStatus.textContent = 'Règle non détectée. Calibrez manuellement.';
           setStatus('Règle non détectée. Utilisez "Calibrer manuellement" pour sélectionner 2 points sur la règle.', true);
           _pendingAutoPipeline = false; // give up the auto-chain
+          hidePipelineLoader();
           renderNormalPreview();
           return;
         }
@@ -4475,20 +4555,21 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         // ── Auto-pipeline: on first run after photo load, chain crop + AI ──
         if (_pendingAutoPipeline) {
           _pendingAutoPipeline = false;
-          // Step 1: trigger AI crop. Crop handler will re-run calibration.
-          // Second pass will skip this branch (flag is false) and auto-advance.
+          showPipelineLoader('ai-crop', 'Analyse IA & recadrage…',
+            'Détection du contour du bijou par modèle de vision');
           setTimeout(() => calibCropBtn.click(), 50);
-        } else {
-          // Second pass after crop (or any non-pipeline calibration): advance
-          // automatically to the AI contour stage so the user lands directly
-          // on the detected-contour view.
+        } else if (pipelineLoader && pipelineLoader.style.display !== 'none') {
+          // We're in the chain — auto-advance to AI contour stage
+          showPipelineLoader('contour', 'Détection des contours…',
+            'Calcul du masque haute résolution');
           setTimeout(() => autoScaleAcceptBtn.click(), 50);
         }
       } catch (e) {
         console.error(e);
         autoScaleStatus.textContent = 'Erreur de calibration : ' + (e?.message ?? String(e));
         setStatus('Erreur lors de la détection de la règle. ' + (e?.message ?? ''), true);
-        _pendingAutoPipeline = false; // give up the auto-chain on failure
+        _pendingAutoPipeline = false;
+        hidePipelineLoader();
       }
     }
 
@@ -4510,13 +4591,18 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         const dataUrl = tc.toDataURL('image/png');
 
         const maskRaw = await window.runRMBG(dataUrl, (p) => {
-          if (p.status === 'progress')
-            autoScaleStatus.textContent = `Téléchargement du modèle IA… ${Math.round(p.progress ?? 0)} %`;
-          else if (p.status === 'initiate')
+          if (p.status === 'progress') {
+            const pct = Math.round(p.progress ?? 0);
+            autoScaleStatus.textContent = `Téléchargement du modèle IA… ${pct} %`;
+            updatePipelineLoaderDetail(`Téléchargement du modèle IA… ${pct} %`);
+          } else if (p.status === 'initiate') {
             autoScaleStatus.textContent = 'Téléchargement du modèle IA…';
+            updatePipelineLoaderDetail('Téléchargement du modèle IA…');
+          }
         });
 
         autoScaleStatus.textContent = 'Calcul de la zone à conserver…';
+        updatePipelineLoaderDetail('Calcul de la zone à conserver…');
         await yieldUI();
 
         // ── 2. Interpolate mask to full source resolution ──
@@ -4634,6 +4720,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         _smallCalibCache = null;
         resetWorkflowForImage();
         setStage('auto-scale');
+        showPipelineLoader('recalib', 'Nouvelle calibration…', 'Re-détection de la règle sur l\'image recadrée');
         setStatus('Image recadrée par l\'IA. Nouvelle calibration en cours…');
         renderNormalPreview();
         runAutoCalibration();
@@ -4643,6 +4730,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         calibCropBtn.textContent = originalLabel;
         autoScaleStatus.textContent = 'Erreur IA : ' + (err?.message ?? '');
         setStatus('Erreur lors du recadrage IA : ' + (err?.message ?? ''), true);
+        hidePipelineLoader();
       }
     });
     // ── End AI-driven crop ────────────────────────────────────────────────────
@@ -4868,9 +4956,12 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           setStatus('Contour détecté. Ajustez le curseur Détail/Silhouette, ou "Remplir trous" pour les formes creuses.');
         }
 
+        // Pipeline finished — hide the loader
+        hidePipelineLoader();
       } catch (e) {
         aiStatusEl.textContent = 'Erreur IA : ' + (e?.message ?? String(e));
         aiAcceptBtn.disabled = true;
+        hidePipelineLoader();
         console.error(e);
       }
     }
