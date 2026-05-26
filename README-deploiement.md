@@ -1,4 +1,4 @@
-﻿# Devis autonome pour Squarespace
+# Devis autonome pour Squarespace
 
 Fichier principal: `quote-page.html`
 
@@ -35,6 +35,7 @@ Fichier principal: `quote-page.html`
   height="1700"
   style="border:0;"
   loading="lazy"
+  allow="serial"
 ></iframe>
 ```
 
