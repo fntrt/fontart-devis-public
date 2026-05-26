@@ -4491,19 +4491,57 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       smallCtx.drawImage(sourceImage, 0, 0, sw, sh);
       const { data } = smallCtx.getImageData(0, 0, sw, sh);
 
+      // ── 0. Locate the ruler in image coords (small resolution) so we can
+      // EXCLUDE it from background detection AND from content bbox finding.
+      // The ruler is "content" stretching the full width/height and would
+      // otherwise drag the object bbox toward the image edges.
+      const { ruler, fineAngle = 0, origW: W = w, origH: H = h, rW = W, rH = H } = autoCalibration;
+      const rad  = (fineAngle || 0) * Math.PI / 180;
+      const cosA = Math.cos(rad), sinA = Math.sin(rad);
+      const rulerCorners = [
+        [ruler.left, ruler.top], [ruler.right, ruler.top],
+        [ruler.right, ruler.bottom], [ruler.left, ruler.bottom]
+      ].map(([rx, ry]) => {
+        const dx = rx - rW / 2, dy = ry - rH / 2;
+        return [dx * cosA + dy * sinA + W / 2, -dx * sinA + dy * cosA + H / 2];
+      });
+      // Original-resolution ruler bbox
+      const ry0 = Math.max(0, Math.floor(Math.min(...rulerCorners.map(c => c[1]))));
+      const ry1 = Math.min(h, Math.ceil (Math.max(...rulerCorners.map(c => c[1]))));
+      const rx0 = Math.max(0, Math.floor(Math.min(...rulerCorners.map(c => c[0]))));
+      const rx1 = Math.min(w, Math.ceil (Math.max(...rulerCorners.map(c => c[0]))));
+      // Small-resolution ruler bbox (rows/cols to skip)
+      const sry0 = Math.floor(ry0 * SCALE);
+      const sry1 = Math.ceil (ry1 * SCALE);
+      const srx0 = Math.floor(rx0 * SCALE);
+      const srx1 = Math.ceil (rx1 * SCALE);
+      const absAngle    = Math.abs((fineAngle || 0) % 180);
+      const isHorizRuler = absAngle <= 45 || absAngle >= 135;
+
+      const inRulerStrip = (x, y) => {
+        if (isHorizRuler) return y >= sry0 && y <= sry1;
+        else              return x >= srx0 && x <= srx1;
+      };
+
       // ── 1. Detect background colour by SMOOTHED HISTOGRAM MODE ──
       // The plain mode can mis-fire when the foreground has a more uniform
       // colour than the background: a copper ring's pixels concentrate in
       // one bin, while green felt spreads across many adjacent bins.
       // Smoothing the histogram (3³ box filter) finds the densest CLUSTER
       // in colour space, which is always the background area.
+      // EXCLUDE the ruler strip — its silvery colour is also concentrated
+      // and could win against textured felt.
       const BINS = 16;
       const hist = new Uint32Array(BINS * BINS * BINS);
-      for (let i = 0; i < data.length; i += 4) {
-        const r = data[i]   >> 4;
-        const g = data[i+1] >> 4;
-        const b = data[i+2] >> 4;
-        hist[(r * BINS + g) * BINS + b]++;
+      for (let y = 0; y < sh; y++) {
+        for (let x = 0; x < sw; x++) {
+          if (inRulerStrip(x, y)) continue;
+          const i = (y * sw + x) * 4;
+          const r = data[i]   >> 4;
+          const g = data[i+1] >> 4;
+          const b = data[i+2] >> 4;
+          hist[(r * BINS + g) * BINS + b]++;
+        }
       }
       // 3³ box-filter smoothing — sum of 27 neighbouring bins
       const idx = (r,g,b) => (r * BINS + g) * BINS + b;
@@ -4545,23 +4583,31 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       const rowFrac = new Float32Array(sh);
       const colFrac = new Float32Array(sw);
 
+      // Process rows: exclude ruler rows (zero contribution) and ruler columns
+      // (so the ruler doesn't pad rowFrac numerator). Denominator = non-ruler cols.
       for (let y = 0; y < sh; y++) {
-        let cnt = 0;
+        if (isHorizRuler && y >= sry0 && y <= sry1) { rowFrac[y] = 0; continue; }
+        let cnt = 0, tot = 0;
         for (let x = 0; x < sw; x++) {
+          if (!isHorizRuler && x >= srx0 && x <= srx1) continue;
+          tot++;
           const i = (y * sw + x) * 4;
           const dr = data[i]-bgR, dg = data[i+1]-bgG, db = data[i+2]-bgB;
           if (dr*dr + dg*dg + db*db > COLOR_THR*COLOR_THR) cnt++;
         }
-        rowFrac[y] = cnt / sw;
+        rowFrac[y] = tot > 0 ? cnt / tot : 0;
       }
       for (let x = 0; x < sw; x++) {
-        let cnt = 0;
+        if (!isHorizRuler && x >= srx0 && x <= srx1) { colFrac[x] = 0; continue; }
+        let cnt = 0, tot = 0;
         for (let y = 0; y < sh; y++) {
+          if (isHorizRuler && y >= sry0 && y <= sry1) continue;
+          tot++;
           const i = (y * sw + x) * 4;
           const dr = data[i]-bgR, dg = data[i+1]-bgG, db = data[i+2]-bgB;
           if (dr*dr + dg*dg + db*db > COLOR_THR*COLOR_THR) cnt++;
         }
-        colFrac[x] = cnt / sh;
+        colFrac[x] = tot > 0 ? cnt / tot : 0;
       }
 
       // ── 3. Adaptive threshold: max of (noise-floor × 4) and (peak / 4) ──
@@ -4629,26 +4675,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       let cy0 = Math.max(0, fy0 - padY);
       let cy1 = Math.min(h, fy1 + padY);
 
-      // ── 5. Ruler anchor: include ruler strip in the perpendicular axis only ──
-      const { ruler, fineAngle = 0, origW: W = w, origH: H = h, rW = W, rH = H } = autoCalibration;
-      const rad  = (fineAngle || 0) * Math.PI / 180;
-      const cosA = Math.cos(rad), sinA = Math.sin(rad);
-      const rulerCorners = [
-        [ruler.left, ruler.top], [ruler.right, ruler.top],
-        [ruler.right, ruler.bottom], [ruler.left, ruler.bottom]
-      ].map(([rx, ry]) => {
-        const dx = rx - rW / 2, dy = ry - rH / 2;
-        return [dx * cosA + dy * sinA + W / 2, -dx * sinA + dy * cosA + H / 2];
-      });
-      const ry0 = Math.max(0, Math.floor(Math.min(...rulerCorners.map(c => c[1]))));
-      const ry1 = Math.min(h, Math.ceil (Math.max(...rulerCorners.map(c => c[1]))));
-      const rx0 = Math.max(0, Math.floor(Math.min(...rulerCorners.map(c => c[0]))));
-      const rx1 = Math.min(w, Math.ceil (Math.max(...rulerCorners.map(c => c[0]))));
-
-      const absAngle = Math.abs((fineAngle || 0) % 180);
-      const isHorizRuler = absAngle <= 45 || absAngle >= 135;
-
-      // ── Centre the crop symmetrically around the object ──
+      // ── 5. Centre the crop symmetrically around the object, include ruler ──
       if (isHorizRuler) {
         // Horizontal ruler: extend Y to include ruler strip
         cy0 = Math.min(cy0, ry0);
