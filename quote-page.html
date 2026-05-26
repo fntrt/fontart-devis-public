@@ -4491,25 +4491,51 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       smallCtx.drawImage(sourceImage, 0, 0, sw, sh);
       const { data } = smallCtx.getImageData(0, 0, sw, sh);
 
-      // ── 1. Detect background colour by HISTOGRAM MODE ──
-      // The background occupies more pixels than anything else, so the most
-      // common colour in a coarse histogram is always the background.
-      // Robust against vignetting, shadows, dirty corners, letterbox bars, etc.
-      const BINS = 16;                   // 16 bins per channel = 4096 buckets
+      // ── 1. Detect background colour by SMOOTHED HISTOGRAM MODE ──
+      // The plain mode can mis-fire when the foreground has a more uniform
+      // colour than the background: a copper ring's pixels concentrate in
+      // one bin, while green felt spreads across many adjacent bins.
+      // Smoothing the histogram (3³ box filter) finds the densest CLUSTER
+      // in colour space, which is always the background area.
+      const BINS = 16;
       const hist = new Uint32Array(BINS * BINS * BINS);
       for (let i = 0; i < data.length; i += 4) {
-        const r = data[i]   >> 4;        // 256 / 16 = 16-wide bins
+        const r = data[i]   >> 4;
         const g = data[i+1] >> 4;
         const b = data[i+2] >> 4;
         hist[(r * BINS + g) * BINS + b]++;
       }
-      let bestBin = 0, bestCount = 0;
-      for (let i = 0; i < hist.length; i++) {
-        if (hist[i] > bestCount) { bestCount = hist[i]; bestBin = i; }
+      // 3³ box-filter smoothing — sum of 27 neighbouring bins
+      const idx = (r,g,b) => (r * BINS + g) * BINS + b;
+      let bestBin = 0, bestCluster = 0;
+      for (let r = 1; r < BINS - 1; r++) {
+        for (let g = 1; g < BINS - 1; g++) {
+          for (let b = 1; b < BINS - 1; b++) {
+            let s = 0;
+            for (let dr = -1; dr <= 1; dr++)
+              for (let dg = -1; dg <= 1; dg++)
+                for (let db = -1; db <= 1; db++)
+                  s += hist[idx(r+dr, g+dg, b+db)];
+            if (s > bestCluster) { bestCluster = s; bestBin = idx(r,g,b); }
+          }
+        }
       }
-      const bgR = ((bestBin / (BINS * BINS)) | 0) * 16 + 8;
-      const bgG = (((bestBin / BINS) | 0) % BINS) * 16 + 8;
-      const bgB = (bestBin % BINS) * 16 + 8;
+      // Compute weighted mean of the 3³ cluster around the best bin for a
+      // sub-bin-precision background colour estimate.
+      let sumR = 0, sumG = 0, sumB = 0, sumN = 0;
+      const cr = (bestBin / (BINS * BINS)) | 0;
+      const cg = ((bestBin / BINS) | 0) % BINS;
+      const cb = bestBin % BINS;
+      for (let dr = -1; dr <= 1; dr++)
+        for (let dg = -1; dg <= 1; dg++)
+          for (let db = -1; db <= 1; db++) {
+            const n = hist[idx(cr+dr, cg+dg, cb+db)];
+            sumR += ((cr+dr) * 16 + 8) * n;
+            sumG += ((cg+dg) * 16 + 8) * n;
+            sumB += ((cb+db) * 16 + 8) * n;
+            sumN += n;
+          }
+      const bgR = sumR / sumN, bgG = sumG / sumN, bgB = sumB / sumN;
 
       // ── 2. Per-row and per-column: fraction of pixels that differ from bg ──
       // Higher threshold: copper ring vs green felt distance ≈ 100, felt texture ≈ 25-35.
@@ -4552,10 +4578,21 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       const rowThr = Math.max(rowMed * 4 + 0.01, rowMax * 0.25, 0.05);
       const colThr = Math.max(colMed * 4 + 0.01, colMax * 0.25, 0.05);
 
-      console.log('[crop] bg=', [bgR|0,bgG|0,bgB|0], 'rowMed=', rowMed.toFixed(3),
-                  'rowMax=', rowMax.toFixed(3), 'rowThr=', rowThr.toFixed(3),
-                  'colMed=', colMed.toFixed(3), 'colMax=', colMax.toFixed(3),
-                  'colThr=', colThr.toFixed(3));
+      console.log(
+        '[crop] bg RGB =', `(${bgR|0}, ${bgG|0}, ${bgB|0})`,
+        '| cluster vote =', bestCluster, '/', sw*sh,
+        `(${(100*bestCluster/(sw*sh)).toFixed(1)}%)`
+      );
+      console.log(
+        '[crop] rows  med=', rowMed.toFixed(3),
+        'max=', rowMax.toFixed(3),
+        'thr=', rowThr.toFixed(3)
+      );
+      console.log(
+        '[crop] cols  med=', colMed.toFixed(3),
+        'max=', colMax.toFixed(3),
+        'thr=', colThr.toFixed(3)
+      );
 
       let fy0 = 0, fy1 = sh - 1, fx0 = 0, fx1 = sw - 1;
       while (fy0 < sh - 1 && rowFrac[fy0] < rowThr) fy0++;
