@@ -4474,244 +4474,132 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       }
     }
 
-    // ── Crop before calibration (scanline approach) ───────────────────────────
+    // ── AI-driven crop: detect contour via RMBG model, then crop tight ────────
     calibCropBtn.addEventListener('click', async () => {
       if (!sourceImage || !autoCalibration?.ruler) return;
       calibCropBtn.disabled = true;
-      calibCropBtn.textContent = '✂️…';
+      const originalLabel = calibCropBtn.textContent;
+      calibCropBtn.textContent = '🤖 IA…';
+      autoScaleStatus.textContent = 'Détection IA des contours du bijou…';
 
-      const w = sourceImage.width, h = sourceImage.height;
-
-      // Work at reduced resolution for speed (max 600 px on longest side)
-      const SCALE = Math.min(1, 600 / Math.max(w, h));
-      const sw = Math.max(1, Math.round(w * SCALE));
-      const sh = Math.max(1, Math.round(h * SCALE));
-      const smallOc  = new OffscreenCanvas(sw, sh);
-      const smallCtx = smallOc.getContext('2d');
-      smallCtx.drawImage(sourceImage, 0, 0, sw, sh);
-      const { data } = smallCtx.getImageData(0, 0, sw, sh);
-
-      // ── 0. Locate the ruler in image coords (small resolution) so we can
-      // EXCLUDE it from background detection AND from content bbox finding.
-      // The ruler is "content" stretching the full width/height and would
-      // otherwise drag the object bbox toward the image edges.
-      const { ruler, fineAngle = 0, origW: W = w, origH: H = h, rW = W, rH = H } = autoCalibration;
-      const rad  = (fineAngle || 0) * Math.PI / 180;
-      const cosA = Math.cos(rad), sinA = Math.sin(rad);
-      const rulerCorners = [
-        [ruler.left, ruler.top], [ruler.right, ruler.top],
-        [ruler.right, ruler.bottom], [ruler.left, ruler.bottom]
-      ].map(([rx, ry]) => {
-        const dx = rx - rW / 2, dy = ry - rH / 2;
-        return [dx * cosA + dy * sinA + W / 2, -dx * sinA + dy * cosA + H / 2];
-      });
-      // Original-resolution ruler bbox
-      const ry0 = Math.max(0, Math.floor(Math.min(...rulerCorners.map(c => c[1]))));
-      const ry1 = Math.min(h, Math.ceil (Math.max(...rulerCorners.map(c => c[1]))));
-      const rx0 = Math.max(0, Math.floor(Math.min(...rulerCorners.map(c => c[0]))));
-      const rx1 = Math.min(w, Math.ceil (Math.max(...rulerCorners.map(c => c[0]))));
-      // Small-resolution ruler bbox (rows/cols to skip)
-      const sry0 = Math.floor(ry0 * SCALE);
-      const sry1 = Math.ceil (ry1 * SCALE);
-      const srx0 = Math.floor(rx0 * SCALE);
-      const srx1 = Math.ceil (rx1 * SCALE);
-      const absAngle    = Math.abs((fineAngle || 0) % 180);
-      const isHorizRuler = absAngle <= 45 || absAngle >= 135;
-
-      const inRulerStrip = (x, y) => {
-        if (isHorizRuler) return y >= sry0 && y <= sry1;
-        else              return x >= srx0 && x <= srx1;
-      };
-
-      // ── 1. Detect background colour by SMOOTHED HISTOGRAM MODE ──
-      // The plain mode can mis-fire when the foreground has a more uniform
-      // colour than the background: a copper ring's pixels concentrate in
-      // one bin, while green felt spreads across many adjacent bins.
-      // Smoothing the histogram (3³ box filter) finds the densest CLUSTER
-      // in colour space, which is always the background area.
-      // EXCLUDE the ruler strip — its silvery colour is also concentrated
-      // and could win against textured felt.
-      const BINS = 16;
-      const hist = new Uint32Array(BINS * BINS * BINS);
-      for (let y = 0; y < sh; y++) {
-        for (let x = 0; x < sw; x++) {
-          if (inRulerStrip(x, y)) continue;
-          const i = (y * sw + x) * 4;
-          const r = data[i]   >> 4;
-          const g = data[i+1] >> 4;
-          const b = data[i+2] >> 4;
-          hist[(r * BINS + g) * BINS + b]++;
-        }
-      }
-      // 3³ box-filter smoothing — sum of 27 neighbouring bins
-      const idx = (r,g,b) => (r * BINS + g) * BINS + b;
-      let bestBin = 0, bestCluster = 0;
-      for (let r = 1; r < BINS - 1; r++) {
-        for (let g = 1; g < BINS - 1; g++) {
-          for (let b = 1; b < BINS - 1; b++) {
-            let s = 0;
-            for (let dr = -1; dr <= 1; dr++)
-              for (let dg = -1; dg <= 1; dg++)
-                for (let db = -1; db <= 1; db++)
-                  s += hist[idx(r+dr, g+dg, b+db)];
-            if (s > bestCluster) { bestCluster = s; bestBin = idx(r,g,b); }
-          }
-        }
-      }
-      // Compute weighted mean of the 3³ cluster around the best bin for a
-      // sub-bin-precision background colour estimate.
-      let sumR = 0, sumG = 0, sumB = 0, sumN = 0;
-      const cr = (bestBin / (BINS * BINS)) | 0;
-      const cg = ((bestBin / BINS) | 0) % BINS;
-      const cb = bestBin % BINS;
-      for (let dr = -1; dr <= 1; dr++)
-        for (let dg = -1; dg <= 1; dg++)
-          for (let db = -1; db <= 1; db++) {
-            const n = hist[idx(cr+dr, cg+dg, cb+db)];
-            sumR += ((cr+dr) * 16 + 8) * n;
-            sumG += ((cg+dg) * 16 + 8) * n;
-            sumB += ((cb+db) * 16 + 8) * n;
-            sumN += n;
-          }
-      const bgR = sumR / sumN, bgG = sumG / sumN, bgB = sumB / sumN;
-
-      // ── 2. Classify each pixel as bg/fg using HISTOGRAM BIN MEMBERSHIP
-      // (more robust than a fixed colour-distance threshold).
-      // A pixel is "background" if its bin is within ±BG_RANGE of the peak bin
-      // in EACH colour channel. With BG_RANGE = 2 and 16-wide bins, this covers
-      // up to ±32 raw RGB values per channel — wide enough for typical felt
-      // shadows/lighting, narrow enough to exclude copper.
-      const BG_RANGE = 2;
-      const isBgBin = (r, g, b) =>
-        Math.abs(r - cr) <= BG_RANGE &&
-        Math.abs(g - cg) <= BG_RANGE &&
-        Math.abs(b - cb) <= BG_RANGE;
-
-      const rowFrac = new Float32Array(sh);
-      const colFrac = new Float32Array(sw);
-
-      // Per-row: count non-bg pixels among non-ruler columns
-      for (let y = 0; y < sh; y++) {
-        if (isHorizRuler && y >= sry0 && y <= sry1) { rowFrac[y] = 0; continue; }
-        let cnt = 0, tot = 0;
-        for (let x = 0; x < sw; x++) {
-          if (!isHorizRuler && x >= srx0 && x <= srx1) continue;
-          tot++;
-          const i = (y * sw + x) * 4;
-          if (!isBgBin(data[i] >> 4, data[i+1] >> 4, data[i+2] >> 4)) cnt++;
-        }
-        rowFrac[y] = tot > 0 ? cnt / tot : 0;
-      }
-      for (let x = 0; x < sw; x++) {
-        if (!isHorizRuler && x >= srx0 && x <= srx1) { colFrac[x] = 0; continue; }
-        let cnt = 0, tot = 0;
-        for (let y = 0; y < sh; y++) {
-          if (isHorizRuler && y >= sry0 && y <= sry1) continue;
-          tot++;
-          const i = (y * sw + x) * 4;
-          if (!isBgBin(data[i] >> 4, data[i+1] >> 4, data[i+2] >> 4)) cnt++;
-        }
-        colFrac[x] = tot > 0 ? cnt / tot : 0;
-      }
-
-      // ── 3. Adaptive threshold: max of (noise-floor × 4) and (peak / 4) ──
-      const medianOf = (arr) => {
-        const sorted = Float32Array.from(arr).sort();
-        return sorted[Math.floor(sorted.length / 2)];
-      };
-      const maxOf = (arr) => { let m = 0; for (const v of arr) if (v > m) m = v; return m; };
-
-      const rowMed = medianOf(rowFrac), colMed = medianOf(colFrac);
-      const rowMax = maxOf(rowFrac),    colMax = maxOf(colFrac);
-      // Threshold is somewhere between the noise floor and the peak.
-      // Take max(4× median, peak / 4) — this auto-scales to the actual contrast.
-      const rowThr = Math.max(rowMed * 4 + 0.01, rowMax * 0.25, 0.05);
-      const colThr = Math.max(colMed * 4 + 0.01, colMax * 0.25, 0.05);
-
-      console.log(
-        '[crop] bg RGB =', `(${bgR|0}, ${bgG|0}, ${bgB|0})`,
-        '| cluster vote =', bestCluster, '/', sw*sh,
-        `(${(100*bestCluster/(sw*sh)).toFixed(1)}%)`
-      );
-      console.log(
-        '[crop] rows  med=', rowMed.toFixed(3),
-        'max=', rowMax.toFixed(3),
-        'thr=', rowThr.toFixed(3)
-      );
-      console.log(
-        '[crop] cols  med=', colMed.toFixed(3),
-        'max=', colMax.toFixed(3),
-        'thr=', colThr.toFixed(3)
-      );
-
-      let fy0 = 0, fy1 = sh - 1, fx0 = 0, fx1 = sw - 1;
-      while (fy0 < sh - 1 && rowFrac[fy0] < rowThr) fy0++;
-      while (fy1 > 0       && rowFrac[fy1] < rowThr) fy1--;
-      while (fx0 < sw - 1  && colFrac[fx0] < colThr) fx0++;
-      while (fx1 > 0       && colFrac[fx1] < colThr) fx1--;
-
-      console.log('[crop] content bbox (in small img):', fx0, fy0, '→', fx1, fy1,
-                  'of', sw, '×', sh);
-
-      // Fallback: if bbox is collapsed/inverted (threshold too strict), use 50 %
-      // of the peak — this always yields a meaningful box.
-      if (fx0 >= fx1 || fy0 >= fy1) {
-        const softRow = rowMax * 0.5;
-        const softCol = colMax * 0.5;
-        fy0 = 0; fy1 = sh - 1; fx0 = 0; fx1 = sw - 1;
-        while (fy0 < sh - 1 && rowFrac[fy0] < softRow) fy0++;
-        while (fy1 > 0       && rowFrac[fy1] < softRow) fy1--;
-        while (fx0 < sw - 1  && colFrac[fx0] < softCol) fx0++;
-        while (fx1 > 0       && colFrac[fx1] < softCol) fx1--;
-        console.log('[crop] fallback bbox at peak/2:', fx0, fy0, '→', fx1, fy1);
-      }
-
-      // Scale back to full resolution
-      fx0 = Math.round(fx0 / SCALE); fx1 = Math.round(fx1 / SCALE);
-      fy0 = Math.round(fy0 / SCALE); fy1 = Math.round(fy1 / SCALE);
-      if (fx0 >= fx1 || fy0 >= fy1) { fx0=0; fx1=w; fy0=0; fy1=h; } // safety fallback
-
-      // ── 4. Padding: 3 % of image, min 20 px ──
-      const padX = Math.max(12, Math.round(w * 0.015));
-      const padY = Math.max(12, Math.round(h * 0.015));
-      let cx0 = Math.max(0, fx0 - padX);
-      let cx1 = Math.min(w, fx1 + padX);
-      let cy0 = Math.max(0, fy0 - padY);
-      let cy1 = Math.min(h, fy1 + padY);
-
-      // ── 5. Centre the crop symmetrically around the object, include ruler ──
-      if (isHorizRuler) {
-        // Horizontal ruler: extend Y to include ruler strip
-        cy0 = Math.min(cy0, ry0);
-        cy1 = Math.max(cy1, ry1);
-        // Centre horizontally on the object
-        const objCx   = (fx0 + fx1) / 2;
-        let halfX     = Math.max(fx1 - objCx, objCx - fx0) + padX;
-        // Ensure enough ruler visible (≥ 30 mm)
-        if (autoCalibration.spacing?.pxPerMm) {
-          halfX = Math.max(halfX, (30 * autoCalibration.spacing.pxPerMm) / 2);
-        }
-        cx0 = Math.max(0, Math.round(objCx - halfX));
-        cx1 = Math.min(w, Math.round(objCx + halfX));
-      } else {
-        // Vertical ruler: extend X to include ruler strip
-        cx0 = Math.min(cx0, rx0);
-        cx1 = Math.max(cx1, rx1);
-        // Centre vertically on the object
-        const objCy   = (fy0 + fy1) / 2;
-        let halfY     = Math.max(fy1 - objCy, objCy - fy0) + padY;
-        if (autoCalibration.spacing?.pxPerMm) {
-          halfY = Math.max(halfY, (30 * autoCalibration.spacing.pxPerMm) / 2);
-        }
-        cy0 = Math.max(0, Math.round(objCy - halfY));
-        cy1 = Math.min(h, Math.round(objCy + halfY));
-      }
-
-      // ── 6. Apply crop (no minimum-gain guard — user explicitly requested it) ──
-      const cropW = cx1 - cx0, cropH = cy1 - cy0;
-      const oc = new OffscreenCanvas(cropW, cropH);
-      oc.getContext('2d').drawImage(sourceImage, cx0, cy0, cropW, cropH, 0, 0, cropW, cropH);
       try {
+        const w = sourceImage.width, h = sourceImage.height;
+
+        // ── 1. Run AI background-removal model to get the object mask ──
+        const tc = document.createElement('canvas');
+        tc.width = w; tc.height = h;
+        tc.getContext('2d').drawImage(sourceImage, 0, 0);
+        const dataUrl = tc.toDataURL('image/png');
+
+        const maskRaw = await window.runRMBG(dataUrl, (p) => {
+          if (p.status === 'progress')
+            autoScaleStatus.textContent = `Téléchargement du modèle IA… ${Math.round(p.progress ?? 0)} %`;
+          else if (p.status === 'initiate')
+            autoScaleStatus.textContent = 'Téléchargement du modèle IA…';
+        });
+
+        autoScaleStatus.textContent = 'Calcul de la zone à conserver…';
+        await yieldUI();
+
+        // ── 2. Interpolate mask to full source resolution ──
+        const { data: maskData, width: mw, height: mh } = maskRaw;
+        const channels = maskData.length / (mw * mh);
+        const mask = new Float32Array(w * h);
+        for (let y = 0; y < h; y++) {
+          const sy = y * (mh - 1) / (h - 1);
+          const sy0 = Math.floor(sy), sy1 = Math.min(mh - 1, sy0 + 1), fy = sy - sy0;
+          for (let x = 0; x < w; x++) {
+            const sx = x * (mw - 1) / (w - 1);
+            const sx0 = Math.floor(sx), sx1 = Math.min(mw - 1, sx0 + 1), fx = sx - sx0;
+            mask[y * w + x] = (
+              maskData[(sy0 * mw + sx0) * channels] * (1 - fx) * (1 - fy) +
+              maskData[(sy0 * mw + sx1) * channels] * fx * (1 - fy) +
+              maskData[(sy1 * mw + sx0) * channels] * (1 - fx) * fy +
+              maskData[(sy1 * mw + sx1) * channels] * fx * fy
+            ) / 255;
+          }
+        }
+
+        // ── 3. Exclude the ruler strip from the mask (existing helper) ──
+        excludeRulerFromMask(mask, w, h);
+
+        // ── 4. Bounding box of mask pixels above 0.5 confidence ──
+        const THR = 0.5;
+        let fx0 = w, fx1 = 0, fy0 = h, fy1 = 0;
+        for (let y = 0; y < h; y++) {
+          for (let x = 0; x < w; x++) {
+            if (mask[y * w + x] > THR) {
+              if (x < fx0) fx0 = x;
+              if (x > fx1) fx1 = x;
+              if (y < fy0) fy0 = y;
+              if (y > fy1) fy1 = y;
+            }
+          }
+        }
+        console.log('[crop AI] mask bbox:', fx0, fy0, '→', fx1, fy1, 'of', w, '×', h);
+
+        if (fx0 >= fx1 || fy0 >= fy1) {
+          autoScaleStatus.textContent = '⚠ Bijou non détecté par l\'IA. Recadrage abandonné.';
+          calibCropBtn.disabled = false;
+          calibCropBtn.textContent = originalLabel;
+          return;
+        }
+
+        // ── 5. Locate ruler in image space (inverse rotation) ──
+        const { ruler, fineAngle = 0, origW: W = w, origH: H = h, rW = W, rH = H } = autoCalibration;
+        const rad  = (fineAngle || 0) * Math.PI / 180;
+        const cosA = Math.cos(rad), sinA = Math.sin(rad);
+        const rulerCorners = [
+          [ruler.left, ruler.top], [ruler.right, ruler.top],
+          [ruler.right, ruler.bottom], [ruler.left, ruler.bottom]
+        ].map(([rx, ry]) => {
+          const dx = rx - rW / 2, dy = ry - rH / 2;
+          return [dx * cosA + dy * sinA + W / 2, -dx * sinA + dy * cosA + H / 2];
+        });
+        const ry0 = Math.max(0, Math.floor(Math.min(...rulerCorners.map(c => c[1]))));
+        const ry1 = Math.min(h, Math.ceil (Math.max(...rulerCorners.map(c => c[1]))));
+        const rx0 = Math.max(0, Math.floor(Math.min(...rulerCorners.map(c => c[0]))));
+        const rx1 = Math.min(w, Math.ceil (Math.max(...rulerCorners.map(c => c[0]))));
+        const absAngle    = Math.abs((fineAngle || 0) % 180);
+        const isHorizRuler = absAngle <= 45 || absAngle >= 135;
+
+        // ── 6. Build the crop: symmetric around object centre, including ruler ──
+        const padX = Math.max(15, Math.round(w * 0.02));
+        const padY = Math.max(15, Math.round(h * 0.02));
+        let cx0, cx1, cy0, cy1;
+
+        if (isHorizRuler) {
+          // Centre horizontally on the object
+          const objCx = (fx0 + fx1) / 2;
+          let halfX   = Math.max(fx1 - objCx, objCx - fx0) + padX;
+          if (autoCalibration.spacing?.pxPerMm) {
+            halfX = Math.max(halfX, (30 * autoCalibration.spacing.pxPerMm) / 2);
+          }
+          cx0 = Math.max(0, Math.round(objCx - halfX));
+          cx1 = Math.min(w, Math.round(objCx + halfX));
+          // Include ruler in Y
+          cy0 = Math.max(0, Math.min(fy0 - padY, ry0));
+          cy1 = Math.min(h, Math.max(fy1 + padY, ry1));
+        } else {
+          // Vertical ruler — symmetric vertically
+          const objCy = (fy0 + fy1) / 2;
+          let halfY   = Math.max(fy1 - objCy, objCy - fy0) + padY;
+          if (autoCalibration.spacing?.pxPerMm) {
+            halfY = Math.max(halfY, (30 * autoCalibration.spacing.pxPerMm) / 2);
+          }
+          cy0 = Math.max(0, Math.round(objCy - halfY));
+          cy1 = Math.min(h, Math.round(objCy + halfY));
+          cx0 = Math.max(0, Math.min(fx0 - padX, rx0));
+          cx1 = Math.min(w, Math.max(fx1 + padX, rx1));
+        }
+
+        console.log('[crop AI] final crop:', cx0, cy0, '→', cx1, cy1,
+                    '(', (cx1 - cx0), '×', (cy1 - cy0), ')');
+
+        // ── 7. Apply crop ──
+        const cropW = cx1 - cx0, cropH = cy1 - cy0;
+        const oc = new OffscreenCanvas(cropW, cropH);
+        oc.getContext('2d').drawImage(sourceImage, cx0, cy0, cropW, cropH, 0, 0, cropW, cropH);
         const blob = await oc.convertToBlob({ type: 'image/jpeg', quality: 0.96 });
         const url  = URL.createObjectURL(blob);
         const img  = await new Promise((res, rej) => {
@@ -4728,17 +4616,18 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         _smallCalibCache = null;
         resetWorkflowForImage();
         setStage('auto-scale');
-        setStatus('Image recadrée. Nouvelle calibration en cours…');
+        setStatus('Image recadrée par l\'IA. Nouvelle calibration en cours…');
         renderNormalPreview();
         runAutoCalibration();
       } catch (err) {
         console.error(err);
         calibCropBtn.disabled = false;
-        calibCropBtn.textContent = '✂️ Recadrer';
-        setStatus('Erreur lors du recadrage : ' + (err?.message ?? ''), true);
+        calibCropBtn.textContent = originalLabel;
+        autoScaleStatus.textContent = 'Erreur IA : ' + (err?.message ?? '');
+        setStatus('Erreur lors du recadrage IA : ' + (err?.message ?? ''), true);
       }
     });
-    // ── End crop before calibration ───────────────────────────────────────────
+    // ── End AI-driven crop ────────────────────────────────────────────────────
 
     autoScaleAcceptBtn.addEventListener('click', () => {
       if (!autoCalibration?.spacing) return;
