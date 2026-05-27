@@ -2559,9 +2559,10 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     let aiMetrics       = null;   // { areaPx, perimeterPx } from AI mask
     let hybridMode      = false;  // AI + manual complement mode
     let autoCalibration = null;   // { ruler, ticks, spacing } — detected ruler info
-    let _pendingAutoPipeline = false; // true between photo load and first crop; drives chained auto-pipeline
-    let _precomputedAIMask   = null;  // if set, runAIDetection will skip RMBG and use this mask
-    let _rulerDetected       = false; // true only when auto-calibration successfully finds a ruler
+    let _pendingAutoPipeline    = false; // true between photo load and first crop; drives chained auto-pipeline
+    let _precomputedAIMask      = null;  // if set, runAIDetection will skip RMBG and use this mask
+    let _rulerDetected          = false; // true only when auto-calibration successfully finds a ruler
+    let _recalibratingAfterCrop = false; // true when runAutoCalibration is re-run on the cropped image
     let autoCalibOverlay = null;  // HTMLCanvasElement — cached "10 mm" overlay
     let manualMode = false;
     let manualContours = [];
@@ -4762,6 +4763,10 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           autoScaleStatus.textContent = 'Aucune règle détectée, impossible de calibrer l\'image.';
           setStatus('Aucune règle détectée, impossible de calibrer l\'image.', true);
           _pendingAutoPipeline = false; // give up the auto-chain
+          if (_recalibratingAfterCrop) {
+            _recalibratingAfterCrop = false;
+            _precomputedAIMask = null; // can't use mask without calibration
+          }
           hidePipelineLoader();
           renderNormalPreview();
           return;
@@ -4799,9 +4804,19 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         calibCropBtn.style.display = '';
         renderNormalPreview();
 
-        // ── Auto-pipeline: after the (single) calibration, jump to AI crop ──
-        // The crop handler will transform the calibration to the cropped image
-        // space and go directly to the contour stage with a precomputed mask.
+        // ── After recalibration on cropped image → go straight to contour detection ──
+        if (_recalibratingAfterCrop) {
+          _recalibratingAfterCrop = false;
+          acceptAutoCalibration();
+          showPipelineLoader('contour', 'Préparation du contour…',
+            'Application du masque sur l\'image recadrée');
+          setStage('ai-detect');
+          renderNormalPreview();
+          runAIDetection();
+          return;
+        }
+
+        // ── Auto-pipeline: after the (first) calibration on the full image, jump to AI crop ──
         if (_pendingAutoPipeline) {
           _pendingAutoPipeline = false;
           showPipelineLoader('ai-crop', 'Analyse IA & recadrage…',
@@ -4975,9 +4990,6 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           }
         }
 
-        // Save calibration before reset
-        const savedCalibration = autoCalibration;
-
         // Install the new (upright, cropped) source image
         sourceImage = img;
         tempCanvas.width  = img.width;
@@ -4987,40 +4999,16 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
 
         _smallCalibCache = null;
         resetWorkflowForImage();
-        // Build new calibration: ruler/ticks shifted by crop offset, no more rotation
-        autoCalibration = {
-          ...savedCalibration,
-          fineAngle: 0,
-          isVertical: false,
-          origW: cropW, origH: cropH,
-          rW:    cropW, rH:    cropH,
-          ruler: {
-            ...savedCalibration.ruler,
-            left:   savedCalibration.ruler.left   - cx0,
-            right:  savedCalibration.ruler.right  - cx0,
-            top:    savedCalibration.ruler.top    - cy0,
-            bottom: savedCalibration.ruler.bottom - cy0
-          },
-          ticks: (savedCalibration.ticks || []).map(t => ({
-            ...t,
-            x:  t.x  - cx0,
-            y0: t.y0 - cy0,
-            y1: t.y1 - cy0
-          }))
-        };
 
-        // Accept calibration (sets pxPerMm + selectedPoints from autoCalibration)
-        acceptAutoCalibration();
-
-        // Stash the cropped mask for runAIDetection (skips a second RMBG call)
+        // Stash the cropped mask so runAIDetection skips a second RMBG call
         _precomputedAIMask = croppedMask;
 
-        // Move directly to the AI contour stage — no second calibration pass
-        showPipelineLoader('contour', 'Préparation du contour…',
-          'Application du masque sur l\'image recadrée');
-        setStage('ai-detect');
-        renderNormalPreview();
-        runAIDetection();
+        // Re-run ruler detection on the cropped image — cleaner and more accurate
+        // than transforming coordinates from the full image.
+        _recalibratingAfterCrop = true;
+        showPipelineLoader('calib', 'Calibration sur l\'image recadrée…',
+          'Détection de la règle sur l\'image recadrée');
+        runAutoCalibration();
       } catch (err) {
         console.error(err);
         calibCropBtn.disabled = false;
