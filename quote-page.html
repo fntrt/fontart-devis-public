@@ -4759,8 +4759,8 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         }
 
         if (!best) {
-          autoScaleStatus.textContent = 'Règle non détectée. Calibrez manuellement.';
-          setStatus('Règle non détectée. Utilisez "Calibrer manuellement" pour sélectionner 2 points sur la règle.', true);
+          autoScaleStatus.textContent = 'Aucune règle détectée, impossible de calibrer l\'image.';
+          setStatus('Aucune règle détectée, impossible de calibrer l\'image.', true);
           _pendingAutoPipeline = false; // give up the auto-chain
           hidePipelineLoader();
           renderNormalPreview();
