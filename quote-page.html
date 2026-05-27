@@ -3203,7 +3203,9 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       pxPerMm = null;
       autoCalibration  = null;
       autoCalibOverlay = null;
-      _rulerDetected   = false;
+      _rulerDetected          = false;
+      _recalibratingAfterCrop = false;
+      _precomputedAIMask      = null;
       aiDetectedMask  = null;
       aiMaskOffscreen = null;
       aiMetrics       = null;
@@ -3212,6 +3214,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       if (aiClearManualBtn) { aiClearManualBtn.style.display = 'none'; }
       if (aiFillHolesBtn)   { aiFillHolesBtn.style.display  = 'none'; aiFillHolesBtn.disabled = false; }
       if (aiCropBtn)        { aiCropBtn.style.display = 'none'; }
+      if (calibCropBtn)     { calibCropBtn.style.display = 'none'; calibCropBtn.disabled = false; calibCropBtn.textContent = '✂️ Recadrer'; }
       previewCanvas.style.cursor = '';
       binaryContours = [];
       binaryHierarchy = [];
