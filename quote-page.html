@@ -2561,6 +2561,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     let autoCalibration = null;   // { ruler, ticks, spacing } — detected ruler info
     let _pendingAutoPipeline = false; // true between photo load and first crop; drives chained auto-pipeline
     let _precomputedAIMask   = null;  // if set, runAIDetection will skip RMBG and use this mask
+    let _rulerDetected       = false; // true only when auto-calibration successfully finds a ruler
     let autoCalibOverlay = null;  // HTMLCanvasElement — cached "10 mm" overlay
     let manualMode = false;
     let manualContours = [];
@@ -3046,6 +3047,10 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     }
 
     async function computeAndDisplayPrices() {
+      if (!_rulerDetected) {
+        setStatus('Impossible de calculer un prix : aucune règle graduée n\'a été détectée dans la photo. Recommencez avec une photo incluant une règle bien visible.', true);
+        return;
+      }
       if (!pxPerMm) {
         setStatus('Définissez l\'échelle avant de calculer.', true);
         return;
@@ -3197,6 +3202,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       pxPerMm = null;
       autoCalibration  = null;
       autoCalibOverlay = null;
+      _rulerDetected   = false;
       aiDetectedMask  = null;
       aiMaskOffscreen = null;
       aiMetrics       = null;
@@ -4768,6 +4774,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         const absAngle = Math.abs(fineAngle % 180);
         const isVertical = absAngle > 45 && absAngle < 135;
         autoCalibration = { ruler, ticks, spacing, isVertical, fineAngle, origW: W, origH: H, rW, rH };
+        _rulerDetected = true;
 
         // Build overlay in rotated space, then rotate back to original orientation
         const rotOverlay = buildAutoCalibOverlay(autoCalibration, rW, rH);
