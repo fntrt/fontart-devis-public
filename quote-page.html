@@ -2675,7 +2675,12 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       const labelSize   = 22 * baseScale / viewScale;
       const labelOffset = 14 * baseScale / viewScale;
 
-      selectedPoints.forEach((p, i) => {
+      // Only draw calibration points + "10 mm" label during calibration stages.
+      // In ai-detect / select stages the green contour is the focus — the
+      // calibration overlay would just clutter and confuse.
+      const showCalibOverlay = (currentStage === 'scale' || currentStage === 'auto-scale');
+
+      if (showCalibOverlay) selectedPoints.forEach((p, i) => {
         // Outer white halo for legibility on any background
         ctx.beginPath();
         ctx.arc(p.x, p.y, radius + 2.5 * baseScale / viewScale, 0, Math.PI * 2);
@@ -2699,7 +2704,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         pointsInfo.textContent = `${selectedPoints.length} / 2 points sélectionnés`;
       }
 
-      if (selectedPoints.length === 2) {
+      if (showCalibOverlay && selectedPoints.length === 2) {
         ctx.beginPath();
         ctx.moveTo(selectedPoints[0].x, selectedPoints[0].y);
         ctx.lineTo(selectedPoints[1].x, selectedPoints[1].y);
