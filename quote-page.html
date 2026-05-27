@@ -3459,6 +3459,35 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       }
     });
 
+    // ── Auto-reconnexion au démarrage ─────────────────────────────────────────
+    // getPorts() retourne les ports déjà autorisés par l'utilisateur, sans
+    // redemander la sélection. On tente de se reconnecter silencieusement.
+    async function autoConnectSerial() {
+      if (!('serial' in navigator)) return;
+      try {
+        const ports = await navigator.serial.getPorts();
+        if (ports.length === 0) return;
+        serialPort = ports[0]; // l'utilisateur n'a autorisé que la balance
+        updateSerialUI(false, 'Balance : reconnexion…');
+        await serialPort.open({ baudRate: 9600, dataBits: 8, stopBits: 1, parity: 'none' });
+        keepReadingSerial = true;
+        serialReadPromise = readSerial();
+        updateSerialUI(true, 'Balance : reconnectée. Posez une pièce…');
+      } catch (err) {
+        // Port indisponible (débranché, autre onglet, etc.) — on reste déconnecté
+        serialPort = null;
+        updateSerialUI(false, 'Balance : déconnectée.');
+      }
+    }
+
+    // Tenter la reconnexion au chargement de la page
+    autoConnectSerial();
+
+    // Reconnecter aussi si la balance est branchée en cours de session
+    navigator.serial?.addEventListener('connect', () => {
+      if (!serialPort) autoConnectSerial();
+    });
+
 
 
     photoInput.addEventListener('change', async (e) => {
