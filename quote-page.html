@@ -1926,6 +1926,8 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           btn.textContent = 'Valider ma commande';
           if (orderStatus) orderStatus.style.display = 'none';
         }, 3000);
+        // Proposer la notation après que l'utilisateur a vu la confirmation
+        setTimeout(() => window._showRatingModal?.(), 1800);
       } catch (err) {
         console.error('[Commande] Erreur :', err);
         setOrderStatus(err?.message || 'Erreur lors de la validation.', true);
@@ -5836,14 +5838,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     // Exposer pour le badge cliquable
     window._showRatingModal = showRatingModal;
 
-    // ── 5. Déclencher après ajout au panier ──────────────────────────────
-    // On surcharge addToCart : après reset réussi, on propose la notation.
-    const _origAddToCart = window.addToCart;
-    window.addToCart = async function(...args) {
-      await _origAddToCart(...args);
-      // Petit délai pour laisser le reset s'afficher avant la modal
-      setTimeout(() => showRatingModal(), 800);
-    };
+    // ── 5. Déclenchement : voir validateOrderBtn handler (après validation commande) ─
 
     // ── 6. Charger résumé au démarrage ───────────────────────────────────
     loadRatingSummary();
