@@ -4,6 +4,19 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Devis autonome - Fontart</title>
+  <!-- Schema.org structured data — AggregateRating mis à jour dynamiquement -->
+  <script type="application/ld+json" id="schemaOrgLD">
+  {
+    "@context": "https://schema.org",
+    "@type": "SoftwareApplication",
+    "name": "Fontart Devis — Outil de devis bijoux",
+    "url": "https://devis-dorure.web.app/",
+    "applicationCategory": "BusinessApplication",
+    "operatingSystem": "Web",
+    "offers": { "@type": "Offer", "price": "0", "priceCurrency": "EUR" },
+    "description": "Outil de devis automatisé pour bijoux : détection IA des contours, calibration par règle, calcul de surface et proposition de prix."
+  }
+  </script>
   <style>
     :root {
       --bg: #ffffff;
@@ -662,6 +675,32 @@
 <button id="authSignOutBtn" class="secondary" type="button" style="padding:6px 14px; font-size:0.82rem;">Se déconnecter</button>
       </div>
     </nav>
+
+    <!-- Badge note moyenne (visible quand au moins 3 avis) -->
+    <div id="ratingBadge" style="display:none; text-align:center; padding:6px 0 2px; font-size:0.82rem; color:#888; cursor:pointer;" title="Cliquer pour noter" onclick="window._showRatingModal && window._showRatingModal()">
+      <span id="ratingBadgeStars" style="color:#f59e0b; letter-spacing:1px;"></span>
+      <span id="ratingBadgeText"></span>
+    </div>
+
+    <!-- Modal de notation ─────────────────────────────────────────────── -->
+    <div id="ratingModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:9999; align-items:center; justify-content:center;">
+      <div style="background:#fff; border-radius:14px; padding:28px 32px; max-width:340px; width:90%; text-align:center; box-shadow:0 8px 32px rgba(0,0,0,.18); position:relative;">
+        <button id="ratingModalClose" style="position:absolute;top:10px;right:14px;background:none;border:none;font-size:1.3rem;cursor:pointer;color:#888;" aria-label="Fermer">✕</button>
+        <div id="ratingModalBody">
+          <p style="font-weight:600; font-size:1.05rem; margin:0 0 6px;">Votre avis nous intéresse</p>
+          <p style="font-size:0.88rem; color:#666; margin:0 0 18px;">Comment évaluez-vous l'outil de devis Fontart ?</p>
+          <div id="ratingStars" style="display:flex; justify-content:center; gap:8px; font-size:2rem; cursor:pointer; margin-bottom:16px;">
+            <span data-v="1">☆</span><span data-v="2">☆</span><span data-v="3">☆</span><span data-v="4">☆</span><span data-v="5">☆</span>
+          </div>
+          <p id="ratingLabel" style="font-size:0.82rem; color:#aaa; min-height:1.2em; margin:0;"></p>
+        </div>
+        <div id="ratingModalThanks" style="display:none;">
+          <p style="font-size:2rem; margin:0 0 8px;">⭐</p>
+          <p style="font-weight:600; font-size:1.05rem; margin:0 0 4px;">Merci pour votre avis !</p>
+          <p style="font-size:0.85rem; color:#666; margin:0;">Votre note a bien été enregistrée.</p>
+        </div>
+      </div>
+    </div>
 
     <div class="card" id="nouvelArticleCard">
       <h2>Nouvel article</h2>
@@ -5648,6 +5687,166 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       const results = await seg(dataUrl, { threshold: 0 });
       return results[0].mask; // RawImage { data, width, height }
     };
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // SYSTÈME DE NOTATION — SEO AggregateRating + Schema.org
+    // Collections Firestore :
+    //   ratings/{userId}          → { rating: 1-5, timestamp }
+    //   ratingsSummary/global     → { totalScore, count }
+    // ═══════════════════════════════════════════════════════════════════════
+
+    const RATING_LABELS = ['', 'Insuffisant', 'Passable', 'Bien', 'Très bien', 'Excellent'];
+
+    // ── 1. Injecter / mettre à jour le JSON-LD Schema.org ────────────────
+    function updateSchemaLD(average, count) {
+      const el = document.getElementById('schemaOrgLD');
+      if (!el) return;
+      el.textContent = JSON.stringify({
+        '@context': 'https://schema.org',
+        '@type': 'SoftwareApplication',
+        'name': 'Fontart Devis — Outil de devis bijoux',
+        'url': 'https://devis-dorure.web.app/',
+        'applicationCategory': 'BusinessApplication',
+        'operatingSystem': 'Web',
+        'offers': { '@type': 'Offer', 'price': '0', 'priceCurrency': 'EUR' },
+        'description': 'Outil de devis automatisé pour bijoux : détection IA des contours, calibration par règle, calcul de surface et proposition de prix.',
+        'aggregateRating': {
+          '@type': 'AggregateRating',
+          'ratingValue': average.toFixed(1),
+          'reviewCount': String(count),
+          'bestRating': '5',
+          'worstRating': '1'
+        }
+      }, null, 2);
+    }
+
+    // ── 2. Charger le résumé et mettre à jour badge + JSON-LD ────────────
+    async function loadRatingSummary() {
+      try {
+        const snap = await getDoc(doc(db, 'ratingsSummary', 'global'));
+        if (!snap.exists()) return;
+        const { totalScore = 0, count = 0 } = snap.data();
+        if (count < 3) return; // pas assez d'avis pour afficher
+        const average = totalScore / count;
+        updateSchemaLD(average, count);
+        updateRatingBadge(average, count);
+      } catch (e) {
+        console.warn('[rating] loadRatingSummary:', e);
+      }
+    }
+
+    function updateRatingBadge(average, count) {
+      const badge = document.getElementById('ratingBadge');
+      const stars  = document.getElementById('ratingBadgeStars');
+      const text   = document.getElementById('ratingBadgeText');
+      if (!badge || !stars || !text) return;
+      const full  = Math.round(average);
+      stars.textContent = '★'.repeat(full) + '☆'.repeat(5 - full);
+      text.textContent  = ` ${average.toFixed(1)} / 5 · ${count} avis`;
+      badge.style.display = 'block';
+    }
+
+    // ── 3. Sauvegarder la note (transaction : met à jour le résumé) ──────
+    async function saveUserRating(rating) {
+      const user = auth.currentUser;
+      if (!user) return;
+      const userRef    = doc(db, 'ratings', user.uid);
+      const summaryRef = doc(db, 'ratingsSummary', 'global');
+      await runTransaction(db, async (tx) => {
+        const prevSnap    = await tx.get(userRef);
+        const summSnap    = await tx.get(summaryRef);
+        const prev        = prevSnap.exists() ? prevSnap.data().rating : null;
+        const { totalScore = 0, count = 0 } = summSnap.exists() ? summSnap.data() : {};
+        const newTotal = totalScore - (prev ?? 0) + rating;
+        const newCount = prev === null ? count + 1 : count;
+        tx.set(userRef, { rating, timestamp: serverTimestamp(), userId: user.uid });
+        tx.set(summaryRef, { totalScore: newTotal, count: newCount }, { merge: true });
+      });
+      // Recharger le badge et le JSON-LD
+      await loadRatingSummary();
+    }
+
+    // ── 4. Modal : affichage et interaction ──────────────────────────────
+    let _ratingModalOpen = false;
+
+    async function showRatingModal() {
+      if (_ratingModalOpen) return;
+      const user = auth.currentUser;
+      if (!user) return; // non connecté, on n'affiche pas
+      _ratingModalOpen = true;
+
+      const modal      = document.getElementById('ratingModal');
+      const body       = document.getElementById('ratingModalBody');
+      const thanks     = document.getElementById('ratingModalThanks');
+      const starsEl    = document.getElementById('ratingStars');
+      const labelEl    = document.getElementById('ratingLabel');
+      if (!modal) return;
+
+      // Recharger la note éventuelle de l'utilisateur
+      let userRating = 0;
+      try {
+        const snap = await getDoc(doc(db, 'ratings', user.uid));
+        if (snap.exists()) userRating = snap.data().rating ?? 0;
+      } catch (e) { /* ignore */ }
+
+      body.style.display   = '';
+      thanks.style.display = 'none';
+      modal.style.display  = 'flex';
+
+      // Afficher les étoiles initiales si déjà noté
+      renderModalStars(starsEl, labelEl, userRating, userRating);
+
+      // Hover
+      starsEl.querySelectorAll('span').forEach(s => {
+        s.addEventListener('mouseenter', () => renderModalStars(starsEl, labelEl, +s.dataset.v, userRating));
+        s.addEventListener('mouseleave', () => renderModalStars(starsEl, labelEl, userRating, userRating));
+        s.addEventListener('click', async () => {
+          const v = +s.dataset.v;
+          userRating = v;
+          renderModalStars(starsEl, labelEl, v, v);
+          try { await saveUserRating(v); } catch(e) { console.warn(e); }
+          // Afficher le merci, fermer après 2 s
+          body.style.display   = 'none';
+          thanks.style.display = '';
+          setTimeout(() => hideRatingModal(), 2000);
+        });
+      });
+    }
+
+    function renderModalStars(starsEl, labelEl, hovered, selected) {
+      starsEl.querySelectorAll('span').forEach(s => {
+        const v = +s.dataset.v;
+        s.textContent = v <= (hovered || selected) ? '★' : '☆';
+        s.style.color = v <= (hovered || selected) ? '#f59e0b' : '#ccc';
+      });
+      labelEl.textContent = hovered ? RATING_LABELS[hovered] : (selected ? RATING_LABELS[selected] : '');
+    }
+
+    function hideRatingModal() {
+      const modal = document.getElementById('ratingModal');
+      if (modal) modal.style.display = 'none';
+      _ratingModalOpen = false;
+    }
+
+    document.getElementById('ratingModalClose')?.addEventListener('click', hideRatingModal);
+    document.getElementById('ratingModal')?.addEventListener('click', (e) => {
+      if (e.target === e.currentTarget) hideRatingModal();
+    });
+
+    // Exposer pour le badge cliquable
+    window._showRatingModal = showRatingModal;
+
+    // ── 5. Déclencher après ajout au panier ──────────────────────────────
+    // On surcharge addToCart : après reset réussi, on propose la notation.
+    const _origAddToCart = window.addToCart;
+    window.addToCart = async function(...args) {
+      await _origAddToCart(...args);
+      // Petit délai pour laisser le reset s'afficher avant la modal
+      setTimeout(() => showRatingModal(), 800);
+    };
+
+    // ── 6. Charger résumé au démarrage ───────────────────────────────────
+    loadRatingSummary();
   </script>
 </body>
 </html>
