@@ -1079,6 +1079,9 @@
     const auth = getAuth(app);
     const db = getFirestore(app);
 
+    // Exposé pour le système de notation (module séparé sans accès aux imports Firestore)
+    window._fb = { db, auth, doc, getDoc, runTransaction, serverTimestamp };
+
     // Dans un iframe tiers, localStorage est bloqué/partitionné par le navigateur.
     // On utilise sessionStorage en priorité, sinon mémoire pure.
     (async () => {
@@ -4856,21 +4859,31 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         const sensitivity = 0.55;
         const mmPerTick = 1;
 
-        // Phase 1: score 8 coarse angles on reduced image
-        autoScaleStatus.textContent = '1/3 – Recherche de l\'orientation…';
-        await yieldUI();
-        const coarseAngles = [0, 90, -90, 180, 45, -45, 135, -135];
-        const scored = coarseAngles
-          .map(a => ({ angle: a, score: scoreAngleCalib(a, sensitivity) }))
-          .sort((a, b) => b.score - a.score);
-
-        // Phase 2: refine top 2 candidates (guards against false-positive periodic patterns)
-        autoScaleStatus.textContent = '2/3 – Affinage de l\'angle…';
-        await yieldUI();
         const candidates = [];
-        for (const { angle } of scored.slice(0, 2)) {
-          const refined = refineAngleCalib(angle, sensitivity);
-          if (!candidates.some(c => Math.abs(c - refined) < 2)) candidates.push(refined);
+        if (_recalibratingAfterCrop) {
+          // Fast-path : après recadrage, l'image est déjà redressée (règle
+          // horizontale par construction). On saute la recherche des 8 angles
+          // et on affine simplement autour de 0°. pxPerMm est inchangé par le
+          // recadrage (rotation + crop sans redimensionnement).
+          autoScaleStatus.textContent = 'Détection des graduations…';
+          await yieldUI();
+          candidates.push(refineAngleCalib(0, sensitivity));
+        } else {
+          // Phase 1: score 8 coarse angles on reduced image
+          autoScaleStatus.textContent = '1/3 – Recherche de l\'orientation…';
+          await yieldUI();
+          const coarseAngles = [0, 90, -90, 180, 45, -45, 135, -135];
+          const scored = coarseAngles
+            .map(a => ({ angle: a, score: scoreAngleCalib(a, sensitivity) }))
+            .sort((a, b) => b.score - a.score);
+
+          // Phase 2: refine top 2 candidates (guards against false-positive periodic patterns)
+          autoScaleStatus.textContent = '2/3 – Affinage de l\'angle…';
+          await yieldUI();
+          for (const { angle } of scored.slice(0, 2)) {
+            const refined = refineAngleCalib(angle, sensitivity);
+            if (!candidates.some(c => Math.abs(c - refined) < 2)) candidates.push(refined);
+          }
         }
 
         // Phase 3: try each candidate on full image, keep best detection
@@ -4882,6 +4895,23 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           if (result && (!best || result.score > best.score)) {
             best = result;
             fineAngle = angle;
+          }
+        }
+
+        // Filet de sécurité : si le fast-path post-crop (0°) échoue, on retombe
+        // sur la recherche complète des 8 angles avant d'abandonner.
+        if (!best && _recalibratingAfterCrop) {
+          const coarseAngles = [0, 90, -90, 180, 45, -45, 135, -135];
+          const scored = coarseAngles
+            .map(a => ({ angle: a, score: scoreAngleCalib(a, sensitivity) }))
+            .sort((a, b) => b.score - a.score);
+          for (const { angle } of scored.slice(0, 2)) {
+            const refined = refineAngleCalib(angle, sensitivity);
+            const result = tryDetectionAtAngleCalib(refined, sensitivity, mmPerTick);
+            if (result && (!best || result.score > best.score)) {
+              best = result;
+              fineAngle = refined;
+            }
           }
         }
 
@@ -5831,6 +5861,9 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     //   ratings/{userId}          → { rating: 1-5, timestamp }
     //   ratingsSummary/global     → { totalScore, count }
     // ═══════════════════════════════════════════════════════════════════════
+
+    // Firestore est importé dans le module Firebase ; on le récupère via window._fb
+    const { db, auth, doc, getDoc, runTransaction, serverTimestamp } = window._fb || {};
 
     const RATING_LABELS = ['', 'Insuffisant', 'Passable', 'Bien', 'Très bien', 'Excellent'];
 
