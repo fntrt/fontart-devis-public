@@ -1656,7 +1656,7 @@
         const img = new Image();
         reader.onload = () => {
           img.onload = () => {
-            const maxSize = 1200;
+            const maxSize = 400; // vignette d'aperçu (cf. captureAnnotatedImage)
             let w = img.width;
             let h = img.height;
             const scale = Math.min(1, maxSize / Math.max(w, h));
@@ -1667,9 +1667,10 @@
             canvas.height = h;
             const c = canvas.getContext('2d');
             c.drawImage(img, 0, 0, w, h);
-            let quality = 0.7;
+            let quality = 0.65;
             let dataUrl = canvas.toDataURL('image/jpeg', quality);
-            while (dataUrl.length > 900000 && quality > 0.4) {
+            // Garde-fou : à 400 px la vignette fait ~30-50 Ko ; on borne à 150 Ko
+            while (dataUrl.length > 150000 && quality > 0.4) {
               quality -= 0.1;
               dataUrl = canvas.toDataURL('image/jpeg', quality);
             }
@@ -2939,7 +2940,12 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       }
     }
 
-    function captureAnnotatedImage(maxDim = 1200, quality = 0.82) {
+    // Image stockée comme vignette d'aperçu dans « Mes articles » / « Panier »
+    // (affichée à 64 px inline, 300 px max au survol). Jamais envoyée à Fontart
+    // (les commandes ne portent pas l'image) → une petite vignette suffit.
+    // ~400 px / q0,65 ≈ 30-50 Ko au lieu de ~150-900 Ko : documents Firestore
+    // 5-15× plus légers, listes bien plus rapides à charger.
+    function captureAnnotatedImage(maxDim = 400, quality = 0.65) {
       if (!sourceImage) return null;
       const savedScale = viewScale;
       const savedOffX = viewOffsetX;
