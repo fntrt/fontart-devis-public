@@ -5863,28 +5863,14 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     let seg = null;
 
     // Cascade de backends, du plus rapide au plus sûr. Chaque candidat est validé
-    // par une inférence test : un backend/taille peut « charger » mais échouer.
-    // NB : q8 sur WebGPU testé → KO (timeout, ops non supportées sur JSEP). Retiré.
-    // size = taille d'entrée du modèle (défaut 1024). RMBG-1.4 est convolutionnel,
-    // donc tolère 512 → ~4× moins de calcul, qualité moindre sur les détails fins.
+    // par une inférence test : un backend peut « charger » mais échouer à l'exécution.
+    // NB : q8 sur WebGPU → KO (timeout, ops non supportées sur JSEP). Retiré.
+    // NB : RMBG-1.4 a une taille d'entrée ONNX FIGÉE à 1024×1024 (testé : 512 →
+    //      « Got 512 Expected 1024 »). Impossible de réduire la résolution.
     const SEG_CONFIGS = [
-      ...(navigator.gpu ? [{ device: 'webgpu', dtype: 'fp32', size: 512  }] : []), // rapide — à valider
-      ...(navigator.gpu ? [{ device: 'webgpu', dtype: 'fp32', size: 1024 }] : []), // pleine qualité — repli
-      { device: 'wasm', dtype: 'q8', size: 1024 },                                  // repli sans WebGPU
+      ...(navigator.gpu ? [{ device: 'webgpu', dtype: 'fp32' }] : []), // 176 Mo — éprouvé, GPU
+      { device: 'wasm', dtype: 'q8' },                                  // 44 Mo — repli sans WebGPU
     ];
-
-    // Surcharge la taille d'entrée du processeur d'image (preprocessor_config :
-    // size 1024×1024). Selon la version de transformers.js, le processeur est
-    // exposé sous différents noms → on couvre les variantes, puis on relit la
-    // valeur effective pour confirmer que la surcharge a bien pris.
-    function applySegInputSize(s, dim) {
-      const size = { width: dim, height: dim };
-      const procs = [s?.processor, s?.processor?.image_processor, s?.processor?.feature_extractor]
-        .filter(p => p && p.size && typeof p.size === 'object');
-      for (const p of procs) p.size = size;
-      for (const p of procs) if (typeof p.size?.width === 'number') return p.size.width;
-      return null; // processeur introuvable
-    }
 
     // Petite image test (64×64) pour valider qu'un backend produit un masque réel
     async function makeTestImageURL() {
@@ -5918,7 +5904,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
 
     async function initSeg(onProgress) {
       for (const cfg of SEG_CONFIGS) {
-        const label = `${cfg.device}/${cfg.dtype}@${cfg.size}px`;
+        const label = `${cfg.device}/${cfg.dtype}`;
         try {
           console.log(`[RMBG] Chargement ${label}…`);
           const s = await pipeline('image-segmentation', 'briaai/RMBG-1.4', {
@@ -5926,14 +5912,6 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
             dtype:  cfg.dtype,
             progress_callback: onProgress,
           });
-          // Surcharge de la taille d'entrée si ≠ 1024 (défaut du modèle)
-          if (cfg.size !== 1024) {
-            const eff = applySegInputSize(s, cfg.size);
-            if (eff !== cfg.size) {
-              console.warn(`[RMBG] ${label} : taille effective ${eff}px ≠ ${cfg.size}px → config suivante`);
-              continue; // surcharge non prise → on bascule sur la config 1024 honnête
-            }
-          }
           if (await validateSeg(s, label)) {
             console.log(`[RMBG] ✓ Backend retenu : ${label}`);
             return s;
