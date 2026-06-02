@@ -4953,8 +4953,18 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     function startBackgroundRMBG(img) {
       _backgroundRMBGImage = img;
       const { dataUrl, sw, sh } = rmbgScaledDataUrl(img);
-      // No progress callback — runs silently while calibration is displayed
-      _backgroundRMBGPromise = window.runRMBG(dataUrl)
+      // Callback de progression affiché dans le loader pendant la calibration
+      const onBgProgress = (p) => {
+        if (p.status === 'progress') {
+          const pct = Math.round(p.progress ?? 0);
+          updatePipelineLoaderDetail(`Téléchargement modèle IA… ${pct} %`);
+        } else if (p.status === 'initiate') {
+          updatePipelineLoaderDetail('Téléchargement du modèle IA…');
+        } else if (p.status === 'done') {
+          updatePipelineLoaderDetail('Modèle IA chargé.');
+        }
+      };
+      _backgroundRMBGPromise = window.runRMBG(dataUrl, onBgProgress)
         .then(maskRaw => ({ maskRaw, sw, sh }))
         .catch(() => null); // swallow errors; crop handler will retry if null
     }
@@ -5775,7 +5785,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     env.allowRemoteModels = true;
     env.allowLocalModels  = false;
 
-    const MODEL_ID = 'onnx-community/BiRefNet-ONNX';
+    const MODEL_ID = 'onnx-community/BiRefNet_lite-ONNX'; // ~339 Mo vs 1.46 Go pour BiRefNet-ONNX
     let birefnetModel     = null;
     let birefnetProcessor = null;
 
