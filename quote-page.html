@@ -5769,25 +5769,42 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     sendHeight();
   </script>
 
-  <!-- RMBG-1.4 — chargé en module ES pour accéder aux transformers.js -->
+  <!-- BiRefNet-ONNX (MIT) — remplace RMBG-1.4 pour usage commercial libre -->
   <script type="module">
-    import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3';
+    import { AutoModel, AutoProcessor, RawImage, env } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3';
     env.allowRemoteModels = true;
     env.allowLocalModels  = false;
 
-    let seg = null;
+    const MODEL_ID = 'onnx-community/BiRefNet-ONNX';
+    let birefnetModel     = null;
+    let birefnetProcessor = null;
 
     window.runRMBG = async function(dataUrl, onProgress) {
-      if (!seg) {
+      if (!birefnetModel) {
         const device = navigator.gpu ? 'webgpu' : 'wasm';
-        seg = await pipeline('image-segmentation', 'briaai/RMBG-1.4', {
+        birefnetProcessor = await AutoProcessor.from_pretrained(MODEL_ID, {
+          progress_callback: onProgress,
+        });
+        birefnetModel = await AutoModel.from_pretrained(MODEL_ID, {
           device,
           dtype: 'fp32',
           progress_callback: onProgress,
         });
       }
-      const results = await seg(dataUrl, { threshold: 0 });
-      return results[0].mask; // RawImage { data, width, height }
+
+      // dataUrl → RawImage (transformers.js gère nativement les data URLs)
+      const image = await RawImage.fromURL(dataUrl);
+
+      // Inférence
+      const { pixel_values } = await birefnetProcessor(image);
+      const { output_image } = await birefnetModel({ input_image: pixel_values });
+
+      // Convertir le tenseur de sortie en masque uint8 redimensionné à la taille d'entrée
+      const mask = await RawImage.fromTensor(
+        output_image[0].sigmoid().mul(255).to('uint8')
+      ).resize(image.width, image.height);
+
+      return mask; // RawImage { data, width, height } — même interface que RMBG-1.4
     };
 
     // ═══════════════════════════════════════════════════════════════════════
