@@ -2680,9 +2680,16 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       return { ok: missing.length === 0, missing };
     }
 
+    let _rmbgWarmTriggered = false;
     function updateStartAvailability() {
       const { ok } = hasRequiredInputs();
       photoInput.disabled = !ok;
+      // Dès que les champs requis sont remplis, l'utilisateur va prendre une photo :
+      // on pré-chauffe le modèle IA en arrière-plan pour masquer le warmup WebGPU.
+      if (ok && !_rmbgWarmTriggered) {
+        _rmbgWarmTriggered = true;
+        window.warmRMBG?.();
+      }
     }
 
     function getCanvasXY(e) {
@@ -5842,10 +5849,10 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     // Cascade de backends, du plus rapide/léger au plus sûr. Chaque candidat est
     // validé par une inférence test : un backend peut « charger » mais échouer ou
     // tomber en fallback CPU à l'inférence (cas fréquent du q8 sur WebGPU).
+    // NB : q8 sur WebGPU testé → KO (timeout, ops non supportées sur JSEP). Retiré.
     const SEG_CONFIGS = [
-      ...(navigator.gpu ? [{ device: 'webgpu', dtype: 'q8'   }] : []), // 44 Mo — expérimental
-      ...(navigator.gpu ? [{ device: 'webgpu', dtype: 'fp32' }] : []), // 176 Mo — éprouvé
-      { device: 'wasm', dtype: 'q8' },                                  // 44 Mo — sans WebGPU
+      ...(navigator.gpu ? [{ device: 'webgpu', dtype: 'fp32' }] : []), // 176 Mo — éprouvé, GPU
+      { device: 'wasm', dtype: 'q8' },                                  // 44 Mo — repli sans WebGPU
     ];
 
     // Petite image test (64×64) pour valider qu'un backend produit un masque réel
@@ -5900,9 +5907,26 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       throw new Error('Aucun backend RMBG fonctionnel');
     }
 
+    // Garde partagé : warmRMBG (pré-chauffage) et runRMBG (inférence réelle)
+    // utilisent la même promesse → le modèle n'est chargé/validé qu'une fois.
+    let segPromise = null;
+    function ensureSeg(onProgress) {
+      if (seg) return Promise.resolve(seg);
+      if (!segPromise) segPromise = initSeg(onProgress).then(s => { seg = s; return s; });
+      return segPromise;
+    }
+
+    // Pré-chauffe le modèle (téléchargement + compilation des shaders WebGPU) en
+    // arrière-plan. La validation 64×64 d'initSeg compile les shaders, si bien que
+    // la 1re inférence réelle est ensuite rapide. Appelé dès que le formulaire est
+    // prêt, pour masquer le warmup (~6-7 s) pendant que l'utilisateur cadre sa photo.
+    window.warmRMBG = function(onProgress) {
+      ensureSeg(onProgress).catch(e => console.warn('[RMBG] pré-chauffage :', e?.message || e));
+    };
+
     window.runRMBG = async function(dataUrl, onProgress) {
-      if (!seg) seg = await initSeg(onProgress);
-      const results = await seg(dataUrl, { threshold: 0 });
+      const s = await ensureSeg(onProgress);
+      const results = await s(dataUrl, { threshold: 0 });
       return results[0].mask; // RawImage { data, width, height }
     };
 
