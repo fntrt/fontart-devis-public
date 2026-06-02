@@ -5791,12 +5791,12 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
 
     window.runRMBG = async function(dataUrl, onProgress) {
       if (!birefnetModel) {
-        const device = navigator.gpu ? 'webgpu' : 'wasm';
+        // WebGPU cause des erreurs de validation avec BiRefNet — forcer WASM
         birefnetProcessor = await AutoProcessor.from_pretrained(MODEL_ID, {
           progress_callback: onProgress,
         });
         birefnetModel = await AutoModel.from_pretrained(MODEL_ID, {
-          device,
+          device: 'wasm',
           dtype: 'fp32',
           progress_callback: onProgress,
         });
