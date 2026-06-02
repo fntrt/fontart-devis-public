@@ -5789,10 +5789,13 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
 
     window.runRMBG = async function(dataUrl, onProgress) {
       if (!seg) {
+        // fp16 sur WebGPU (88 Mo, ~2× plus rapide)
+        // q8  sur WASM   (44 Mo, ~3× plus rapide)
         const device = navigator.gpu ? 'webgpu' : 'wasm';
+        const dtype  = device === 'webgpu' ? 'fp16' : 'q8';
         seg = await pipeline('image-segmentation', 'briaai/RMBG-1.4', {
           device,
-          dtype: 'fp32',
+          dtype,
           progress_callback: onProgress,
         });
       }
