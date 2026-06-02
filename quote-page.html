@@ -795,6 +795,7 @@
         <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
           <span id="aiStatusEl" style="flex:1; font-size:.88rem; color:#555;">Analyse IA en cours…</span>
           <button id="aiCompleteBtn" class="secondary" type="button" style="white-space:nowrap; display:none;">+ Compléter</button>
+          <button id="aiSubtractBtn" class="secondary" type="button" style="white-space:nowrap; display:none;">− Retirer</button>
           <button id="aiClearManualBtn" class="secondary" type="button" style="white-space:nowrap; display:none;">Effacer zones</button>
           <button id="aiManualCalibBtn" class="secondary" type="button" style="white-space:nowrap;" title="Revenir à la calibration manuelle de la règle">📐 Calibration manuelle</button>
           <button id="aiAcceptBtn" type="button" style="white-space:nowrap;" disabled>✓ Utiliser ce contour</button>
@@ -2545,6 +2546,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     const aiAcceptBtn     = document.getElementById('aiAcceptBtn');
     const aiManualBtn     = document.getElementById('aiManualBtn');
     const aiCompleteBtn   = document.getElementById('aiCompleteBtn');
+    const aiSubtractBtn   = document.getElementById('aiSubtractBtn');
     const aiClearManualBtn= document.getElementById('aiClearManualBtn');
     const aiManualCalibBtn = document.getElementById('aiManualCalibBtn');
     const aiSliderWrap    = document.getElementById('aiSliderWrap');
@@ -2596,7 +2598,9 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     let aiDetectedMask  = null;   // Float32Array prob 0-1 at sourceImage resolution
     let aiMaskOffscreen = null;   // HTMLCanvasElement — cached green overlay
     let aiMetrics       = null;   // { areaPx, perimeterPx } from AI mask
-    let hybridMode      = false;  // AI + manual complement mode
+    let hybridMode      = false;  // AI + manual complement mode (add zones)
+    let eraseMode       = false;  // AI + manual subtract mode (remove zones)
+    let subtractContours = [];    // polygons that are subtracted from the AI mask
     let autoCalibration = null;   // { ruler, ticks, spacing } — detected ruler info
     let _pendingAutoPipeline    = false; // true between photo load and first crop; drives chained auto-pipeline
     let _precomputedAIMask      = null;  // if set, runAIDetection will skip RMBG and use this mask
@@ -2807,16 +2811,18 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     }
 
     function drawManualOverlay(isHybrid = false) {
-      if (!manualContours.length && !manualCurrent.length) return;
+      if (!manualContours.length && !manualCurrent.length && !subtractContours.length) return;
       ctx.save();
       ctx.setTransform(viewScale, 0, 0, viewScale, -viewOffsetX * viewScale, -viewOffsetY * viewScale);
       ctx.lineWidth = 3 / viewScale;
       ctx.lineJoin = 'round';
       ctx.lineCap = 'round';
 
+      // Add-zones (orange in hybrid, green/blue in select)
       manualContours.forEach((contour, idx) => {
         const isHole = !isHybrid && isManualHole(idx);
         ctx.strokeStyle = isHybrid ? '#f97316' : (isHole ? '#2563eb' : '#16a34a');
+        ctx.setLineDash([]);
         ctx.beginPath();
         ctx.moveTo(contour.points[0].x, contour.points[0].y);
         for (let i = 1; i < contour.points.length; i++) {
@@ -2826,8 +2832,26 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         ctx.stroke();
       });
 
+      // Subtract-zones (red dashed)
+      subtractContours.forEach(contour => {
+        if (contour.points.length < 2) return;
+        ctx.strokeStyle = '#ef4444';
+        ctx.setLineDash([7 / viewScale, 4 / viewScale]);
+        ctx.beginPath();
+        ctx.moveTo(contour.points[0].x, contour.points[0].y);
+        for (let i = 1; i < contour.points.length; i++) {
+          ctx.lineTo(contour.points[i].x, contour.points[i].y);
+        }
+        ctx.closePath();
+        ctx.stroke();
+        ctx.setLineDash([]);
+      });
+
+      // Current in-progress path
       if (manualCurrent.length) {
-        ctx.strokeStyle = '#f97316';
+        const curColor = eraseMode ? '#ef4444' : '#f97316';
+        ctx.strokeStyle = curColor;
+        ctx.setLineDash(eraseMode ? [7 / viewScale, 4 / viewScale] : []);
         ctx.beginPath();
         ctx.moveTo(manualCurrent[0].x, manualCurrent[0].y);
         for (let i = 1; i < manualCurrent.length; i++) {
@@ -2837,15 +2861,17 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           ctx.lineTo(manualHoverPoint.x, manualHoverPoint.y);
         }
         ctx.stroke();
+        ctx.setLineDash([]);
 
-        ctx.fillStyle = '#f97316';
+        ctx.fillStyle = curColor;
         manualCurrent.forEach((pt, i) => {
           ctx.beginPath();
           ctx.arc(pt.x, pt.y, 3 / viewScale, 0, Math.PI * 2);
           ctx.fill();
           if (i === 0 && manualNearStart && manualCurrent.length >= 3) {
-            ctx.strokeStyle = '#16a34a';
+            ctx.strokeStyle = eraseMode ? '#ef4444' : '#16a34a';
             ctx.lineWidth = 2 / viewScale;
+            ctx.setLineDash([]);
             ctx.beginPath();
             ctx.arc(pt.x, pt.y, 8 / viewScale, 0, Math.PI * 2);
             ctx.stroke();
@@ -2872,8 +2898,8 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         ctx.drawImage(aiMaskOffscreen, 0, 0);
         ctx.restore();
       }
-      if ((currentStage === 'select' && manualMode) || (currentStage === 'ai-detect' && hybridMode)) {
-        drawManualOverlay(currentStage === 'ai-detect' && hybridMode);
+      if ((currentStage === 'select' && manualMode) || (currentStage === 'ai-detect' && (hybridMode || eraseMode))) {
+        drawManualOverlay(currentStage === 'ai-detect' && (hybridMode || eraseMode));
       }
     }
 
@@ -3252,9 +3278,12 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       aiDetectedMask  = null;
       aiMaskOffscreen = null;
       aiMetrics       = null;
-      hybridMode      = false;
-      if (aiCompleteBtn)    { aiCompleteBtn.style.display = 'none'; }
-      if (aiClearManualBtn) { aiClearManualBtn.style.display = 'none'; }
+      hybridMode       = false;
+      eraseMode        = false;
+      subtractContours = [];
+      if (aiCompleteBtn)   { aiCompleteBtn.style.display  = 'none'; }
+      if (aiSubtractBtn)   { aiSubtractBtn.style.display  = 'none'; }
+      if (aiClearManualBtn){ aiClearManualBtn.style.display = 'none'; }
       if (calibCropBtn)     { calibCropBtn.style.display = 'none'; calibCropBtn.disabled = false; calibCropBtn.textContent = '✂️ Recadrer'; }
       previewCanvas.style.cursor = '';
       binaryContours = [];
@@ -5248,34 +5277,55 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       return filled; // number of pixels filled (0 means no holes found)
     }
 
-    function computeAIMetrics(mask, w, h, thr = 0.5) {
+    function computeAIMetrics(mask, w, h, thr = 0.5, subtractMask = null) {
       let areaPx = 0, perimeterPx = 0;
       for (let y = 0; y < h; y++) {
         for (let x = 0; x < w; x++) {
           const i = y * w + x;
-          if (mask[i] < thr) continue;
+          if (mask[i] < thr || (subtractMask && subtractMask[i])) continue;
           areaPx++;
-          if ((x === 0   || mask[i - 1] < thr) ||
-              (x === w-1 || mask[i + 1] < thr) ||
-              (y === 0   || mask[i - w] < thr) ||
-              (y === h-1 || mask[i + w] < thr)) perimeterPx++;
+          const left  = x === 0   || mask[i-1] < thr || (subtractMask && subtractMask[i-1]);
+          const right = x === w-1 || mask[i+1] < thr || (subtractMask && subtractMask[i+1]);
+          const top   = y === 0   || mask[i-w] < thr || (subtractMask && subtractMask[i-w]);
+          const bot   = y === h-1 || mask[i+w] < thr || (subtractMask && subtractMask[i+w]);
+          if (left || right || top || bot) perimeterPx++;
         }
       }
       return { areaPx, perimeterPx };
     }
 
-    function buildAIMaskOffscreen(mask, w, h, thr = 0.5) {
+    // Rasterise an array of polygon contours to a Uint8Array lookup (1 = inside)
+    function rasterizeContours(contours, w, h) {
+      const mc = document.createElement('canvas');
+      mc.width = w; mc.height = h;
+      const mctx = mc.getContext('2d');
+      mctx.fillStyle = 'white';
+      for (const c of contours) {
+        if (c.points.length < 3) continue;
+        mctx.beginPath();
+        mctx.moveTo(c.points[0].x, c.points[0].y);
+        for (let i = 1; i < c.points.length; i++) mctx.lineTo(c.points[i].x, c.points[i].y);
+        mctx.closePath();
+        mctx.fill();
+      }
+      const id = mctx.getImageData(0, 0, w, h).data;
+      const out = new Uint8Array(w * h);
+      for (let i = 0; i < w * h; i++) if (id[i * 4 + 3] > 0) out[i] = 1;
+      return out;
+    }
+
+    function buildAIMaskOffscreen(mask, w, h, thr = 0.5, subtractMask = null) {
       const imgData = new ImageData(w, h);
       const d = imgData.data;
       for (let y = 0; y < h; y++) {
         for (let x = 0; x < w; x++) {
           const i = y * w + x;
-          if (mask[i] < thr) continue;
+          if (mask[i] < thr || (subtractMask && subtractMask[i])) continue;
           const border =
-            (x === 0   || mask[i - 1] < thr) ||
-            (x === w-1 || mask[i + 1] < thr) ||
-            (y === 0   || mask[i - w] < thr) ||
-            (y === h-1 || mask[i + w] < thr);
+            (x === 0   || mask[i-1] < thr || (subtractMask && subtractMask[i-1])) ||
+            (x === w-1 || mask[i+1] < thr || (subtractMask && subtractMask[i+1])) ||
+            (y === 0   || mask[i-w] < thr || (subtractMask && subtractMask[i-w])) ||
+            (y === h-1 || mask[i+w] < thr || (subtractMask && subtractMask[i+w]));
           const p = i * 4;
           d[p] = 30; d[p+1] = 210; d[p+2] = 60;
           d[p+3] = border ? 255 : 110;
@@ -5292,10 +5342,10 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       if (!aiDetectedMask || !sourceImage) return;
       const w = sourceImage.width, h = sourceImage.height;
       // Logarithmic scale: Détail (0) → thr≈0.85  |  mid (5) → thr≈0.10  |  Silhouette (10) → thr≈0.01
-      // Gives fine resolution in the 0.05–0.40 range where thin objects (chains, wires) need precision
       const thr = 0.85 * Math.pow(0.01 / 0.85, sliderVal / 10);
-      aiMetrics = computeAIMetrics(aiDetectedMask, w, h, thr);
-      aiMaskOffscreen = buildAIMaskOffscreen(aiDetectedMask, w, h, thr);
+      const subtractMask = subtractContours.length > 0 ? rasterizeContours(subtractContours, w, h) : null;
+      aiMetrics = computeAIMetrics(aiDetectedMask, w, h, thr, subtractMask);
+      aiMaskOffscreen = buildAIMaskOffscreen(aiDetectedMask, w, h, thr, subtractMask);
       renderNormalPreview();
     }
 
@@ -5374,7 +5424,8 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         } else {
           aiStatusEl.textContent = 'Contour détecté. Ajustez le curseur si besoin.';
           aiAcceptBtn.disabled = false;
-          aiCompleteBtn.style.display = '';
+          aiCompleteBtn.style.display  = '';
+          aiSubtractBtn.style.display  = '';
           aiClearManualBtn.style.display = 'none';
           setStatus('Contour détecté. Ajustez le curseur Détail/Silhouette si besoin.');
         }
@@ -5408,21 +5459,43 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
 
     aiCompleteBtn.addEventListener('click', () => {
       hybridMode = true;
+      eraseMode  = false;
       manualContours = [];
-      manualCurrent = [];
-      manualDrawing = false;
-      aiCompleteBtn.style.display = 'none';
+      manualCurrent  = [];
+      manualDrawing  = false;
+      aiCompleteBtn.style.display  = 'none';
+      aiSubtractBtn.style.display  = 'none';
       aiClearManualBtn.style.display = '';
       previewCanvas.style.cursor = 'crosshair';
       setStatus('Tracez les zones manquantes (cliquez pour poser des points, revenez au 1er pour fermer). Puis "✓ Utiliser ce contour".');
     });
 
+    aiSubtractBtn.addEventListener('click', () => {
+      eraseMode  = true;
+      hybridMode = false;
+      subtractContours = [];
+      manualCurrent    = [];
+      manualDrawing    = false;
+      aiSubtractBtn.style.display  = 'none';
+      aiCompleteBtn.style.display  = 'none';
+      aiClearManualBtn.style.display = '';
+      previewCanvas.style.cursor = 'crosshair';
+      setStatus('Tracez la zone à retirer (cliquez pour poser des points, revenez au 1er pour fermer). Puis "✓ Utiliser ce contour".');
+    });
+
     aiClearManualBtn.addEventListener('click', () => {
-      manualContours = [];
-      manualCurrent = [];
-      manualDrawing = false;
-      renderNormalPreview();
-      setStatus('Zones effacées. Retracez les zones manquantes ou cliquez sur "✓ Utiliser ce contour".');
+      hybridMode       = false;
+      eraseMode        = false;
+      manualContours   = [];
+      subtractContours = [];
+      manualCurrent    = [];
+      manualDrawing    = false;
+      aiClearManualBtn.style.display = 'none';
+      aiCompleteBtn.style.display    = '';
+      aiSubtractBtn.style.display    = '';
+      previewCanvas.style.cursor = '';
+      reRenderAIMask(+aiCorrSlider.value);
+      setStatus('Zones effacées. Utilisez "+ Compléter" ou "− Retirer" si besoin.');
     });
 
     // ── Calibration manuelle depuis l'étape de détection ─────────────────────
@@ -5477,6 +5550,27 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         }
       }
 
+      // Subtract erased zones
+      if (subtractContours.length > 0) {
+        const sc = document.createElement('canvas');
+        sc.width = sw; sc.height = sh;
+        const sctx = sc.getContext('2d');
+        sctx.fillStyle = 'white';
+        for (const contour of subtractContours) {
+          if (contour.points.length < 3) continue;
+          sctx.beginPath();
+          sctx.moveTo(contour.points[0].x * SCALE, contour.points[0].y * SCALE);
+          for (let i = 1; i < contour.points.length; i++)
+            sctx.lineTo(contour.points[i].x * SCALE, contour.points[i].y * SCALE);
+          sctx.closePath();
+          sctx.fill();
+        }
+        const sid = sctx.getImageData(0, 0, sw, sh).data;
+        for (let i = 0; i < sw * sh; i++) {
+          if (sid[i * 4 + 3] > 0) combined[i] = 0;
+        }
+      }
+
       // Count area + perimeter at scaled resolution → scale back
       let areaPx = 0, perimeterPx = 0;
       for (let y = 0; y < sh; y++) {
@@ -5514,19 +5608,25 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       }
 
       const isDrawingMode = (currentStage === 'select' && manualMode) ||
-                            (currentStage === 'ai-detect' && hybridMode);
+                            (currentStage === 'ai-detect' && (hybridMode || eraseMode));
       if (isDrawingMode && !isPanning) {
         if (manualNearStart) {
-          manualContours.push({ points: [...manualCurrent] });
+          if (eraseMode) {
+            subtractContours.push({ points: [...manualCurrent] });
+            reRenderAIMask(+aiCorrSlider.value); // update green overlay immediately
+            setStatus(`Zone retirée (${subtractContours.length}). Tracez d'autres zones ou cliquez sur "✓ Utiliser ce contour".`);
+          } else {
+            manualContours.push({ points: [...manualCurrent] });
+            if (hybridMode) {
+              setStatus(`Zone ajoutée (${manualContours.length}). Tracez d'autres zones ou cliquez sur "✓ Utiliser ce contour".`);
+            } else {
+              setStatus('Contour fermé. Valider ou ajouter des contours si besoin.');
+            }
+          }
           manualCurrent = [];
           manualDrawing = false;
           manualHoverPoint = null;
           manualNearStart = false;
-          if (hybridMode) {
-            setStatus(`Zone ajoutée (${manualContours.length}). Tracez d'autres zones ou cliquez sur "✓ Utiliser ce contour".`);
-          } else {
-            setStatus('Contour fermé. Valider ou ajouter des contours si besoin.');
-          }
           renderNormalPreview();
           return;
         }
@@ -5561,7 +5661,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         return;
       }
       const isDrawingMode = (currentStage === 'select' && manualMode) ||
-                            (currentStage === 'ai-detect' && hybridMode);
+                            (currentStage === 'ai-detect' && (hybridMode || eraseMode));
       if (isDrawingMode && manualCurrent.length) {
         const { x, y } = getCanvasXY(e);
         manualHoverPoint = { x, y };
