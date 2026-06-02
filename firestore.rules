@@ -1,0 +1,86 @@
+rules_version = '2';
+
+// ════════════════════════════════════════════════════════════════════════════
+// Règles Firestore — projet « devis-dorure »
+//
+// ⚠️  Ce fichier est une RÉFÉRENCE VERSIONNÉE. Il n'est PAS déployé
+//     automatiquement (le projet est hébergé sur GitHub Pages, pas via
+//     Firebase CLI). Pour appliquer un changement :
+//       Console Firebase → Firestore Database → onglet « Règles » → Publier.
+//     Garder ce fichier synchronisé avec la console après chaque modification.
+// ════════════════════════════════════════════════════════════════════════════
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ── Notes utilisateurs (1 note par compte) ──
+    match /ratings/{userId} {
+      allow read: if request.auth != null && request.auth.uid == userId;
+      allow create, update: if request.auth != null
+                            && request.auth.uid == userId
+                            && request.resource.data.rating is number
+                            && request.resource.data.rating >= 1
+                            && request.resource.data.rating <= 5;
+    }
+
+    // ── Résumé global des notes : lecture publique (badge + SEO JSON-LD) ──
+    match /ratingsSummary/{docId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+    // ── Comptes utilisateurs ──
+    match /users/{uid} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+                    && request.auth.uid == uid
+                    && request.resource.data.clientCode is string;
+      allow update: if request.auth != null
+                    && request.auth.uid == uid
+                    && request.resource.data.clientCode == resource.data.clientCode;
+      allow delete: if request.auth != null && request.auth.uid == uid;
+    }
+
+    // ── Codes client (unicité garantie côté règles) ──
+    match /clientCodes/{code} {
+      allow create: if request.auth != null
+                    && !exists(/databases/$(database)/documents/clientCodes/$(code));
+      allow read: if request.auth != null;
+    }
+
+    // ── Devis ──
+    match /quotes/{quoteId} {
+      allow create: if request.auth != null;
+      allow read: if request.auth != null;
+    }
+
+    // ── Panier ──
+    match /cartItems/{itemId} {
+      allow read, create, update, delete: if request.auth != null;
+    }
+
+    // ── Articles ──
+    match /articles/{itemId} {
+      allow read, create, update, delete: if request.auth != null;
+    }
+
+    // ── Commandes (propriétaire uniquement) ──
+    match /orders/{doc} {
+      allow read, write: if request.auth != null && request.auth.uid == resource.data.userId;
+      allow create: if request.auth != null && request.auth.uid == request.resource.data.userId;
+    }
+
+    // ── Sessions (création seule, lecture interdite côté client) ──
+    match /sessions/{sessionId} {
+      allow create: if request.auth != null
+                    && request.resource.data.userId == request.auth.uid;
+      allow read: if false;
+    }
+
+    // ── Refus par défaut pour tout le reste ──
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+  }
+}
