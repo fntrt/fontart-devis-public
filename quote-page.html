@@ -5839,18 +5839,69 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
 
     let seg = null;
 
-    window.runRMBG = async function(dataUrl, onProgress) {
-      if (!seg) {
-        // fp32 sur WebGPU (fp16 non supporté sur tous les GPU)
-        // q8   sur WASM  (44 Mo, ~3× plus rapide que fp32)
-        const device = navigator.gpu ? 'webgpu' : 'wasm';
-        const dtype  = device === 'webgpu' ? 'fp32' : 'q8';
-        seg = await pipeline('image-segmentation', 'briaai/RMBG-1.4', {
-          device,
-          dtype,
-          progress_callback: onProgress,
-        });
+    // Cascade de backends, du plus rapide/léger au plus sûr. Chaque candidat est
+    // validé par une inférence test : un backend peut « charger » mais échouer ou
+    // tomber en fallback CPU à l'inférence (cas fréquent du q8 sur WebGPU).
+    const SEG_CONFIGS = [
+      ...(navigator.gpu ? [{ device: 'webgpu', dtype: 'q8'   }] : []), // 44 Mo — expérimental
+      ...(navigator.gpu ? [{ device: 'webgpu', dtype: 'fp32' }] : []), // 176 Mo — éprouvé
+      { device: 'wasm', dtype: 'q8' },                                  // 44 Mo — sans WebGPU
+    ];
+
+    // Petite image test (64×64) pour valider qu'un backend produit un masque réel
+    async function makeTestImageURL() {
+      const c  = new OffscreenCanvas(64, 64);
+      const cx = c.getContext('2d');
+      cx.fillStyle = '#ffffff'; cx.fillRect(0, 0, 64, 64);
+      cx.fillStyle = '#202020'; cx.fillRect(16, 16, 32, 32);
+      const blob = await c.convertToBlob({ type: 'image/png' });
+      return URL.createObjectURL(blob);
+    }
+
+    async function validateSeg(s, label) {
+      let url;
+      try {
+        url = await makeTestImageURL();
+        const t0 = performance.now();
+        // Course contre un timeout : WebGPU peut se figer sans rejeter la promesse
+        const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('timeout 12 s')), 12000));
+        const r = await Promise.race([s(url, { threshold: 0 }), timeout]);
+        const ms = Math.round(performance.now() - t0);
+        const ok = !!(r && r[0] && r[0].mask && r[0].mask.data && r[0].mask.data.length > 0);
+        console.log(`[RMBG] ${label} : validation ${ok ? 'OK' : 'KO'} en ${ms} ms`);
+        return ok;
+      } catch (e) {
+        console.warn(`[RMBG] ${label} : validation échouée —`, e?.message || e);
+        return false;
+      } finally {
+        if (url) URL.revokeObjectURL(url);
       }
+    }
+
+    async function initSeg(onProgress) {
+      for (const cfg of SEG_CONFIGS) {
+        const label = `${cfg.device}/${cfg.dtype}`;
+        try {
+          console.log(`[RMBG] Chargement ${label}…`);
+          const s = await pipeline('image-segmentation', 'briaai/RMBG-1.4', {
+            device: cfg.device,
+            dtype:  cfg.dtype,
+            progress_callback: onProgress,
+          });
+          if (await validateSeg(s, label)) {
+            console.log(`[RMBG] ✓ Backend retenu : ${label}`);
+            return s;
+          }
+          console.warn(`[RMBG] ${label} chargé mais validation KO → backend suivant`);
+        } catch (e) {
+          console.warn(`[RMBG] ${label} échec chargement :`, e?.message || e);
+        }
+      }
+      throw new Error('Aucun backend RMBG fonctionnel');
+    }
+
+    window.runRMBG = async function(dataUrl, onProgress) {
+      if (!seg) seg = await initSeg(onProgress);
       const results = await seg(dataUrl, { threshold: 0 });
       return results[0].mask; // RawImage { data, width, height }
     };
