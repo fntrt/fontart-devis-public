@@ -2681,15 +2681,20 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     }
 
     let _rmbgWarmTriggered = false;
-    function updateStartAvailability() {
-      const { ok } = hasRequiredInputs();
-      photoInput.disabled = !ok;
-      // Dès que les champs requis sont remplis, l'utilisateur va prendre une photo :
-      // on pré-chauffe le modèle IA en arrière-plan pour masquer le warmup WebGPU.
-      if (ok && !_rmbgWarmTriggered) {
+    function maybeWarmRMBG() {
+      // Pré-chauffe le modèle IA dès la 1re interaction avec le formulaire
+      // (description OU poids non vide) — bien avant que la photo soit prise.
+      // Maximise l'avance pour masquer entièrement le warmup WebGPU (~1,6 s).
+      if (_rmbgWarmTriggered) return;
+      if (descriptionInput.value.trim() || parseWeight()) {
         _rmbgWarmTriggered = true;
         window.warmRMBG?.();
       }
+    }
+    function updateStartAvailability() {
+      const { ok } = hasRequiredInputs();
+      photoInput.disabled = !ok;
+      maybeWarmRMBG();
     }
 
     function getCanvasXY(e) {
@@ -3415,6 +3420,17 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     descriptionInput.addEventListener('input', updateStartAvailability);
     weightInput.addEventListener('input', updateStartAvailability);
     weightInput.addEventListener('change', () => parseWeight());
+
+    // Signal d'intention le plus précoce : dès que l'utilisateur place le curseur
+    // dans un champ du formulaire, on lance le pré-chauffage du modèle IA.
+    const warmOnFocus = () => {
+      if (_rmbgWarmTriggered) return;
+      _rmbgWarmTriggered = true;
+      window.warmRMBG?.();
+    };
+    descriptionInput.addEventListener('focus', warmOnFocus, { once: true });
+    weightInput.addEventListener('focus', warmOnFocus, { once: true });
+    referenceInput.addEventListener('focus', warmOnFocus, { once: true });
 
     // ── Gestion de la balance via Web Serial API ──────────────────────
     const serialConnectBtn = document.getElementById('serialConnectBtn');
