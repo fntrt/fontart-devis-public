@@ -3316,6 +3316,27 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       });
     }
 
+    // Downscale la photo source au chargement : la calibration plafonne déjà à
+    // 300 px et RMBG à 1024 px, donc garder la pleine résolution du téléphone ne
+    // fait que ralentir les boucles CPU (interpolation masque, rotation, bbox…).
+    // Les mesures en mm sont invariantes d'échelle (pxPerMm s'adapte).
+    async function downscaleSourceImage(img, maxDim = 1600) {
+      const longest = Math.max(img.width, img.height);
+      if (longest <= maxDim) return img;
+      const s  = maxDim / longest;
+      const sw = Math.round(img.width  * s);
+      const sh = Math.round(img.height * s);
+      const oc = new OffscreenCanvas(sw, sh);
+      oc.getContext('2d').drawImage(img, 0, 0, sw, sh);
+      const blob = await oc.convertToBlob({ type: 'image/jpeg', quality: 0.95 });
+      const url  = URL.createObjectURL(blob);
+      const out  = await new Promise((res, rej) => {
+        const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url;
+      });
+      URL.revokeObjectURL(url);
+      return out;
+    }
+
     async function fetchJson(url) {
       const tryFetch = async (target) => {
         const response = await fetch(target, { cache: 'no-store' });
@@ -3569,6 +3590,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       if (!file) return;
       try {
         sourceImage = await loadImageFromFile(file);
+        sourceImage = await downscaleSourceImage(sourceImage); // accélère toutes les boucles CPU
         tempCanvas.width = sourceImage.width;
         tempCanvas.height = sourceImage.height;
         tempCtx.clearRect(0, 0, tempCanvas.width, tempCanvas.height);
@@ -3823,7 +3845,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
             const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url;
           });
           URL.revokeObjectURL(url);
-          sourceImage = img;
+          sourceImage = await downscaleSourceImage(img); // accélère toutes les boucles CPU
           tempCanvas.width  = sourceImage.width;
           tempCanvas.height = sourceImage.height;
           tempCtx.clearRect(0, 0, tempCanvas.width, tempCanvas.height);
