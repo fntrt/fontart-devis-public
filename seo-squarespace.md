@@ -36,7 +36,7 @@ Calculez le prix de dorure de vos bijoux à partir d'une photo : flash or, dorur
 <meta property="og:site_name" content="Fontart" />
 <meta property="og:title" content="Dorure de bijoux : devis en ligne instantané — Fontart" />
 <meta property="og:description" content="Calculez le prix de dorure de vos bijoux à partir d'une photo : flash or, dorure 1 à 3 µm, vernis. Devis instantané et commande en ligne." />
-<meta property="og:url" content="⟨URL_EXACTE_DE_LA_PAGE⟩" />
+<meta property="og:url" content="https://www.fontart.fr/service-dorure-bijoux" />
 <meta property="og:image" content="⟨URL_IMAGE_1200x630⟩" />
 
 <!-- Twitter / X -->
@@ -53,12 +53,12 @@ Calculez le prix de dorure de vos bijoux à partir d'une photo : flash or, dorur
   "name": "Dorure de bijoux sur mesure",
   "serviceType": "Dorure, placage or et argenture de bijoux",
   "description": "Service de dorure de bijoux (flash or, dorure 1 à 3 µm, vernis cataphorèse) avec devis en ligne instantané calculé à partir d'une photo de la pièce.",
-  "url": "⟨URL_EXACTE_DE_LA_PAGE⟩",
+  "url": "https://www.fontart.fr/service-dorure-bijoux",
   "areaServed": { "@type": "Country", "name": "France" },
   "provider": {
     "@type": "Organization",
     "name": "Fontart",
-    "url": "⟨URL_SITE⟩"
+    "url": "https://www.fontart.fr/"
   },
   "offers": {
     "@type": "Offer",
@@ -86,14 +86,13 @@ niveau du site, sur la page d'accueil idéalement.
   "@type": "LocalBusiness",
   "name": "Fontart",
   "image": "⟨URL_LOGO_OU_PHOTO⟩",
-  "url": "⟨URL_SITE⟩",
-  "telephone": "⟨+33…⟩",
-  "email": "contact@fontart.fr",
+  "url": "https://www.fontart.fr/",
+  "telephone": "+33 4 75 30 54 34",
   "address": {
     "@type": "PostalAddress",
-    "streetAddress": "⟨RUE⟩",
-    "postalCode": "⟨CODE POSTAL⟩",
-    "addressLocality": "⟨VILLE⟩",
+    "streetAddress": "400 Rue du Garail",
+    "postalCode": "07310",
+    "addressLocality": "Saint-Martin-de-Valamas",
     "addressCountry": "FR"
   },
   "priceRange": "€€",
