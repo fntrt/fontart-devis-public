@@ -71,35 +71,29 @@ Calculez le prix de dorure de vos bijoux à partir d'une photo : flash or, dorur
 
 ---
 
-## ③ (Optionnel mais fort impact local) — En-tête du SITE
+## ③ Référencement local — NE PAS coder à la main
 
-**Squarespace → Réglages → Avancé → Injection de code → En-tête**
+> ⚠️ **Important** (constaté au test des résultats enrichis) : Squarespace
+> **génère déjà tout seul** un JSON-LD `LocalBusiness` à partir des infos du
+> site. Ajouter un LocalBusiness codé à la main crée des **doublons** et des
+> erreurs. Il faut donc **laisser Squarespace le générer** et simplement le
+> compléter dans les réglages.
 
-Si Fontart est un atelier physique, ce bloc aide le **référencement local**
-(« dorure bijoux + ville », pack local Google Maps). À placer **une fois** au
-niveau du site, sur la page d'accueil idéalement.
+**Squarespace → Réglages → Informations sur l'entreprise** — renseigner :
 
-```html
-<script type="application/ld+json">
-{
-  "@context": "https://schema.org",
-  "@type": "LocalBusiness",
-  "name": "Fontart",
-  "image": "⟨URL_LOGO_OU_PHOTO⟩",
-  "url": "https://www.fontart.fr/",
-  "telephone": "+33 4 75 30 54 34",
-  "address": {
-    "@type": "PostalAddress",
-    "streetAddress": "400 Rue du Garail",
-    "postalCode": "07310",
-    "addressLocality": "Saint-Martin-de-Valamas",
-    "addressCountry": "FR"
-  },
-  "priceRange": "€€",
-  "description": "Atelier de dorure et placage or de bijoux. Devis de dorure en ligne à partir d'une photo."
-}
-</script>
-```
+| Champ | Valeur |
+|---|---|
+| **Nom de l'entreprise** | `Font'Art Créations` ← corrige l'erreur « name manquant » |
+| **Adresse** | 400 Rue du Garail, 07310 Saint-Martin-de-Valamas |
+| **Téléphone** | 04 75 30 54 34 |
+| **Logo** | (le logo du site) |
+
+Squarespace produit alors **un** `LocalBusiness` valide et complet (nom +
+adresse + téléphone + image), sans doublon ni champ manquant.
+
+> Symptôme typique avant correction : deux LocalBusiness détectés, dont un
+> « Élément sans nom » (généré depuis le logo) → erreur critique `name` manquant.
+> Renseigner le **Nom de l'entreprise** le résout.
 
 ---
 
