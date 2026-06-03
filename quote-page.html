@@ -2639,6 +2639,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     let _precomputedAIMask      = null;  // if set, runAIDetection will skip RMBG and use this mask
     let _rulerDetected          = false; // true only when auto-calibration successfully finds a ruler
     let _recalibratingAfterCrop = false; // true when runAutoCalibration is re-run on the cropped image
+    let _lockedPxPerMm          = null;  // échelle verrouillée de la 1re calibration (invariante au recadrage)
     let _backgroundRMBGPromise  = null;  // RMBG starts in parallel with calibration to save time
     let _backgroundRMBGImage    = null;  // sourceImage reference for which the background RMBG was started
     let autoCalibOverlay = null;  // HTMLCanvasElement — cached "10 mm" overlay
@@ -3376,6 +3377,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       autoCalibOverlay = null;
       _rulerDetected          = false;
       _recalibratingAfterCrop = false;
+      _lockedPxPerMm          = null;
       _precomputedAIMask      = null;
       _backgroundRMBGPromise  = null;
       _backgroundRMBGImage    = null;
@@ -5100,6 +5102,16 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         const { ruler, ticks, spacing, rotData } = best;
         const { W, H, rW, rH } = rotData;
 
+        // Recalibration après recadrage : on garde la POSITION de la règle détectée
+        // ici, mais on VERROUILLE l'échelle sur la 1re calibration (invariante au
+        // recadrage). Empêche toute dérive de l'échelle (« 10 mm » faux).
+        if (_recalibratingAfterCrop && _lockedPxPerMm) {
+          spacing.stepPx  = _lockedPxPerMm * mmPerTick;
+          spacing.pxPerMm = _lockedPxPerMm;
+          spacing.pxPerCm = _lockedPxPerMm * 10;
+          spacing.mmPerPx = mmPerTick / (_lockedPxPerMm * mmPerTick);
+        }
+
         const absAngle = Math.abs(fineAngle % 180);
         const isVertical = absAngle > 45 && absAngle < 135;
         autoCalibration = { ruler, ticks, spacing, isVertical, fineAngle, origW: W, origH: H, rW, rH };
@@ -5389,14 +5401,21 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         tempCtx.clearRect(0, 0, img.width, img.height);
         tempCtx.drawImage(img, 0, 0);
 
+        // L'échelle (px/mm) est INVARIANTE au recadrage (rotation + crop sans
+        // redimensionnement). On la verrouille depuis la 1re calibration (celle
+        // qui a passé le garde-fou) pour que la recalibration sur l'image recadrée
+        // ne puisse PAS la faire dériver — cause des « 10 mm » faux observés.
+        const lockedPxPerMm = autoCalibration?.spacing?.pxPerMm || null;
+
         _smallCalibCache = null;
         resetWorkflowForImage();
 
         // Stash the cropped mask so runAIDetection skips a second RMBG call
         _precomputedAIMask = croppedMask;
+        _lockedPxPerMm     = lockedPxPerMm;
 
-        // Re-run ruler detection on the cropped image — cleaner and more accurate
-        // than transforming coordinates from the full image.
+        // Re-run ruler detection on the cropped image (position de la règle), mais
+        // l'échelle reste verrouillée sur la 1re calibration.
         _recalibratingAfterCrop = true;
         showPipelineLoader('calib', 'Calibration sur l\'image recadrée…',
           'Détection de la règle sur l\'image recadrée');
