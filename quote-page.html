@@ -736,6 +736,13 @@
           <p class="hint" id="goldStatus" style="display:none;"></p>
         </div>
         <div>
+          <label for="silverRate">Cours de l'argent (EUR/kg)</label>
+          <div class="inline" style="margin-top: 6px;">
+            <input id="silverRate" type="number" readonly step="0.01" min="0" value="0" />
+          </div>
+          <p class="hint" id="silverStatus" style="display:none;"></p>
+        </div>
+        <div>
           <label for="photoInput">Photo de l'article*</label>
           <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
             <input id="photoInput" type="file" required accept="image/*" style="flex:1; min-width:0;" />
@@ -2594,6 +2601,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
 
     const knownDistanceMm = document.getElementById('knownDistanceMm');
     const goldRateInput = document.getElementById('goldRate');
+    const silverRateInput = document.getElementById('silverRate');
     const referenceInput = document.getElementById('reference');
     const descriptionInput = document.getElementById('description');
     const weightInput = document.getElementById('weight');
@@ -3122,6 +3130,15 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         { code: 'D1',  label: 'Dorure 1µm', coloris: 'Doré 1', fixe: 0, orSupp: 0.0012166666667 },
         { code: 'D2',  label: 'Dorure 2µm', coloris: 'Doré 2', fixe: 0, orSupp: 0.0024333333333 },
         { code: 'D3',  label: 'Dorure 3µm', coloris: 'Doré 3', fixe: 0, orSupp: 0.00365 },
+      ],
+
+      // ── Argenture ──  prix = Stotale × ( base + agCoef × cours_argent / diviseurArgent )
+      // agCoef déduit du barème Excel (≈ 0,0054546 × grade ; exact à ~0,1 % sur 10-1000 mm²).
+      diviseurArgent: 100000,            // le cours de l'argent est divisé par ce diviseur
+      prestationsArgent: [
+        { code: 'AG15', label: 'Argenture 15µm', coloris: 'Argent 15', agCoef: 0.08182 },
+        { code: 'AG20', label: 'Argenture 20µm', coloris: 'Argent 20', agCoef: 0.10909 },
+        { code: 'AG30', label: 'Argenture 30µm', coloris: 'Argent 30', agCoef: 0.16364 },
       ]
     };
 
@@ -3134,6 +3151,12 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         return `${S} x (${fr(PRICING.base)} + ${fr(p.fixe)} + ${fr(PRICING.coefOr)} * (${G} / ${div}))`;
       }
       return `${S} x (${fr(PRICING.base)} + (${fr(PRICING.coefOr)} + ${fr(p.orSupp)}) * (${G} / ${div}))`;
+    }
+
+    function buildSilverFormula(p, stotale, silverRate) {
+      const fr = n => String(n).replace('.', ',');
+      const S = stotale.toFixed(2), G = silverRate.toFixed(2), div = PRICING.diviseurArgent;
+      return `${S} x (${fr(PRICING.base)} + ${fr(p.agCoef)} * (${G} / ${div}))`;
     }
 
     function computeMetricsFromSelection() {
@@ -3226,20 +3249,32 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       const stotale = surfaceMm2 * PRICING.facteurSurface + (h * perimeterMm);
       const goldRate = Number(goldRateInput.value) || 0;
       const goldFactor = goldRate / PRICING.diviseurOr;
+      const silverRate = Number(silverRateInput?.value) || 0;
 
       if (surfaceOut) surfaceOut.textContent = surfaceMm2.toFixed(2);
       if (perimeterOut) perimeterOut.textContent = perimeterMm.toFixed(2);
       if (heightOut) heightOut.textContent = h.toFixed(4);
       if (stotalOut) stotalOut.textContent = stotale.toFixed(2);
 
-      // Prix par prestation, calculés depuis le barème PRICING (cf. plus haut)
-      const prices = PRICING.prestations.map(p => ({
+      // Prix dorure (or) — calculés depuis le barème PRICING (cf. plus haut)
+      const pricesOr = PRICING.prestations.map(p => ({
         label:   p.label,
         code:    p.code,
         coloris: p.coloris,
         formula: buildPriceFormula(p, stotale, goldRate),
         price:   stotale * (PRICING.base + p.fixe + (PRICING.coefOr + p.orSupp) * goldFactor)
       }));
+
+      // Prix argenture — même Stotale, cours de l'argent
+      const pricesArgent = PRICING.prestationsArgent.map(p => ({
+        label:   p.label,
+        code:    p.code,
+        coloris: p.coloris,
+        formula: buildSilverFormula(p, stotale, silverRate),
+        price:   stotale * (PRICING.base + p.agCoef * silverRate / PRICING.diviseurArgent)
+      }));
+
+      const prices = [...pricesOr, ...pricesArgent];
 
       lastQuoteContext = {
         referenceClient: referenceInput.value.trim(),
@@ -3303,6 +3338,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         description: descriptionInput.value.trim(),
         weight,
         goldRate,
+        silverRate,
         surfaceMm2,
         perimeterMm,
         heightMm: h,
@@ -3465,6 +3501,29 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         const cached = localStorage.getItem(cacheKey);
         if (cached) {
           goldRateInput.value = cached;
+        }
+      }
+    }
+
+    // Cours de l'argent LBMA — même structure que l'or (v[2] = EUR/once)
+    async function updateSilverRate() {
+      const cacheKey = 'silverRateEurKg';
+      const cacheTsKey = 'silverRateEurKgTs';
+      const url = 'https://prices.lbma.org.uk/json/silver.json';
+      try {
+        const data = await fetchJson(url);
+        const row = selectLbmaFixing(data);
+        if (!row) throw new Error('No fixing');
+        const eurPerOz = Number(row.v[2]);
+        if (!Number.isFinite(eurPerOz)) throw new Error('Bad value');
+        const eurPerKg = eurPerOz * OZ_PER_KG;
+        silverRateInput.value = eurPerKg.toFixed(2);
+        localStorage.setItem(cacheKey, eurPerKg.toFixed(2));
+        localStorage.setItem(cacheTsKey, row.d);
+      } catch (err) {
+        const cached = localStorage.getItem(cacheKey);
+        if (cached) {
+          silverRateInput.value = cached;
         }
       }
     }
@@ -5900,12 +5959,14 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
 
     updateGoldBtn?.addEventListener('click', () => {
       updateGoldRate();
+      updateSilverRate();
     });
 
     updateStartAvailability();
     setStage('idle');
     setStatus('Chargez une image pour démarrer.');
     updateGoldRate();
+    updateSilverRate();
 
     // Aperçu photo au survol
     const photoPreview = document.getElementById('photoPreview');
