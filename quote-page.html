@@ -3077,19 +3077,11 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       const stotale = Number(surfaceTotalMm2) || 0;
       const gold = Number(goldRate) || 0;
       if (!stotale) return null;
-      const goldFactor = gold / 100000;
-      switch ((colorCode || '').toUpperCase()) {
-        case 'FAV':
-          return stotale * (0.0019 + 0.0003842 + 0.0008166666667 * goldFactor);
-        case 'D1':
-          return stotale * (0.0019 + (0.0008166666667 + 0.0012166666667) * goldFactor);
-        case 'D2':
-          return stotale * (0.0019 + (0.0008166666667 + 0.0024333333333) * goldFactor);
-        case 'D3':
-          return stotale * (0.0019 + (0.0008166666667 + 0.00365) * goldFactor);
-        default:
-          return null;
-      }
+      // Même barème que computeAndDisplayPrices (source unique : PRICING)
+      const p = PRICING.prestations.find(x => x.code === (colorCode || '').toUpperCase());
+      if (!p) return null;
+      const goldFactor = gold / PRICING.diviseurOr;
+      return stotale * (PRICING.base + p.fixe + (PRICING.coefOr + p.orSupp) * goldFactor);
     }
 
     const CLIENT_DEFAULTS = {
@@ -3106,6 +3098,43 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       pays: '',
       compteClient: ''
     };
+
+    // ════════════════════════════════════════════════════════════════════════
+    // BARÈME TARIFAIRE — coefficients de calcul des prix de dorure
+    // Pour ajuster un tarif, modifie UNIQUEMENT les valeurs ci-dessous (un seul
+    // endroit : le calcul ET la formule enregistrée en découlent automatiquement).
+    //
+    //   hauteur  = poids / (constanteHauteur × surface_mm²)
+    //   Stotale  = surface_mm² × facteurSurface + hauteur × périmètre_mm
+    //   prix     = Stotale × ( base + fixe + (coefOr + orSupp) × (cours_or / diviseurOr) )
+    // ════════════════════════════════════════════════════════════════════════
+    const PRICING = {
+      constanteHauteur: 0.0073,            // hauteur = poids / (constanteHauteur × surface)
+      facteurSurface:   2,                 // Stotale = surface × facteurSurface + hauteur × périmètre
+      diviseurOr:       100000,            // le cours de l'or est divisé par ce diviseur
+      base:             0.0019,            // coefficient de base, commun à toutes les prestations
+      coefOr:           0.0008166666667,   // coefficient « or » commun (× cours de l'or)
+      // Une ligne par prestation — l'ordre détermine l'affichage :
+      //   fixe   : surcoût fixe (indépendant du cours de l'or)
+      //   orSupp : supplément « or » ajouté à coefOr (× cours de l'or)
+      prestations: [
+        { code: 'FAV', label: 'Flash or avec vernis cataphorèse', coloris: 'Flash + Vernis', fixe: 0.0003842, orSupp: 0 },
+        { code: 'D1',  label: 'Dorure 1µm', coloris: 'Doré 1', fixe: 0, orSupp: 0.0012166666667 },
+        { code: 'D2',  label: 'Dorure 2µm', coloris: 'Doré 2', fixe: 0, orSupp: 0.0024333333333 },
+        { code: 'D3',  label: 'Dorure 3µm', coloris: 'Doré 3', fixe: 0, orSupp: 0.00365 },
+      ]
+    };
+
+    // Reconstruit la chaîne « formule » (enregistrée dans le devis Firestore) à
+    // partir des constantes du barème — garde le calcul et la formule synchronisés.
+    function buildPriceFormula(p, stotale, goldRate) {
+      const fr = n => String(n).replace('.', ',');           // 0.0019 → "0,0019"
+      const S = stotale.toFixed(2), G = goldRate.toFixed(2), div = PRICING.diviseurOr;
+      if (p.fixe) {
+        return `${S} x (${fr(PRICING.base)} + ${fr(p.fixe)} + ${fr(PRICING.coefOr)} * (${G} / ${div}))`;
+      }
+      return `${S} x (${fr(PRICING.base)} + (${fr(PRICING.coefOr)} + ${fr(p.orSupp)}) * (${G} / ${div}))`;
+    }
 
     function computeMetricsFromSelection() {
       let areaPx = 0;
@@ -3193,27 +3222,24 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
 
       const surfaceMm2 = metrics.areaPx / (pxPerMm * pxPerMm);
       const perimeterMm = metrics.perimeterPx / pxPerMm;
-      const h = weight / (0.0073 * surfaceMm2);
-      const stotale = surfaceMm2 * 2 + (h * perimeterMm);
+      const h = weight / (PRICING.constanteHauteur * surfaceMm2);
+      const stotale = surfaceMm2 * PRICING.facteurSurface + (h * perimeterMm);
       const goldRate = Number(goldRateInput.value) || 0;
-      const goldFactor = goldRate / 100000;
-      const priceBaseSurface = stotale;
-      const priceFlashVernis = priceBaseSurface * (0.0019 + 0.0003842 + 0.0008166666667 * goldFactor);
-      const priceD1 = priceBaseSurface * (0.0019 + (0.0008166666667 + 0.0012166666667) * goldFactor);
-      const priceD2 = priceBaseSurface * (0.0019 + (0.0008166666667 + 0.0024333333333) * goldFactor);
-      const priceD3 = priceBaseSurface * (0.0019 + (0.0008166666667 + 0.00365) * goldFactor);
+      const goldFactor = goldRate / PRICING.diviseurOr;
 
       if (surfaceOut) surfaceOut.textContent = surfaceMm2.toFixed(2);
       if (perimeterOut) perimeterOut.textContent = perimeterMm.toFixed(2);
       if (heightOut) heightOut.textContent = h.toFixed(4);
       if (stotalOut) stotalOut.textContent = stotale.toFixed(2);
 
-      const prices = [
-        { label: 'Flash or avec vernis cataphorèse', code: 'FAV', coloris: 'Flash + Vernis', formula: `${stotale.toFixed(2)} x (0,0019 + 0,0003842 + 0,0008166666667 * (${goldRate.toFixed(2)} / 100000))`, price: priceFlashVernis },
-        { label: 'Dorure 1µm', code: 'D1', coloris: 'Doré 1', formula: `${stotale.toFixed(2)} x (0,0019 + (0,0008166666667 + 0,0012166666667) * (${goldRate.toFixed(2)} / 100000))`, price: priceD1 },
-        { label: 'Dorure 2µm', code: 'D2', coloris: 'Doré 2', formula: `${stotale.toFixed(2)} x (0,0019 + (0,0008166666667 + 0,0024333333333) * (${goldRate.toFixed(2)} / 100000))`, price: priceD2 },
-        { label: 'Dorure 3µm', code: 'D3', coloris: 'Doré 3', formula: `${stotale.toFixed(2)} x (0,0019 + (0,0008166666667 + 0,00365) * (${goldRate.toFixed(2)} / 100000))`, price: priceD3 }
-      ];
+      // Prix par prestation, calculés depuis le barème PRICING (cf. plus haut)
+      const prices = PRICING.prestations.map(p => ({
+        label:   p.label,
+        code:    p.code,
+        coloris: p.coloris,
+        formula: buildPriceFormula(p, stotale, goldRate),
+        price:   stotale * (PRICING.base + p.fixe + (PRICING.coefOr + p.orSupp) * goldFactor)
+      }));
 
       lastQuoteContext = {
         referenceClient: referenceInput.value.trim(),
