@@ -3542,21 +3542,56 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       }
     }
 
+    // Ouvre le port avec un garde « déjà ouvert » et des nouvelles tentatives :
+    // après une fermeture, l'OS met un court instant à libérer le port, et un
+    // open() immédiat échoue alors avec « Failed to open serial port ».
+    async function openSerialPort(port, attempts = 3) {
+      for (let i = 0; i < attempts; i++) {
+        if (port.readable) return;            // déjà ouvert (ex. par l'auto-connexion)
+        try {
+          await port.open({ baudRate: 9600, dataBits: 8, stopBits: 1, parity: 'none' });
+          return;
+        } catch (err) {
+          if (i === attempts - 1) throw err;  // dernier essai → on remonte l'erreur
+          await new Promise(r => setTimeout(r, 500)); // laisser l'OS libérer le port
+        }
+      }
+    }
+
+    function serialErrorMessage(err) {
+      const msg = err?.message || String(err);
+      if (/failed to open/i.test(msg)) {
+        return "Port occupé : fermez les autres onglets de l'app et tout logiciel série, "
+             + "débranchez/rebranchez la balance, puis réessayez.";
+      }
+      if (/No port selected|cancelled|aborted|NotFound/i.test(msg)) {
+        return "Aucun port sélectionné.";
+      }
+      return "Connexion échouée : " + msg;
+    }
+
     async function connectSerial() {
       if (!('serial' in navigator)) {
         updateSerialUI(false, "API Web Serial non supportée sur ce navigateur (utilisez Chrome ou Edge).");
         return;
       }
+      // Déjà connectée ? Ne pas ré-ouvrir (évite la course déconnexion→reconnexion).
+      if (serialPort && serialPort.readable) {
+        updateSerialUI(true, "Balance déjà connectée.");
+        return;
+      }
       try {
-        serialPort = await navigator.serial.requestPort();
-        // Configuration standard U.S. Solid balance: 9600 baud, 8 bits, 1 stop bit, pas de parité
-        await serialPort.open({ baudRate: 9600, dataBits: 8, stopBits: 1, parity: 'none' });
+        // Réutiliser un port déjà autorisé (évite le sélecteur), sinon le demander.
+        const authorized = await navigator.serial.getPorts();
+        serialPort = authorized[0] || await navigator.serial.requestPort();
+        await openSerialPort(serialPort);
         keepReadingSerial = true;
         serialReadPromise = readSerial();
         updateSerialUI(true, "Balance : connectée. Posez une pièce...");
       } catch (err) {
         console.error("Failed to connect to serial port:", err);
-        updateSerialUI(false, "Connexion échouée : " + err.message);
+        serialPort = null;
+        updateSerialUI(false, serialErrorMessage(err));
       }
     }
 
@@ -3592,12 +3627,10 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       }
     });
 
-    // Nettoyer proprement la balance en cas de fermeture/rechargement de la page
-    window.addEventListener('beforeunload', async () => {
-      if (serialPort) {
-        await disconnectSerial();
-      }
-    });
+    // Pas de fermeture du port dans beforeunload : un handler async n'est PAS
+    // attendu par le navigateur → le close() resterait à moitié exécuté et
+    // laisserait le port verrouillé (« Failed to open » au rechargement suivant).
+    // Le navigateur libère automatiquement le port à la destruction du document.
 
     // ── Auto-reconnexion au démarrage ─────────────────────────────────────────
     // getPorts() retourne les ports déjà autorisés par l'utilisateur, sans
@@ -3609,7 +3642,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         if (ports.length === 0) return;
         serialPort = ports[0]; // l'utilisateur n'a autorisé que la balance
         updateSerialUI(false, 'Balance : reconnexion…');
-        await serialPort.open({ baudRate: 9600, dataBits: 8, stopBits: 1, parity: 'none' });
+        await openSerialPort(serialPort);
         keepReadingSerial = true;
         serialReadPromise = readSerial();
         updateSerialUI(true, 'Balance : reconnectée. Posez une pièce…');
