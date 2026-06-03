@@ -5140,12 +5140,36 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           return;
         }
 
-        // ── Auto-pipeline: after the (first) calibration on the full image, jump to AI crop ──
+        // ── Auto-pipeline : après la (1re) calibration sur l'image entière ──
         if (_pendingAutoPipeline) {
           _pendingAutoPipeline = false;
-          showPipelineLoader('ai-crop', 'Analyse IA & recadrage…',
-            'Détection du contour du bijou par modèle de vision');
-          setTimeout(() => calibCropBtn.click(), 50);
+
+          // ── Garde-fou anti « prix faux silencieux » ──────────────────────────
+          // On n'enchaîne automatiquement (crop → contour → prix) QUE si l'échelle
+          // est fiable : confiance suffisante ET grandes graduations (cm) bien
+          // identifiées. Le cas piège « demi-graduations prises pour des cm »
+          // (échelle ÷2) se reconnaît justement à un faible nombre de cm alignés,
+          // même quand l'espacement régulier donne une confiance élevée.
+          // Seuils volontairement prudents et ajustables selon les retours terrain.
+          const CALIB_MIN_CONF   = 50;   // % de confiance minimum (ajustable)
+          const CALIB_MIN_MAJORS = 3;    // nb min de grandes graduations (cm) alignées (ajustable)
+          const majors = spacing.majorMatchedTicks || 0;
+
+          if (conf >= CALIB_MIN_CONF && majors >= CALIB_MIN_MAJORS) {
+            showPipelineLoader('ai-crop', 'Analyse IA & recadrage…',
+              'Détection du contour du bijou par modèle de vision');
+            setTimeout(() => calibCropBtn.click(), 50);
+          } else {
+            // Détection douteuse → on s'arrête et on demande une vérification humaine
+            hidePipelineLoader();
+            autoScaleStatus.textContent =
+              `⚠ Échelle à vérifier (confiance ${conf} %, ${majors} graduation(s) cm détectée(s)). ` +
+              `Comparez l'espacement orange à votre règle (1 graduation = 1 cm ?). ` +
+              `Si c'est faux, cliquez « Calibrer manuellement ».`;
+            setStatus('Échelle incertaine : vérifiez les graduations oranges sur la règle, ' +
+              'puis « Utiliser cette calibration », ou « Calibrer manuellement ».', true);
+            renderNormalPreview();
+          }
         }
       } catch (e) {
         console.error(e);
@@ -5657,7 +5681,10 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           aiCompleteBtn.style.display  = '';
           aiSubtractBtn.style.display  = '';
           aiClearManualBtn.style.display = 'none';
-          setStatus('Contour détecté. Ajustez le curseur Détail/Silhouette si besoin.');
+          // Rappel de vérification : le contour ne doit pas inclure la règle, et
+          // le repère « 10 mm » orange doit couvrir 1 cm réel sur la règle.
+          setStatus('Contour détecté. ⚠ Vérifiez : la règle n\'est pas incluse dans le vert, ' +
+            'et le repère « 10 mm » couvre bien 1 cm de votre règle. Ajustez (Détail/Silhouette, − Retirer) si besoin.');
         }
 
         // Pipeline finished — hide the loader
