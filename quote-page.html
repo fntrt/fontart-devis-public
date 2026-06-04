@@ -2048,15 +2048,22 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       });
       quotesTableBody.querySelectorAll('button[data-article-add]').forEach(btn => {
         btn.addEventListener('click', async () => {
+          if (btn.disabled) return;                 // garde anti double-clic
           const id   = btn.dataset.articleAdd;
           const data = _articleCache.get(id);
           if (!data) return;
+          btn.disabled = true;
+          const original = btn.textContent;
+          btn.textContent = 'Ajout…';
           try {
             await upsertCartItem({ ...data, quantity: 1 });
             await loadCartItems();
             setStatus('Ajouté au panier.');
           } catch (err) {
             setStatus(err?.message || 'Ajout au panier impossible.', true);
+          } finally {
+            btn.disabled = false;
+            btn.textContent = original;
           }
         });
       });
@@ -3304,9 +3311,13 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         priceTableBody.appendChild(tr);
       });
       priceTableBody.querySelectorAll('button[data-code]').forEach(btn => {
-        btn.addEventListener('click', (e) => {
+        btn.addEventListener('click', async (e) => {
           e.preventDefault();
           e.stopPropagation();
+          if (btn.disabled) return;                 // garde anti double-clic
+          // Désactive toutes les lignes le temps de l'ajout (un seul coloris par calcul)
+          const resultBtns = priceTableBody.querySelectorAll('button[data-code]');
+          resultBtns.forEach(b => { b.disabled = true; });
           const qty = 1;
           const descBase = lastQuoteContext?.description || '';
           const item = {
@@ -3322,9 +3333,15 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
             photoDataUrl: captureAnnotatedImage() || photoPreview?.dataUrl || ''
           };
           setFormStatus('Ajout au panier...', false);
-          if (window.addToCart) {
-            window.addToCart(item);
-            setStatus('Ajouté au panier.');
+          try {
+            if (window.addToCart) {
+              await window.addToCart(item);          // attend la fin (anti double-ajout)
+              setStatus('Ajouté au panier.');
+            }
+          } finally {
+            // Succès : addToCart a déjà réinitialisé le workflow (boutons masqués).
+            // Échec : on réactive pour permettre un nouvel essai.
+            resultBtns.forEach(b => { b.disabled = false; });
           }
         });
       });
