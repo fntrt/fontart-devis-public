@@ -5924,6 +5924,13 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           manualDrawing = false;
           manualHoverPoint = null;
           manualNearStart = false;
+          // Après chaque polygone fermé, remonter les deux boutons de mode :
+          // l'utilisateur peut alterner librement entre ajouter et retirer.
+          if (hybridMode || eraseMode) {
+            aiCompleteBtn.style.display   = '';
+            aiSubtractBtn.style.display   = '';
+            aiClearManualBtn.style.display = '';
+          }
           renderNormalPreview();
           return;
         }
