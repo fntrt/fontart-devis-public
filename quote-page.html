@@ -213,6 +213,10 @@
 
     .danger { color: var(--danger); font-weight: 600; }
 
+    /* Étoiles de notation : focus clavier visible */
+    #ratingStars [role="radio"] { cursor: pointer; border-radius: 4px; line-height: 1; }
+    #ratingStars [role="radio"]:focus-visible { outline: 2px solid #2d7aff; outline-offset: 3px; }
+
     table {
       width: 100%;
       border-collapse: collapse;
@@ -689,8 +693,8 @@
         <div id="ratingModalBody">
           <p style="font-weight:600; font-size:1.05rem; margin:0 0 6px;">Votre avis nous intéresse</p>
           <p style="font-size:0.88rem; color:#666; margin:0 0 18px;">Comment évaluez-vous l'outil de devis Fontart ?</p>
-          <div id="ratingStars" style="display:flex; justify-content:center; gap:8px; font-size:2rem; cursor:pointer; margin-bottom:16px;">
-            <span data-v="1">☆</span><span data-v="2">☆</span><span data-v="3">☆</span><span data-v="4">☆</span><span data-v="5">☆</span>
+          <div id="ratingStars" role="radiogroup" aria-label="Note sur 5 étoiles" style="display:flex; justify-content:center; gap:8px; font-size:2rem; cursor:pointer; margin-bottom:16px;">
+            <span data-v="1" role="radio" tabindex="0"  aria-checked="false" aria-label="1 étoile">☆</span><span data-v="2" role="radio" tabindex="-1" aria-checked="false" aria-label="2 étoiles">☆</span><span data-v="3" role="radio" tabindex="-1" aria-checked="false" aria-label="3 étoiles">☆</span><span data-v="4" role="radio" tabindex="-1" aria-checked="false" aria-label="4 étoiles">☆</span><span data-v="5" role="radio" tabindex="-1" aria-checked="false" aria-label="5 étoiles">☆</span>
           </div>
           <p id="ratingLabel" style="font-size:0.82rem; color:#aaa; min-height:1.2em; margin:0;"></p>
         </div>
@@ -719,7 +723,7 @@
               <span>Balance</span>
             </button>
           </div>
-          <div id="serialStatus" class="hint" style="font-size: 0.8rem; margin-top: 4px;">Balance : déconnectée.</div>
+          <div id="serialStatus" class="hint" role="status" aria-live="polite" style="font-size: 0.8rem; margin-top: 4px;">Balance : déconnectée.</div>
         </div>
       </div>
       <input id="supplierRef" type="hidden" />
@@ -750,7 +754,7 @@
           </div>
         </div>
       </div>
-      <p class="status" id="formStatus" style="display:none;"></p>
+      <p class="status" id="formStatus" role="status" aria-live="polite" style="display:none;"></p>
     </div>
 
     <div class="card hidden" id="workspaceCard">
@@ -777,7 +781,7 @@
 
       <div id="autoScaleSection" class="hidden" style="margin-top: 8px;">
         <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-          <span id="autoScaleStatus" style="flex:1; font-size:.88rem; color:#555;">Détection automatique de la règle…</span>
+          <span id="autoScaleStatus" role="status" aria-live="polite" style="flex:1; font-size:.88rem; color:#555;">Détection automatique de la règle…</span>
           <button id="calibCropBtn" class="secondary" type="button" style="white-space:nowrap; display:none;" title="Recadrer l'image autour du bijou et de la règle, puis recalibrer">✂️ Recadrer</button>
           <button id="autoScaleAcceptBtn" type="button" style="white-space:nowrap;" disabled>✓ Utiliser cette calibration</button>
           <button id="autoScaleManualBtn" class="secondary" type="button" style="white-space:nowrap;">Calibrer manuellement</button>
@@ -800,7 +804,7 @@
           <span style="font-size:.8rem; color:#888; white-space:nowrap;">Silhouette</span>
         </div>
         <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-          <span id="aiStatusEl" style="flex:1; font-size:.88rem; color:#555;">Analyse IA en cours…</span>
+          <span id="aiStatusEl" role="status" aria-live="polite" style="flex:1; font-size:.88rem; color:#555;">Analyse IA en cours…</span>
           <button id="aiCompleteBtn" class="secondary" type="button" style="white-space:nowrap; display:none;">+ Compléter</button>
           <button id="aiSubtractBtn" class="secondary" type="button" style="white-space:nowrap; display:none;">− Retirer</button>
           <button id="aiClearManualBtn" class="secondary" type="button" style="white-space:nowrap; display:none;">Effacer zones</button>
@@ -817,7 +821,7 @@
         </div>
       </div>
 
-      <p class="status" id="statusMsg" style="margin-top:6px;">Chargez une image pour démarrer.</p>
+      <p class="status" id="statusMsg" role="status" aria-live="polite" style="margin-top:6px;">Chargez une image pour démarrer.</p>
     </div>
 
     <div class="card hidden" id="resultsCard">
@@ -898,7 +902,7 @@
         <button id="validateOrderBtn" type="button">Valider ma commande</button>
       </div>
       <div style="text-align:right; margin-top:6px;">
-        <span id="orderStatus" style="display:none; font-size:0.9em;"></span>
+        <span id="orderStatus" role="status" aria-live="polite" style="display:none; font-size:0.9em;"></span>
       </div>
     </div>
 
@@ -6242,6 +6246,62 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
 
     // ── 4. Modal : affichage et interaction ──────────────────────────────
     let _ratingModalOpen = false;
+    let _modalSelected    = 0;     // note mise en avant / choisie
+    let _ratingStarsBound = false; // les écouteurs des étoiles ne sont liés qu'une fois
+
+    function ratingStarEls() {
+      return Array.from(document.querySelectorAll('#ratingStars [role="radio"]'));
+    }
+
+    // highlight = nb d'étoiles allumées (survol / focus) ; aria-checked = _modalSelected
+    function renderModalStars(highlight) {
+      const labelEl = document.getElementById('ratingLabel');
+      const lit = highlight || _modalSelected;
+      ratingStarEls().forEach(s => {
+        const v = +s.dataset.v;
+        s.textContent = v <= lit ? '★' : '☆';
+        s.style.color = v <= lit ? '#f59e0b' : '#ccc';
+        s.setAttribute('aria-checked', String(v === _modalSelected));
+        s.tabIndex = (v === (_modalSelected || 1)) ? 0 : -1;  // roving tabindex
+      });
+      if (labelEl) labelEl.textContent = lit ? RATING_LABELS[lit] : '';
+    }
+
+    async function commitRating(v) {
+      _modalSelected = v;
+      renderModalStars(v);
+      try { await saveUserRating(v); } catch (e) { console.warn(e); }
+      document.getElementById('ratingModalBody').style.display   = 'none';
+      document.getElementById('ratingModalThanks').style.display = '';
+      setTimeout(() => hideRatingModal(), 2000);
+    }
+
+    function focusStarAt(idx) {
+      const stars = ratingStarEls();
+      idx = Math.max(0, Math.min(stars.length - 1, idx));
+      stars.forEach((st, i) => { st.tabIndex = i === idx ? 0 : -1; });
+      stars[idx].focus();
+      renderModalStars(idx + 1);   // aperçu jusqu'à l'étoile ciblée
+    }
+
+    function bindRatingStarsOnce() {
+      if (_ratingStarsBound) return;
+      _ratingStarsBound = true;
+      const starsEl = document.getElementById('ratingStars');
+      if (!starsEl) return;
+      ratingStarEls().forEach((s, i) => {
+        const v = +s.dataset.v;
+        s.addEventListener('mouseenter', () => renderModalStars(v));
+        s.addEventListener('focus',      () => renderModalStars(v));
+        s.addEventListener('click',      () => commitRating(v));
+        s.addEventListener('keydown', (e) => {
+          if (e.key === 'ArrowRight' || e.key === 'ArrowUp')        { e.preventDefault(); focusStarAt(i + 1); }
+          else if (e.key === 'ArrowLeft' || e.key === 'ArrowDown')  { e.preventDefault(); focusStarAt(i - 1); }
+          else if (e.key === 'Enter' || e.key === ' ')              { e.preventDefault(); commitRating(v); }
+        });
+      });
+      starsEl.addEventListener('mouseleave', () => renderModalStars(_modalSelected));
+    }
 
     async function showRatingModal() {
       if (_ratingModalOpen) return;
@@ -6249,51 +6309,27 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       if (!user) return; // non connecté, on n'affiche pas
       _ratingModalOpen = true;
 
-      const modal      = document.getElementById('ratingModal');
-      const body       = document.getElementById('ratingModalBody');
-      const thanks     = document.getElementById('ratingModalThanks');
-      const starsEl    = document.getElementById('ratingStars');
-      const labelEl    = document.getElementById('ratingLabel');
+      const modal  = document.getElementById('ratingModal');
+      const body   = document.getElementById('ratingModalBody');
+      const thanks = document.getElementById('ratingModalThanks');
       if (!modal) return;
 
       // Recharger la note éventuelle de l'utilisateur
-      let userRating = 0;
+      _modalSelected = 0;
       try {
         const snap = await getDoc(doc(db, 'ratings', user.uid));
-        if (snap.exists()) userRating = snap.data().rating ?? 0;
+        if (snap.exists()) _modalSelected = snap.data().rating ?? 0;
       } catch (e) { /* ignore */ }
 
+      bindRatingStarsOnce();
       body.style.display   = '';
       thanks.style.display = 'none';
       modal.style.display  = 'flex';
+      renderModalStars(_modalSelected);
 
-      // Afficher les étoiles initiales si déjà noté
-      renderModalStars(starsEl, labelEl, userRating, userRating);
-
-      // Hover
-      starsEl.querySelectorAll('span').forEach(s => {
-        s.addEventListener('mouseenter', () => renderModalStars(starsEl, labelEl, +s.dataset.v, userRating));
-        s.addEventListener('mouseleave', () => renderModalStars(starsEl, labelEl, userRating, userRating));
-        s.addEventListener('click', async () => {
-          const v = +s.dataset.v;
-          userRating = v;
-          renderModalStars(starsEl, labelEl, v, v);
-          try { await saveUserRating(v); } catch(e) { console.warn(e); }
-          // Afficher le merci, fermer après 2 s
-          body.style.display   = 'none';
-          thanks.style.display = '';
-          setTimeout(() => hideRatingModal(), 2000);
-        });
-      });
-    }
-
-    function renderModalStars(starsEl, labelEl, hovered, selected) {
-      starsEl.querySelectorAll('span').forEach(s => {
-        const v = +s.dataset.v;
-        s.textContent = v <= (hovered || selected) ? '★' : '☆';
-        s.style.color = v <= (hovered || selected) ? '#f59e0b' : '#ccc';
-      });
-      labelEl.textContent = hovered ? RATING_LABELS[hovered] : (selected ? RATING_LABELS[selected] : '');
+      // Focus initial sur l'étoile pertinente (accessibilité clavier)
+      const startIdx = _modalSelected > 0 ? _modalSelected - 1 : 0;
+      setTimeout(() => focusStarAt(startIdx), 0);
     }
 
     function hideRatingModal() {
@@ -6305,6 +6341,21 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     document.getElementById('ratingModalClose')?.addEventListener('click', hideRatingModal);
     document.getElementById('ratingModal')?.addEventListener('click', (e) => {
       if (e.target === e.currentTarget) hideRatingModal();
+    });
+    // Clavier : Échap ferme, Tab reste piégé dans la modal
+    document.getElementById('ratingModal')?.addEventListener('keydown', (e) => {
+      if (!_ratingModalOpen) return;
+      if (e.key === 'Escape') { e.preventDefault(); hideRatingModal(); return; }
+      if (e.key === 'Tab') {
+        const focusables = [
+          document.getElementById('ratingModalClose'),
+          ...ratingStarEls().filter(s => s.tabIndex === 0)
+        ].filter(Boolean);
+        if (focusables.length < 2) return;
+        const first = focusables[0], last = focusables[focusables.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
     });
 
     // Exposer pour le badge cliquable
