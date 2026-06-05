@@ -416,6 +416,27 @@
     </button>
   </div>
 </div>
+
+<!-- Popup confirmation de présence de règle -->
+<div id="rulerConfirmModal" style="display:none; position:fixed; inset:0; z-index:10002; background:rgba(0,0,0,0.5); align-items:center; justify-content:center; backdrop-filter: blur(4px);">
+  <div style="background:white; border-radius:16px; padding:32px 28px; max-width:440px; width:90%; text-align:center; box-shadow:0 20px 60px rgba(0,0,0,0.3); position:relative; font-family: inherit;">
+    <div style="font-size:3rem; margin-bottom:16px;">📏</div>
+    <h2 style="margin:0 0 12px; color:#1f1f1f; font-size:1.3rem; font-weight: 600;">Présence de la règle</h2>
+    <p style="color:#5b4f44; line-height:1.6; margin:0 0 24px; font-size: 0.95rem;">
+      Pour calculer le tarif exact de la dorure, votre bijou doit être photographié <strong>à plat, bien de dessus, à côté d'une règle graduée</strong>.<br><br>
+      Confirmez-vous qu'une règle graduée est bien visible sur cette photo ?
+    </p>
+    <div style="display: flex; gap: 12px; justify-content: center;">
+      <button id="rulerConfirmYesBtn" style="background:#1e293b; color:white; border:none; border-radius:8px; padding:10px 20px; font-size:0.95rem; cursor:pointer; font-weight: 600; flex: 1;">
+        Oui, elle est présente
+      </button>
+      <button id="rulerConfirmNoBtn" style="background:#f2ece3; color:#1f1f1f; border:1px solid #e3dcd2; border-radius:8px; padding:10px 20px; font-size:0.95rem; cursor:pointer; flex: 1;">
+        Non, annuler
+      </button>
+    </div>
+  </div>
+</div>
+
   <div class="card" id="authGate">
     <h2>Accès membre</h2>
     <p class="hint">Connectez-vous pour accéder au devis. Si vous n'avez pas de compte, inscrivez-vous.</p>
@@ -785,6 +806,7 @@
           <button id="calibCropBtn" class="secondary" type="button" style="white-space:nowrap; display:none;" title="Recadrer l'image autour du bijou et de la règle, puis recalibrer">✂️ Recadrer</button>
           <button id="autoScaleAcceptBtn" type="button" style="white-space:nowrap;" disabled>✓ Utiliser cette calibration</button>
           <button id="autoScaleManualBtn" class="secondary" type="button" style="white-space:nowrap;">Calibrer manuellement</button>
+          <button id="autoScaleCancelBtn" class="secondary" type="button" style="white-space:nowrap;">← Retour</button>
         </div>
       </div>
 
@@ -2598,6 +2620,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     const autoScaleStatus    = document.getElementById('autoScaleStatus');
     const autoScaleAcceptBtn = document.getElementById('autoScaleAcceptBtn');
     const autoScaleManualBtn = document.getElementById('autoScaleManualBtn');
+    const autoScaleCancelBtn = document.getElementById('autoScaleCancelBtn');
     const calibCropBtn       = document.getElementById('calibCropBtn');
     const pointsInfo = document.getElementById('pointsInfo');
     const workspaceCard = document.getElementById('workspaceCard');
@@ -3771,6 +3794,29 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
 
 
 
+    // ── Popup confirmation : présence de règle ────────────────────────
+    function askRulerConfirmation() {
+      return new Promise((resolve) => {
+        const modal = document.getElementById('rulerConfirmModal');
+        const yesBtn = document.getElementById('rulerConfirmYesBtn');
+        const noBtn  = document.getElementById('rulerConfirmNoBtn');
+        if (!modal || !yesBtn || !noBtn) { resolve(true); return; }
+        modal.style.display = 'flex';
+
+        function cleanup(result) {
+          modal.style.display = 'none';
+          yesBtn.removeEventListener('click', onYes);
+          noBtn.removeEventListener('click',  onNo);
+          resolve(result);
+        }
+        function onYes() { cleanup(true);  }
+        function onNo()  { cleanup(false); }
+
+        yesBtn.addEventListener('click', onYes);
+        noBtn.addEventListener('click',  onNo);
+      });
+    }
+
     photoInput.addEventListener('change', async (e) => {
       setFormStatus('Photo sélectionnée. Vérification...', false);
       const { ok, missing } = hasRequiredInputs();
@@ -3779,9 +3825,18 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         photoInput.value = '';
         return;
       }
-      if (formStatus) formStatus.style.display = 'none';
       const file = e.target.files[0];
       if (!file) return;
+
+      // ── Demander confirmation de la présence de la règle ──
+      const confirmed = await askRulerConfirmation();
+      if (!confirmed) {
+        photoInput.value = '';
+        setFormStatus('Import annulé. Veuillez reprendre la photo avec une règle graduée.', true);
+        return;
+      }
+
+      if (formStatus) formStatus.style.display = 'none';
       try {
         sourceImage = await loadImageFromFile(file);
         sourceImage = await downscaleSourceImage(sourceImage); // accélère toutes les boucles CPU
@@ -4024,6 +4079,13 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         const oc = new OffscreenCanvas(vw, vh);
         oc.getContext('2d').drawImage(video, 0, 0, vw, vh);
         closeModal();
+
+        // ── Demander confirmation de la présence de la règle ──
+        const confirmed = await askRulerConfirmation();
+        if (!confirmed) {
+          setFormStatus('Import annulé. Veuillez reprendre la photo avec une règle graduée.', true);
+          return;
+        }
 
         // Convert to blob → HTMLImageElement, same pipeline as file upload
         const blob = await oc.convertToBlob({ type: 'image/jpeg', quality: 0.95 });
@@ -5107,14 +5169,15 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         }
 
         if (!best) {
-          autoScaleStatus.textContent = 'Aucune règle détectée, impossible de calibrer l\'image.';
-          setStatus('Aucune règle détectée, impossible de calibrer l\'image.', true);
+          autoScaleStatus.textContent = 'Règle non détectée. Calibrez manuellement ou revenez en arrière.';
           _pendingAutoPipeline = false; // give up the auto-chain
           if (_recalibratingAfterCrop) {
             _recalibratingAfterCrop = false;
             _precomputedAIMask = null; // can't use mask without calibration
           }
           hidePipelineLoader();
+          setStage('auto-scale');
+          setStatus('Règle non détectée. Utilisez "Calibrer manuellement" pour sélectionner 2 points sur la règle, ou "← Retour" pour changer de photo.', true);
           renderNormalPreview();
           return;
         }
@@ -5207,9 +5270,10 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       } catch (e) {
         console.error(e);
         autoScaleStatus.textContent = 'Erreur de calibration : ' + (e?.message ?? String(e));
-        setStatus('Erreur lors de la détection de la règle. ' + (e?.message ?? ''), true);
         _pendingAutoPipeline = false;
         hidePipelineLoader();
+        setStage('auto-scale');
+        setStatus('Erreur lors de la détection de la règle. ' + (e?.message ?? ''), true);
       }
     }
 
@@ -5464,6 +5528,16 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       setStage('scale');
       setStatus('Sélectionnez 2 points sur la règle pour calibrer l\'image.');
       renderNormalPreview();
+    });
+
+    autoScaleCancelBtn?.addEventListener('click', () => {
+      autoCalibration = null;
+      autoCalibOverlay = null;
+      sourceImage = null;
+      ctx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+      photoInput.value = '';
+      setStage('idle');
+      setStatus('Chargez une image pour démarrer.');
     });
 
     // ── AI contour detection ───────────────────────────────────────
