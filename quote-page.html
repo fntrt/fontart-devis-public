@@ -6016,6 +6016,10 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       manualCurrent    = [];
       autoCalibration  = null;
       autoCalibOverlay = null;
+      // Réinitialiser les points de calibration et la distance
+      selectedPoints = [];
+      if (knownDistanceMm) knownDistanceMm.value = '';
+      if (pointsInfo) pointsInfo.textContent = '0 / 2 points sélectionnés';
       setStage('scale');
       setStatus('Sélectionnez 2 points sur la règle pour calibrer l\'image.');
       renderNormalPreview();
