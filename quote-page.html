@@ -2898,19 +2898,21 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       ctx.lineJoin = 'round';
       ctx.lineCap = 'round';
 
-      // Add-zones (orange in hybrid, green/blue in select)
-      manualContours.forEach((contour, idx) => {
-        const isHole = !isHybrid && isManualHole(idx);
-        ctx.strokeStyle = isHybrid ? '#f97316' : (isHole ? '#2563eb' : '#16a34a');
-        ctx.setLineDash([]);
-        ctx.beginPath();
-        ctx.moveTo(contour.points[0].x, contour.points[0].y);
-        for (let i = 1; i < contour.points.length; i++) {
-          ctx.lineTo(contour.points[i].x, contour.points[i].y);
-        }
-        ctx.closePath();
-        ctx.stroke();
-      });
+      // Add-zones: in hybrid mode, completed zones are rendered green via aiMaskOffscreen — skip here
+      if (!isHybrid) {
+        manualContours.forEach((contour, idx) => {
+          const isHole = isManualHole(idx);
+          ctx.strokeStyle = isHole ? '#2563eb' : '#16a34a';
+          ctx.setLineDash([]);
+          ctx.beginPath();
+          ctx.moveTo(contour.points[0].x, contour.points[0].y);
+          for (let i = 1; i < contour.points.length; i++) {
+            ctx.lineTo(contour.points[i].x, contour.points[i].y);
+          }
+          ctx.closePath();
+          ctx.stroke();
+        });
+      }
 
       // Subtract-zones (red dashed)
       subtractContours.forEach(contour => {
@@ -5682,18 +5684,21 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       return out;
     }
 
-    function buildAIMaskOffscreen(mask, w, h, thr = 0.5, subtractMask = null) {
+    function buildAIMaskOffscreen(mask, w, h, thr = 0.5, subtractMask = null, addMask = null) {
       const imgData = new ImageData(w, h);
       const d = imgData.data;
       for (let y = 0; y < h; y++) {
         for (let x = 0; x < w; x++) {
           const i = y * w + x;
-          if (mask[i] < thr || (subtractMask && subtractMask[i])) continue;
-          const border =
-            (x === 0   || mask[i-1] < thr || (subtractMask && subtractMask[i-1])) ||
-            (x === w-1 || mask[i+1] < thr || (subtractMask && subtractMask[i+1])) ||
-            (y === 0   || mask[i-w] < thr || (subtractMask && subtractMask[i-w])) ||
-            (y === h-1 || mask[i+w] < thr || (subtractMask && subtractMask[i+w]));
+          const inAI  = mask[i] >= thr && !(subtractMask && subtractMask[i]);
+          const inAdd = !!(addMask && addMask[i]);
+          if (!inAI && !inAdd) continue;
+          const neighborIn = (nx, ny) => {
+            if (nx < 0 || nx >= w || ny < 0 || ny >= h) return false;
+            const ni = ny * w + nx;
+            return (mask[ni] >= thr && !(subtractMask && subtractMask[ni])) || !!(addMask && addMask[ni]);
+          };
+          const border = !neighborIn(x-1,y) || !neighborIn(x+1,y) || !neighborIn(x,y-1) || !neighborIn(x,y+1);
           const p = i * 4;
           d[p] = 30; d[p+1] = 210; d[p+2] = 60;
           d[p+3] = border ? 255 : 110;
@@ -5712,8 +5717,9 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       // Logarithmic scale: Détail (0) → thr≈0.85  |  mid (5) → thr≈0.10  |  Silhouette (10) → thr≈0.01
       const thr = 0.85 * Math.pow(0.01 / 0.85, sliderVal / 10);
       const subtractMask = subtractContours.length > 0 ? rasterizeContours(subtractContours, w, h) : null;
+      const addMask = (hybridMode && manualContours.length > 0) ? rasterizeContours(manualContours, w, h) : null;
       aiMetrics = computeAIMetrics(aiDetectedMask, w, h, thr, subtractMask);
-      aiMaskOffscreen = buildAIMaskOffscreen(aiDetectedMask, w, h, thr, subtractMask);
+      aiMaskOffscreen = buildAIMaskOffscreen(aiDetectedMask, w, h, thr, subtractMask, addMask);
       renderNormalPreview();
     }
 
@@ -6005,7 +6011,11 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
             aiSubtractBtn.style.display   = '';
             aiClearManualBtn.style.display = '';
           }
-          renderNormalPreview();
+          if (hybridMode) {
+            reRenderAIMask(+aiCorrSlider.value); // merge new zone into green overlay
+          } else {
+            renderNormalPreview();
+          }
           return;
         }
         manualCurrent.push({ x, y });
