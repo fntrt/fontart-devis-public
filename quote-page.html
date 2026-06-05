@@ -6005,8 +6005,17 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
 
     // ── Calibration manuelle depuis l'étape de détection ─────────────────────
     aiManualCalibBtn?.addEventListener('click', () => {
-      // Conserve le masque IA en mémoire pour y revenir si besoin,
-      // mais bascule sur l'interface de calibration manuelle par points.
+      // Efface les résultats IA et bascule sur la calibration manuelle par points.
+      aiDetectedMask   = null;
+      aiMaskOffscreen  = null;
+      aiMetrics        = null;
+      hybridMode       = false;
+      eraseMode        = false;
+      manualContours   = [];
+      subtractContours = [];
+      manualCurrent    = [];
+      autoCalibration  = null;
+      autoCalibOverlay = null;
       setStage('scale');
       setStatus('Sélectionnez 2 points sur la règle pour calibrer l\'image.');
       renderNormalPreview();
