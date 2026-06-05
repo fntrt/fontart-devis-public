@@ -1149,6 +1149,8 @@
     function closeAuthModal() {
       if (authModal) authModal.style.display = 'none';
     }
+    window.openAuthModal  = openAuthModal;
+    window.closeAuthModal = closeAuthModal;
     function updateNavForAuth(loggedIn) {
       const restricted = ['quotesCard', 'cartCard', 'accountCard'];
       restricted.forEach(id => {
