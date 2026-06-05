@@ -5886,6 +5886,52 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       setStatus('Mode points activé. Cliquez pour placer les points du contour.');
     });
 
+    // ── Tooltip illustré pour "+ Compléter" ──────────────────────────────────
+    (function() {
+      const btn = aiCompleteBtn;
+      const tip = document.createElement('div');
+      tip.style.cssText = [
+        'display:none', 'position:fixed', 'z-index:9999',
+        'background:#fff', 'border:1px solid #e2e8f0',
+        'border-radius:12px', 'padding:14px 16px 10px',
+        'box-shadow:0 8px 28px rgba(0,0,0,0.18)',
+        'pointer-events:none', 'text-align:center',
+      ].join(';');
+      tip.innerHTML = `
+        <svg width="210" height="72" viewBox="0 0 210 72" xmlns="http://www.w3.org/2000/svg" style="display:block;margin:0 auto;">
+          <!-- PANEL 1: IA seule (3/4 vert, 1/4 gris en haut-droite) -->
+          <circle cx="25" cy="40" r="18" fill="none" stroke="#e5e7eb" stroke-width="6"/>
+          <path d="M 43,40 A 18,18 0 1,1 25,22" fill="none" stroke="#22c55e" stroke-width="6" stroke-linecap="round"/>
+          <text x="25" y="68" text-anchor="middle" font-size="8" fill="#9ca3af" font-family="sans-serif">IA seule</text>
+          <!-- + -->
+          <text x="60" y="44" text-anchor="middle" font-size="18" fill="#cbd5e1" font-family="sans-serif">+</text>
+          <!-- PANEL 2: zone tracée (1/4 orange pointillé) -->
+          <circle cx="90" cy="40" r="18" fill="none" stroke="#e5e7eb" stroke-width="6"/>
+          <path d="M 90,22 A 18,18 0 0,1 108,40" fill="none" stroke="#f97316" stroke-width="6" stroke-dasharray="4 3" stroke-linecap="round"/>
+          <text x="90" y="68" text-anchor="middle" font-size="8" fill="#f97316" font-family="sans-serif">zone tracée</text>
+          <!-- → -->
+          <text x="128" y="44" text-anchor="middle" font-size="16" fill="#cbd5e1" font-family="sans-serif">→</text>
+          <!-- PANEL 3: résultat complet -->
+          <circle cx="163" cy="40" r="18" fill="none" stroke="#22c55e" stroke-width="6"/>
+          <text x="163" y="68" text-anchor="middle" font-size="8" fill="#22c55e" font-family="sans-serif">résultat</text>
+        </svg>
+        <p style="margin:6px 0 0;font-size:0.78rem;color:#64748b;max-width:220px;line-height:1.4;">
+          Tracez les zones que l'IA a manquées
+        </p>`;
+      document.body.appendChild(tip);
+
+      btn.addEventListener('mouseenter', () => {
+        const r = btn.getBoundingClientRect();
+        tip.style.display = 'block';
+        const tw = tip.offsetWidth;
+        let left = r.left + r.width / 2 - tw / 2;
+        left = Math.max(8, Math.min(left, window.innerWidth - tw - 8));
+        tip.style.left = left + 'px';
+        tip.style.top  = (r.top - tip.offsetHeight - 10) + 'px';
+      });
+      btn.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
+    })();
+
     aiCompleteBtn.addEventListener('click', () => {
       hybridMode = true;
       eraseMode  = false;
