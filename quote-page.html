@@ -840,6 +840,7 @@
           <button id="aiManualCalibBtn" class="secondary" type="button" style="white-space:nowrap;" title="Revenir à la calibration manuelle de la règle">📐 Calibration manuelle</button>
           <button id="aiAcceptBtn" type="button" style="white-space:nowrap;" disabled>✓ Utiliser ce contour</button>
           <button id="aiManualBtn" class="secondary" type="button" style="white-space:nowrap;">Dessiner manuellement</button>
+          <button id="aiCancelBtn" class="secondary" type="button" style="white-space:nowrap;">← Retour</button>
         </div>
       </div>
 
@@ -847,6 +848,7 @@
         <div style="display:flex; align-items:center; gap:10px; width:100%;">
           <button id="manualClearBtn" class="secondary" type="button" style="white-space:nowrap;">Effacer</button>
           <button id="confirmContoursBtn" type="button" style="white-space:nowrap;">Valider le(s) contour(s)</button>
+          <button id="selectCancelBtn" class="secondary" type="button" style="white-space:nowrap;">← Retour</button>
         </div>
       </div>
 
@@ -5567,15 +5569,28 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       renderNormalPreview();
     });
 
-    autoScaleCancelBtn?.addEventListener('click', () => {
-      autoCalibration = null;
-      autoCalibOverlay = null;
-      sourceImage = null;
+    function resetToIdle() {
+      autoCalibration    = null;
+      autoCalibOverlay   = null;
+      aiDetectedMask     = null;
+      aiMaskOffscreen    = null;
+      aiMetrics          = null;
+      hybridMode         = false;
+      eraseMode          = false;
+      manualContours     = [];
+      subtractContours   = [];
+      manualCurrent      = [];
+      sourceImage        = null;
       ctx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
-      photoInput.value = '';
+      photoInput.value   = '';
       setStage('idle');
       setStatus('Chargez une image pour démarrer.');
-    });
+    }
+
+    autoScaleCancelBtn?.addEventListener('click', resetToIdle);
+
+    document.getElementById('aiCancelBtn')?.addEventListener('click', resetToIdle);
+    document.getElementById('selectCancelBtn')?.addEventListener('click', resetToIdle);
 
     // ── AI contour detection ───────────────────────────────────────
 
