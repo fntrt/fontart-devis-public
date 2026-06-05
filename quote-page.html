@@ -5260,6 +5260,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           } else {
             // Détection douteuse → on s'arrête et on demande une vérification humaine
             hidePipelineLoader();
+            setStage('auto-scale');
             autoScaleStatus.textContent =
               `⚠ Échelle à vérifier (confiance ${conf} %, ${majors} graduation(s) cm détectée(s)). ` +
               `Comparez l'espacement orange à votre règle (1 graduation = 1 cm ?). ` +
@@ -5514,6 +5515,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         autoScaleStatus.textContent = 'Erreur IA : ' + (err?.message ?? '');
         setStatus('Erreur lors du recadrage IA : ' + (err?.message ?? ''), true);
         hidePipelineLoader();
+        setStage('auto-scale');
       }
     });
     // ── End AI-driven crop ────────────────────────────────────────────────────
@@ -5807,12 +5809,14 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
             'et le repère « 10 mm » couvre bien 1 cm de votre règle. Ajustez (Détail/Silhouette, − Retirer) si besoin.');
         }
 
-        // Pipeline finished — hide the loader
+        // Pipeline finished — hide the loader and restore AI stage controls
         hidePipelineLoader();
+        setStage('ai-detect');
       } catch (e) {
         aiStatusEl.textContent = 'Erreur IA : ' + (e?.message ?? String(e));
         aiAcceptBtn.disabled = true;
         hidePipelineLoader();
+        setStage('ai-detect');
         console.error(e);
       }
     }
