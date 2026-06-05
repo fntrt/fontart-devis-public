@@ -5900,7 +5900,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       tip.innerHTML = `
         <video id="completeBtnVideo" src="assets/tuto-completer.mp4"
           muted playsinline loop
-          style="display:block;width:420px;border-radius:8px;"></video>
+          style="display:block;width:560px;border-radius:8px;"></video>
         <p style="margin:6px 0 0;font-size:0.78rem;color:#64748b;max-width:260px;line-height:1.4;text-align:center;">
           Tracez les zones que l'IA a manquées
         </p>`;
@@ -5938,7 +5938,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       tip.innerHTML = `
         <video src="assets/tuto-retirer.mp4"
           muted playsinline loop
-          style="display:block;width:420px;border-radius:8px;"></video>
+          style="display:block;width:560px;border-radius:8px;"></video>
         <p style="margin:6px 0 0;font-size:0.78rem;color:#64748b;max-width:420px;line-height:1.4;text-align:center;">
           Tracez les zones à exclure de la sélection
         </p>`;
@@ -6004,6 +6004,45 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     });
 
     // ── Calibration manuelle depuis l'étape de détection ─────────────────────
+    // ── Tooltip illustré pour "Calibration manuelle" ─────────────────────────
+    (function() {
+      const btn = aiManualCalibBtn;
+      if (!btn) return;
+      const tip = document.createElement('div');
+      tip.style.cssText = [
+        'display:none', 'position:fixed', 'z-index:9999',
+        'background:#fff', 'border:1px solid #e2e8f0',
+        'border-radius:12px', 'padding:14px 16px 10px',
+        'box-shadow:0 8px 28px rgba(0,0,0,0.18)',
+        'pointer-events:none', 'text-align:center',
+      ].join(';');
+      tip.innerHTML = `
+        <video src="assets/tuto-calibration-manuelle.mp4"
+          muted playsinline loop
+          style="display:block;width:560px;border-radius:8px;"></video>
+        <p style="margin:6px 0 0;font-size:0.78rem;color:#64748b;max-width:560px;line-height:1.4;text-align:center;">
+          Cliquez sur 2 points de la règle dont vous connaissez la distance
+        </p>`;
+      document.body.appendChild(tip);
+
+      btn.addEventListener('mouseenter', () => {
+        const r = btn.getBoundingClientRect();
+        tip.style.display = 'block';
+        const tw = tip.offsetWidth;
+        let left = r.left + r.width / 2 - tw / 2;
+        left = Math.max(8, Math.min(left, window.innerWidth - tw - 8));
+        tip.style.left = left + 'px';
+        tip.style.top  = (r.top - tip.offsetHeight - 10) + 'px';
+        const vid = tip.querySelector('video');
+        if (vid) { vid.currentTime = 0; vid.play().catch(() => {}); }
+      });
+      btn.addEventListener('mouseleave', () => {
+        const vid = tip.querySelector('video');
+        if (vid) vid.pause();
+        tip.style.display = 'none';
+      });
+    })();
+
     aiManualCalibBtn?.addEventListener('click', () => {
       // Efface les résultats IA et bascule sur la calibration manuelle par points.
       aiDetectedMask   = null;
