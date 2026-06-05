@@ -3396,7 +3396,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
             quantity: qty,
             photoDataUrl: captureAnnotatedImage() || photoPreview?.dataUrl || ''
           };
-          setFormStatus('Ajout au panier...', false);
+          formStatus.style.display = 'none';
           try {
             if (window.addToCart) {
               await window.addToCart(item);          // attend la fin (anti double-ajout)
