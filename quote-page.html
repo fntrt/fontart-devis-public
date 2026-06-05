@@ -5898,24 +5898,10 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         'pointer-events:none', 'text-align:center',
       ].join(';');
       tip.innerHTML = `
-        <svg width="210" height="72" viewBox="0 0 210 72" xmlns="http://www.w3.org/2000/svg" style="display:block;margin:0 auto;">
-          <!-- PANEL 1: IA seule (3/4 vert, 1/4 gris en haut-droite) -->
-          <circle cx="25" cy="40" r="18" fill="none" stroke="#e5e7eb" stroke-width="6"/>
-          <path d="M 43,40 A 18,18 0 1,1 25,22" fill="none" stroke="#22c55e" stroke-width="6" stroke-linecap="round"/>
-          <text x="25" y="68" text-anchor="middle" font-size="8" fill="#9ca3af" font-family="sans-serif">IA seule</text>
-          <!-- + -->
-          <text x="60" y="44" text-anchor="middle" font-size="18" fill="#cbd5e1" font-family="sans-serif">+</text>
-          <!-- PANEL 2: zone tracée (1/4 orange pointillé) -->
-          <circle cx="90" cy="40" r="18" fill="none" stroke="#e5e7eb" stroke-width="6"/>
-          <path d="M 90,22 A 18,18 0 0,1 108,40" fill="none" stroke="#f97316" stroke-width="6" stroke-dasharray="4 3" stroke-linecap="round"/>
-          <text x="90" y="68" text-anchor="middle" font-size="8" fill="#f97316" font-family="sans-serif">zone tracée</text>
-          <!-- → -->
-          <text x="128" y="44" text-anchor="middle" font-size="16" fill="#cbd5e1" font-family="sans-serif">→</text>
-          <!-- PANEL 3: résultat complet -->
-          <circle cx="163" cy="40" r="18" fill="none" stroke="#22c55e" stroke-width="6"/>
-          <text x="163" y="68" text-anchor="middle" font-size="8" fill="#22c55e" font-family="sans-serif">résultat</text>
-        </svg>
-        <p style="margin:6px 0 0;font-size:0.78rem;color:#64748b;max-width:220px;line-height:1.4;">
+        <video id="completeBtnVideo" src="assets/tuto-completer.mp4"
+          muted playsinline loop
+          style="display:block;width:260px;border-radius:8px;"></video>
+        <p style="margin:6px 0 0;font-size:0.78rem;color:#64748b;max-width:260px;line-height:1.4;text-align:center;">
           Tracez les zones que l'IA a manquées
         </p>`;
       document.body.appendChild(tip);
@@ -5928,8 +5914,14 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         left = Math.max(8, Math.min(left, window.innerWidth - tw - 8));
         tip.style.left = left + 'px';
         tip.style.top  = (r.top - tip.offsetHeight - 10) + 'px';
+        const vid = tip.querySelector('video');
+        if (vid) { vid.currentTime = 0; vid.play().catch(() => {}); }
       });
-      btn.addEventListener('mouseleave', () => { tip.style.display = 'none'; });
+      btn.addEventListener('mouseleave', () => {
+        const vid = tip.querySelector('video');
+        if (vid) vid.pause();
+        tip.style.display = 'none';
+      });
     })();
 
     aiCompleteBtn.addEventListener('click', () => {
