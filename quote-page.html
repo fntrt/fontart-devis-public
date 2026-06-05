@@ -1856,7 +1856,7 @@
     async function addToCart(item) {
       try {
         const user = auth.currentUser;
-        if (!user) return;
+        if (!user) { openAuthModal(); return; }
         const supplierRef = await window.ensureSupplierReference?.();
         if (!supplierRef) {
           setStatus('Impossible de générer la référence fournisseur.', true);
