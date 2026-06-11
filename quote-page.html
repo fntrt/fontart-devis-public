@@ -123,6 +123,7 @@
     }
 
     button:hover { background: var(--accent-2); }
+    button:disabled { opacity: .45; cursor: not-allowed; }
     button.secondary { background: #6b5f54; }
     button.secondary:hover { background: #4f463e; }
 
@@ -151,6 +152,8 @@
       width: 100%;
       height: auto;
       display: block;
+      /* Un doigt : la page peut défiler ; deux doigts : pinch géré en JS */
+      touch-action: pan-y;
     }
 
 
@@ -426,6 +429,10 @@
       Pour calculer le tarif exact de la dorure, votre bijou doit être photographié <strong>à plat, bien de dessus, à côté d'une règle graduée et sur un fond uni</strong>.<br><br>
       Confirmez-vous qu'une règle graduée est bien visible sur cette photo et que le fond est uni ?
     </p>
+    <label style="display:flex; align-items:center; gap:8px; justify-content:center; margin:0 0 16px; font-size:0.85rem; color:#5b4f44; cursor:pointer; font-weight:400;">
+      <input type="checkbox" id="rulerConfirmSkipChk" style="width:auto; margin:0;" />
+      Ne plus me demander
+    </label>
     <div style="display: flex; gap: 12px; justify-content: center;">
       <button id="rulerConfirmYesBtn" style="background:#1e293b; color:white; border:none; border-radius:8px; padding:10px 20px; font-size:0.95rem; cursor:pointer; font-weight: 600; flex: 1;">
         Oui, c'est ok
@@ -862,6 +869,8 @@
 
     <div class="card hidden" id="resultsCard">
       <h2>Résultats</h2>
+      <!-- Alerte de vraisemblance (hauteur calculée hors plage plausible) -->
+      <div id="resultsWarning" style="display:none; background:#fdf3e7; border:1px solid #e8c9a0; color:#8a5a17; border-radius:8px; padding:12px 14px; margin-bottom:12px; font-size:0.92rem; line-height:1.5;"></div>
       <!-- Bannière visible uniquement pour les invités après calcul du prix -->
       <div id="guestResultBanner" style="display:none; background:#f2ece3; border:1px solid #e3dcd2; border-radius:8px; padding:14px 16px; margin-bottom:14px; gap:12px; flex-wrap:wrap; align-items:center;">
         <span style="flex:1; min-width:200px; font-size:0.92rem; color:#5b4f44;">
@@ -2633,14 +2642,6 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     });
   </script>
 
-  <script>
-    window.Module = {
-      onRuntimeInitialized() {
-        window.__cvReadyHook && window.__cvReadyHook();
-      }
-    };
-  </script>
-  <script async src="https://cdn.jsdelivr.net/npm/opencv.js@1.2.1/opencv.min.js"></script>
     <script>
     const photoInput = document.getElementById('photoInput');
     const previewCanvas = document.getElementById('previewCanvas');
@@ -2736,13 +2737,9 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     let sourceImage = null;
     let selectedPoints = [];
     let pxPerMm = null;
-    let cvReady = false;
-    let binaryContours = [];
-    let binaryHierarchy = [];
-    let selectableBinaryIndices = [];
-    let selectedContourIndices = new Set();
     let currentStage = 'idle';
     let aiDetectedMask  = null;   // Float32Array prob 0-1 at sourceImage resolution
+    let aiConnectedMask = null;   // Uint8Array — connexité hystérésis (zones faibles reliées aux fortes)
     let aiMaskOffscreen = null;   // HTMLCanvasElement — cached green overlay
     let aiMetrics       = null;   // { areaPx, perimeterPx } from AI mask
     let hybridMode      = false;  // AI + manual complement mode (add zones)
@@ -2769,15 +2766,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     let isPanning = false;
     let panStart = null;
 
-    const MIN_CONTOUR_AREA = 200;
     const OZ_PER_KG = 32.1507465686;
-
-    window.__cvReadyHook = () => {
-      cvReady = true;
-      if (sourceImage && currentStage === 'select') {
-        renderCurrent();
-      }
-    };
 
     const workspaceTitle = workspaceCard.querySelector('h2');
     const STAGE_TITLES = {
@@ -2839,6 +2828,14 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     function updateStartAvailability() {
       const { ok } = hasRequiredInputs();
       photoInput.disabled = !ok;
+      // Même règle pour la caméra : sinon l'utilisateur peut prendre une photo
+      // qui sera jetée au moment du contrôle des champs obligatoires.
+      const cameraBtn = document.getElementById('cameraBtn');
+      if (cameraBtn) {
+        cameraBtn.disabled = !ok;
+        cameraBtn.title = ok ? 'Prendre une photo avec la caméra'
+                             : 'Renseignez d\'abord la description et le poids';
+      }
       maybeWarmRMBG();
     }
 
@@ -3152,33 +3149,6 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       return inside;
     }
 
-    function findExternalContourAt(x, y) {
-      let hit = null;
-      selectableBinaryIndices.forEach(idx => {
-        const contour = binaryContours[idx];
-        if (!contour || contour.points.length < 3) return;
-        if (pointInPolygon(contour.points, x, y)) {
-          if (!hit || contour.area < hit.area) {
-            hit = contour;
-          }
-        }
-      });
-      return hit ? hit.index : null;
-    }
-
-    function getHoleIndicesFor(idx) {
-      const result = [];
-      if (!binaryHierarchy[idx]) return result;
-      let child = binaryHierarchy[idx].child;
-      while (child !== -1 && child !== undefined) {
-        result.push(child);
-        const inner = getHoleIndicesFor(child);
-        result.push(...inner);
-        child = binaryHierarchy[child]?.next ?? -1;
-      }
-      return result;
-    }
-
     function polygonArea(points) {
       let sum = 0;
       for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
@@ -3308,21 +3278,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         return { areaPx, perimeterPx, count: manualContours.length };
       }
 
-      selectedContourIndices.forEach(idx => {
-        const contour = binaryContours[idx];
-        if (!contour) return;
-        areaPx += contour.area;
-        perimeterPx += contour.perimeter;
-        const holes = getHoleIndicesFor(idx);
-        holes.forEach(hIdx => {
-          const hole = binaryContours[hIdx];
-          if (!hole) return;
-          areaPx -= hole.area;
-          perimeterPx += hole.perimeter;
-        });
-      });
-
-      return { areaPx, perimeterPx, count: selectedContourIndices.size };
+      return { areaPx, perimeterPx, count: 0 };
     }
 
     async function computeAndDisplayPrices() {
@@ -3363,6 +3319,16 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       const surfaceMm2 = metrics.areaPx / (pxPerMm * pxPerMm);
       const perimeterMm = metrics.perimeterPx / pxPerMm;
       const h = weight / (PRICING.constanteHauteur * surfaceMm2);
+
+      // Garde-fou de vraisemblance : une hauteur moyenne aberrante trahit le
+      // plus souvent une erreur d'échelle (graduations mal lues : ×2 / ÷2),
+      // un contour incomplet ou un poids mal saisi. On alerte sans bloquer.
+      const H_MIN_MM = 0.1, H_MAX_MM = 50;
+      const heightWarning = (!Number.isFinite(h) || h < H_MIN_MM || h > H_MAX_MM)
+        ? `⚠ Hauteur moyenne calculée inhabituelle (${Number.isFinite(h) ? h.toFixed(2) : '∞'} mm pour un bijou). ` +
+          `Avant d'utiliser ces prix, vérifiez : l'échelle (le repère « 10 mm » couvre-t-il bien 1 cm de la règle ?), ` +
+          `le contour sélectionné et le poids saisi (${weight} g).`
+        : '';
       const stotale = surfaceMm2 * PRICING.facteurSurface + (h * perimeterMm);
       const goldRate = Number(goldRateInput.value) || 0;
       const goldFactor = goldRate / PRICING.diviseurOr;
@@ -3457,6 +3423,11 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
 
       resultsCard.classList.remove('hidden');
       workspaceCard.classList.add('hidden');
+      const resultsWarning = document.getElementById('resultsWarning');
+      if (resultsWarning) {
+        resultsWarning.textContent = heightWarning;
+        resultsWarning.style.display = heightWarning ? 'block' : 'none';
+      }
       setStatus('Calcul terminé.');
       // Afficher la bannière d'invitation uniquement pour les invités
       const guestBanner = document.getElementById('guestResultBanner');
@@ -3483,7 +3454,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         adjustments: null,
         selection: {
           mode: manualMode ? 'manual' : 'auto',
-          selectedContours: manualMode ? manualContours.length : Array.from(selectedContourIndices),
+          selectedContours: manualMode ? manualContours.length : null,
           holes: manualMode ? manualContours.filter(c => c.isHole).length : null
         }
       };
@@ -3500,6 +3471,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     }
 
     function resetWorkflowForImage() {
+      _refineToken++;            // invalide tout raffinement de masque en attente
       selectedPoints = [];
       pxPerMm = null;
       autoCalibration  = null;
@@ -3511,6 +3483,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       _backgroundRMBGPromise  = null;
       _backgroundRMBGImage    = null;
       aiDetectedMask  = null;
+      aiConnectedMask = null;
       aiMaskOffscreen = null;
       aiMetrics       = null;
       hybridMode       = false;
@@ -3521,10 +3494,6 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       if (aiClearManualBtn){ aiClearManualBtn.style.display = 'none'; }
       if (calibCropBtn)     { calibCropBtn.style.display = 'none'; calibCropBtn.disabled = false; calibCropBtn.textContent = '✂️ Recadrer'; }
       previewCanvas.style.cursor = '';
-      binaryContours = [];
-      binaryHierarchy = [];
-      selectableBinaryIndices = [];
-      selectedContourIndices.clear();
       manualContours = [];
       manualCurrent = [];
       manualDrawing = false;
@@ -3882,9 +3851,15 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     // ── Popup confirmation : présence de règle ────────────────────────
     function askRulerConfirmation() {
       return new Promise((resolve) => {
+        // « Ne plus me demander » : choix mémorisé, on saute la confirmation
+        let skipStored = false;
+        try { skipStored = localStorage.getItem('skipRulerConfirm') === '1'; } catch (e) {}
+        if (skipStored) { resolve(true); return; }
+
         const modal = document.getElementById('rulerConfirmModal');
         const yesBtn = document.getElementById('rulerConfirmYesBtn');
         const noBtn  = document.getElementById('rulerConfirmNoBtn');
+        const skipChk = document.getElementById('rulerConfirmSkipChk');
         if (!modal || !yesBtn || !noBtn) { resolve(true); return; }
         modal.style.display = 'flex';
 
@@ -3894,7 +3869,11 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           noBtn.removeEventListener('click',  onNo);
           resolve(result);
         }
-        function onYes() { cleanup(true);  }
+        function onYes() {
+          // Ne mémoriser que sur une confirmation positive
+          if (skipChk?.checked) { try { localStorage.setItem('skipRulerConfirm', '1'); } catch (e) {} }
+          cleanup(true);
+        }
         function onNo()  { cleanup(false); }
 
         yesBtn.addEventListener('click', onYes);
@@ -4158,11 +4137,27 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
 
       async function capture() {
         if (!stream || !video.srcObject) return;
-        const vw = video.videoWidth  || video.clientWidth;
-        const vh = video.videoHeight || video.clientHeight;
-        if (!vw || !vh) return;
-        const oc = new OffscreenCanvas(vw, vh);
-        oc.getContext('2d').drawImage(video, 0, 0, vw, vh);
+
+        // Photo pleine résolution du capteur via ImageCapture quand l'API
+        // existe (le flux vidéo est limité à ~1080p et plus flou — la netteté
+        // des graduations conditionne la calibration). Repli : capture du flux.
+        let blob = null;
+        const track = stream.getVideoTracks()[0];
+        if (track && window.ImageCapture) {
+          try {
+            blob = await new ImageCapture(track).takePhoto();
+          } catch (e) {
+            console.warn('[camera] takePhoto indisponible, capture du flux vidéo :', e?.message || e);
+          }
+        }
+        if (!blob) {
+          const vw = video.videoWidth  || video.clientWidth;
+          const vh = video.videoHeight || video.clientHeight;
+          if (!vw || !vh) return;
+          const oc = new OffscreenCanvas(vw, vh);
+          oc.getContext('2d').drawImage(video, 0, 0, vw, vh);
+          blob = await oc.convertToBlob({ type: 'image/jpeg', quality: 0.95 });
+        }
         closeModal();
 
         // ── Demander confirmation de la présence de la règle ──
@@ -4172,8 +4167,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           return;
         }
 
-        // Convert to blob → HTMLImageElement, same pipeline as file upload
-        const blob = await oc.convertToBlob({ type: 'image/jpeg', quality: 0.95 });
+        // blob → HTMLImageElement, same pipeline as file upload
         try {
           const { ok, missing } = hasRequiredInputs();
           if (!ok) {
@@ -4252,6 +4246,10 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       const dy = selectedPoints[0].y - selectedPoints[1].y;
       const pixelLength = Math.hypot(dx, dy);
       pxPerMm = pixelLength / dist;
+      // La calibration manuelle vaut détection de règle : l'utilisateur a confirmé
+      // la présence d'une règle et placé 2 points dessus. Sans ce flag,
+      // computeAndDisplayPrices refuse le calcul en bout de parcours.
+      _rulerDetected = true;
       setStage('ai-detect');
       runAIDetection();
     });
@@ -4448,18 +4446,10 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       return ticks.length * (good / Math.max(1, gaps.length));
     }
 
-    function detectTicksFromEdge(imageData, ruler, sensitivity, edge) {
-      const { data, width, height } = imageData;
-      const rulerHeight = ruler.bottom - ruler.top + 1;
-      const scanH = Math.min(rulerHeight, 68);
-      let y0, y1;
-      if (edge === "top") {
-        y0 = clamp(ruler.top + Math.max(1, Math.round(rulerHeight * 0.04)), 0, height - 1);
-        y1 = clamp(ruler.top + scanH, y0 + 2, height - 1);
-      } else {
-        y1 = clamp(ruler.bottom - Math.max(1, Math.round(rulerHeight * 0.04)), 0, height - 1);
-        y0 = clamp(ruler.bottom - scanH, 0, y1 - 2);
-      }
+    // Cœur commun de la détection de graduations sur une bande [y0, y1] de la
+    // règle (anciennement dupliqué entre detectTicksFromEdge et detectTicks).
+    function detectTicksInBand(imageData, ruler, sensitivity, y0, y1) {
+      const { data, width } = imageData;
       const x0 = clamp(ruler.left  + 2, 0, width - 1);
       const x1 = clamp(ruler.right - 2, x0, width - 1);
 
@@ -4540,8 +4530,23 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       return mergeCloseTicks(ticks, 2.6);
     }
 
+    function detectTicksFromEdge(imageData, ruler, sensitivity, edge) {
+      const { height } = imageData;
+      const rulerHeight = ruler.bottom - ruler.top + 1;
+      const scanH = Math.min(rulerHeight, 68);
+      let y0, y1;
+      if (edge === "top") {
+        y0 = clamp(ruler.top + Math.max(1, Math.round(rulerHeight * 0.04)), 0, height - 1);
+        y1 = clamp(ruler.top + scanH, y0 + 2, height - 1);
+      } else {
+        y1 = clamp(ruler.bottom - Math.max(1, Math.round(rulerHeight * 0.04)), 0, height - 1);
+        y0 = clamp(ruler.bottom - scanH, 0, y1 - 2);
+      }
+      return detectTicksInBand(imageData, ruler, sensitivity, y0, y1);
+    }
+
     function detectTicks(imageData, ruler, sensitivity) {
-      const { data, width, height } = imageData;
+      const { height } = imageData;
       const rulerHeight = ruler.bottom - ruler.top + 1;
 
       // Pour les bandes étroites (règle ~20-60px après rotation),
@@ -4554,87 +4559,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
 
       const y0 = clamp(Math.round(ruler.top + Math.max(2, rulerHeight * 0.05)), 0, height - 1);
       const y1 = clamp(Math.round(ruler.top + Math.min(rulerHeight * 0.78, 68)), y0 + 4, height - 1);
-      const x0 = clamp(ruler.left + 2, 0, width - 1);
-      const x1 = clamp(ruler.right - 2, x0, width - 1);
-      const lumSamples = [];
-      const xStep = Math.max(1, Math.floor((x1 - x0 + 1) / 900));
-      const yStep = Math.max(1, Math.floor((y1 - y0 + 1) / 80));
-
-      for (let y = y0; y <= y1; y += yStep) {
-        for (let x = x0; x <= x1; x += xStep) {
-          const i = (y * width + x) * 4;
-          lumSamples.push(luma(data[i], data[i + 1], data[i + 2]));
-        }
-      }
-
-      const darkBase = percentile(lumSamples, 5);
-      const brightBase = percentile(lumSamples, 78);
-      const darkLimit = clamp(darkBase + (brightBase - darkBase) * (0.28 + sensitivity * 0.08), 50, 155);
-      const columnScore = new Array(width).fill(0);
-      const columnAvg = new Array(width).fill(0);
-      const columnMin = new Array(width).fill(255);
-      const topPresence = new Array(width).fill(0);
-      const topLimit = y0 + Math.min(14, Math.max(6, Math.round((y1 - y0 + 1) * 0.32)));
-
-      for (let x = x0; x <= x1; x += 1) {
-        let score = 0, topDark = 0, lumSum = 0, lumMin = 255, count = 0;
-        for (let y = y0; y <= y1; y += 1) {
-          const i = (y * width + x) * 4;
-          const lum = luma(data[i], data[i + 1], data[i + 2]);
-          lumSum += lum;
-          lumMin = Math.min(lumMin, lum);
-          count += 1;
-          if (lum < darkLimit) {
-            score += 0.7 + (darkLimit - lum) / Math.max(1, darkLimit);
-            if (y <= topLimit) topDark += 1;
-          }
-        }
-        columnScore[x] = score;
-        columnAvg[x] = lumSum / Math.max(1, count);
-        columnMin[x] = lumMin;
-        topPresence[x] = topDark;
-      }
-
-      const contrastRadius = Math.max(4, Math.round((x1 - x0 + 1) / 180));
-      const localAvg = movingAverage(columnAvg, contrastRadius);
-      for (let x = x0; x <= x1; x += 1) {
-        const localRef = Math.max(localAvg[x], brightBase * 0.92);
-        const avgDip = Math.max(0, localRef - columnAvg[x]);
-        const minDip = Math.max(0, localRef - columnMin[x]);
-        columnScore[x] += avgDip / 8 + minDip / 24;
-        if (minDip > 12 && x > x0 + 1 && x < x1 - 1) topPresence[x] += 1;
-      }
-
-      const smooth = movingAverage(columnScore, 1);
-      const active = smooth.slice(x0, x1 + 1);
-      const base = percentile(active, 62);
-      const high = percentile(active, 98);
-      const threshold = Math.max(0.95, base + (high - base) * (0.1 - (sensitivity - 0.5) * 0.05));
-      const maxGroupWidth = Math.max(8, Math.round((x1 - x0 + 1) * 0.014));
-      const ticks = [];
-      let x = x0;
-
-      while (x <= x1) {
-        if (smooth[x] >= threshold) {
-          const start = x;
-          let weight = 0, weightedX = 0, maxScore = 0;
-          while (x <= x1 && smooth[x] >= threshold * 0.82) {
-            const value = smooth[x];
-            weight += value; weightedX += x * value;
-            maxScore = Math.max(maxScore, value); x += 1;
-          }
-          const end = x - 1;
-          const groupWidth = end - start + 1;
-          const center = weight > 0 ? weightedX / weight : (start + end) / 2;
-          const topDark = maxAround(topPresence, Math.round(center), 2);
-          if (groupWidth <= maxGroupWidth && (topDark > 0 || maxScore > threshold * 1.25)) {
-            ticks.push({ x: center, y0, y1, width: groupWidth, score: maxScore, topDark,
-              length: estimateTickLength(imageData, center, y0, y1, darkLimit) });
-          }
-        } else { x += 1; }
-      }
-
-      return mergeCloseTicks(ticks, 2.6);
+      return detectTicksInBand(imageData, ruler, sensitivity, y0, y1);
     }
 
     function estimateTickLength(imageData, center, y0, y1, darkLimit) {
@@ -4911,23 +4836,6 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       return oc;
     }
 
-    // Rotate imageData 90° CW: original (x,y) → rotated (H-1-y, x), dims become (H, W)
-    function rotateImageData90CW(id) {
-      const { data, width: W, height: H } = id;
-      const out = new ImageData(H, W);
-      const od = out.data;
-      for (let y = 0; y < H; y++) {
-        for (let x = 0; x < W; x++) {
-          const src = (y * W + x) * 4;
-          const rx = H - 1 - y, ry = x;
-          const dst = (ry * H + rx) * 4;
-          od[dst] = data[src]; od[dst+1] = data[src+1];
-          od[dst+2] = data[src+2]; od[dst+3] = data[src+3];
-        }
-      }
-      return out;
-    }
-
     // Scan horizontal strips to find the band with the best tick periodicity
     // (does not require detectRuler to succeed first)
     function detectRulerByTicks(imageData, sensitivity) {
@@ -4999,6 +4907,20 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
 
     function yieldUI() { return new Promise(r => setTimeout(r, 0)); }
 
+    // Inversion de luminance pour les règles sombres à graduations claires :
+    // toute la chaîne de détection cherche des graduations sombres sur fond
+    // clair ; inverser l'image couvre le cas opposé. Le flag reste actif après
+    // un succès pour que la recalibration post-recadrage parte du bon réglage.
+    let _calibInvert = false;
+    function invertCalibImageData(id) {
+      if (!_calibInvert) return id;
+      const d = id.data;
+      for (let i = 0; i < d.length; i += 4) {
+        d[i] = 255 - d[i]; d[i + 1] = 255 - d[i + 1]; d[i + 2] = 255 - d[i + 2];
+      }
+      return id;
+    }
+
     let _smallCalibCache = null;
     function getSmallCalibImage() {
       const img = sourceImage;
@@ -5024,7 +4946,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       oc2.translate(rW / 2, rH / 2);
       oc2.rotate(rad);
       oc2.drawImage(canvas, -sW / 2, -sH / 2);
-      return oc2.getImageData(0, 0, rW, rH);
+      return invertCalibImageData(oc2.getImageData(0, 0, rW, rH));
     }
 
     function scoreAngleCalib(angleDeg, sensitivity) {
@@ -5035,16 +4957,6 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       if (!ruler) return 0;
       const ticks = detectTicks(id, ruler, sensitivity);
       return quickTickScore(ticks) * 0.5;
-    }
-
-    function findBestAngleCalib(sensitivity) {
-      const angles = [0, 90, -90, 180, 45, -45, 135, -135];
-      let best = { angle: 0, score: -1 };
-      for (const a of angles) {
-        const score = scoreAngleCalib(a, sensitivity);
-        if (score > best.score) best = { angle: a, score };
-      }
-      return best.angle;
     }
 
     function refineAngleCalib(coarseAngle, sensitivity) {
@@ -5069,7 +4981,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       oc2.translate(rW / 2, rH / 2);
       oc2.rotate(rad);
       oc2.drawImage(img, -W / 2, -H / 2);
-      return { imageData: oc2.getImageData(0, 0, rW, rH), rW, rH, W, H, rad, angleDeg };
+      return { imageData: invertCalibImageData(oc2.getImageData(0, 0, rW, rH)), rW, rH, W, H, rad, angleDeg };
     }
 
     function tryDetectionAtAngleCalib(angleDeg, sensitivity, mmPerTick) {
@@ -5090,76 +5002,6 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         }
       }
       return null;
-    }
-
-    // Transform autoCalibration to a new image space after a translation-only crop.
-    // pxPerMm is invariant; we just shift the ruler / ticks coordinates.
-    function transformAutoCalibForCrop(cx0, cy0, newW, newH) {
-      if (!autoCalibration) return;
-      const { ruler, ticks, fineAngle = 0,
-              origW: oldW, origH: oldH,
-              rW: oldRW, rH: oldRH } = autoCalibration;
-
-      const rad  = (fineAngle || 0) * Math.PI / 180;
-      const cosA = Math.cos(rad), sinA = Math.sin(rad);
-      const absCos = Math.abs(cosA), absSin = Math.abs(sinA);
-      // Same formula getRotatedDataCalib uses for sizing the rotated canvas
-      const newRW = Math.ceil(newW * absCos + newH * absSin);
-      const newRH = Math.ceil(newW * absSin + newH * absCos);
-
-      // Old rotated (rx, ry) → new rotated (nrx, nry) via the original image space.
-      const transformPoint = (rx, ry) => {
-        // 1. old rotated → old image (rotate by -rad around old rotated centre)
-        const dx = rx - oldRW / 2, dy = ry - oldRH / 2;
-        const oldIx =  dx * cosA + dy * sinA + oldW / 2;
-        const oldIy = -dx * sinA + dy * cosA + oldH / 2;
-        // 2. old image → new image (subtract crop offset)
-        const newIx = oldIx - cx0;
-        const newIy = oldIy - cy0;
-        // 3. new image → new rotated (rotate by +rad around new rotated centre)
-        const ndx = newIx - newW / 2, ndy = newIy - newH / 2;
-        return [
-          ndx * cosA - ndy * sinA + newRW / 2,
-          ndx * sinA + ndy * cosA + newRH / 2
-        ];
-      };
-
-      // Ruler corners → new rotated bbox
-      const corners = [
-        [ruler.left, ruler.top],
-        [ruler.right, ruler.top],
-        [ruler.right, ruler.bottom],
-        [ruler.left, ruler.bottom]
-      ].map(([rx, ry]) => transformPoint(rx, ry));
-      const newRuler = {
-        ...ruler,
-        left:   Math.min(...corners.map(c => c[0])),
-        right:  Math.max(...corners.map(c => c[0])),
-        top:    Math.min(...corners.map(c => c[1])),
-        bottom: Math.max(...corners.map(c => c[1]))
-      };
-
-      // Ticks (each has x along ruler axis, y0/y1 perpendicular range)
-      const newTicks = (ticks || []).map(t => {
-        const midY = (t.y0 + t.y1) / 2;
-        const [nrx, nry] = transformPoint(t.x, midY);
-        const halfH = (t.y1 - t.y0) / 2;
-        return { ...t, x: nrx, y0: nry - halfH, y1: nry + halfH };
-      });
-
-      autoCalibration = {
-        ...autoCalibration,
-        ruler: newRuler,
-        ticks: newTicks,
-        origW: newW,
-        origH: newH,
-        rW: newRW,
-        rH: newRH
-        // spacing.pxPerMm is invariant under translation — keep as-is
-      };
-      // Discard the old overlay; we don't need to show it because we skip
-      // straight to the AI contour stage.
-      autoCalibOverlay = null;
     }
 
     // Accept calibration: set pxPerMm + selectedPoints from autoCalibration.
@@ -5186,71 +5028,83 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       return true;
     }
 
+    // Une passe complète de détection à une sensibilité donnée : recherche
+    // grossière des 8 angles → affinage du top 2 → détection pleine image.
+    // fastPath (post-recadrage : règle horizontale par construction) : on
+    // affine seulement autour de 0°. Renvoie { best, fineAngle }.
+    async function searchRulerAtSensitivity(sensitivity, mmPerTick, fastPath, statusPrefix = '') {
+      const candidates = [];
+      if (fastPath) {
+        autoScaleStatus.textContent = statusPrefix + 'Détection des graduations…';
+        await yieldUI();
+        candidates.push(refineAngleCalib(0, sensitivity));
+      } else {
+        // Phase 1: score 8 coarse angles on reduced image
+        autoScaleStatus.textContent = statusPrefix + '1/3 – Recherche de l\'orientation…';
+        await yieldUI();
+        const coarseAngles = [0, 90, -90, 180, 45, -45, 135, -135];
+        const scored = coarseAngles
+          .map(a => ({ angle: a, score: scoreAngleCalib(a, sensitivity) }))
+          .sort((a, b) => b.score - a.score);
+
+        // Phase 2: refine top 2 candidates (guards against false-positive periodic patterns)
+        autoScaleStatus.textContent = statusPrefix + '2/3 – Affinage de l\'angle…';
+        await yieldUI();
+        for (const { angle } of scored.slice(0, 2)) {
+          const refined = refineAngleCalib(angle, sensitivity);
+          if (!candidates.some(c => Math.abs(c - refined) < 2)) candidates.push(refined);
+        }
+      }
+
+      // Phase 3: try each candidate on full image, keep best detection
+      autoScaleStatus.textContent = statusPrefix + '3/3 – Détection des graduations…';
+      await yieldUI();
+      let best = null, fineAngle = candidates[0] ?? 0;
+      for (const angle of candidates) {
+        const result = tryDetectionAtAngleCalib(angle, sensitivity, mmPerTick);
+        if (result && (!best || result.score > best.score)) {
+          best = result;
+          fineAngle = angle;
+        }
+      }
+      return { best, fineAngle };
+    }
+
     async function runAutoCalibration() {
       autoCalibration = null;
       autoCalibOverlay = null;
       autoScaleAcceptBtn.disabled = true;
       calibCropBtn.style.display = 'none';
       _smallCalibCache = null;
+      // Nouvelle image → repartir en luminance normale (le flag reste actif
+      // pour la recalibration post-recadrage de la même photo).
+      if (!_recalibratingAfterCrop) _calibInvert = false;
 
       try {
-        const sensitivity = 0.55;
         const mmPerTick = 1;
 
-        const candidates = [];
-        if (_recalibratingAfterCrop) {
-          // Fast-path : après recadrage, l'image est déjà redressée (règle
-          // horizontale par construction). On saute la recherche des 8 angles
-          // et on affine simplement autour de 0°. pxPerMm est inchangé par le
-          // recadrage (rotation + crop sans redimensionnement).
-          autoScaleStatus.textContent = 'Détection des graduations…';
-          await yieldUI();
-          candidates.push(refineAngleCalib(0, sensitivity));
-        } else {
-          // Phase 1: score 8 coarse angles on reduced image
-          autoScaleStatus.textContent = '1/3 – Recherche de l\'orientation…';
-          await yieldUI();
-          const coarseAngles = [0, 90, -90, 180, 45, -45, 135, -135];
-          const scored = coarseAngles
-            .map(a => ({ angle: a, score: scoreAngleCalib(a, sensitivity) }))
-            .sort((a, b) => b.score - a.score);
-
-          // Phase 2: refine top 2 candidates (guards against false-positive periodic patterns)
-          autoScaleStatus.textContent = '2/3 – Affinage de l\'angle…';
-          await yieldUI();
-          for (const { angle } of scored.slice(0, 2)) {
-            const refined = refineAngleCalib(angle, sensitivity);
-            if (!candidates.some(c => Math.abs(c - refined) < 2)) candidates.push(refined);
-          }
-        }
-
-        // Phase 3: try each candidate on full image, keep best detection
-        autoScaleStatus.textContent = '3/3 – Détection des graduations…';
-        await yieldUI();
-        let best = null, fineAngle = candidates[0] ?? 0;
-        for (const angle of candidates) {
-          const result = tryDetectionAtAngleCalib(angle, sensitivity, mmPerTick);
-          if (result && (!best || result.score > best.score)) {
-            best = result;
-            fineAngle = angle;
-          }
-        }
+        // Tentative principale. pxPerMm est inchangé par le recadrage
+        // (rotation + crop sans redimensionnement).
+        let { best, fineAngle } = await searchRulerAtSensitivity(0.55, mmPerTick, _recalibratingAfterCrop);
 
         // Filet de sécurité : si le fast-path post-crop (0°) échoue, on retombe
         // sur la recherche complète des 8 angles avant d'abandonner.
         if (!best && _recalibratingAfterCrop) {
-          const coarseAngles = [0, 90, -90, 180, 45, -45, 135, -135];
-          const scored = coarseAngles
-            .map(a => ({ angle: a, score: scoreAngleCalib(a, sensitivity) }))
-            .sort((a, b) => b.score - a.score);
-          for (const { angle } of scored.slice(0, 2)) {
-            const refined = refineAngleCalib(angle, sensitivity);
-            const result = tryDetectionAtAngleCalib(refined, sensitivity, mmPerTick);
-            if (result && (!best || result.score > best.score)) {
-              best = result;
-              fineAngle = refined;
-            }
+          ({ best, fineAngle } = await searchRulerAtSensitivity(0.55, mmPerTick, false));
+        }
+
+        // Échelle de secours : autres sensibilités (règles peu contrastées),
+        // puis luminance inversée (règle sombre à graduations claires).
+        if (!best) {
+          for (const sensitivity of [0.35, 0.75]) {
+            ({ best, fineAngle } = await searchRulerAtSensitivity(sensitivity, mmPerTick, false, 'Nouvel essai – '));
+            if (best) break;
           }
+        }
+        if (!best) {
+          _calibInvert = true;
+          ({ best, fineAngle } = await searchRulerAtSensitivity(0.55, mmPerTick, false, 'Essai règle sombre – '));
+          if (!best) _calibInvert = false;
         }
 
         if (!best) {
@@ -5278,7 +5132,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           spacing.stepPx  = _lockedPxPerMm * mmPerTick;
           spacing.pxPerMm = _lockedPxPerMm;
           spacing.pxPerCm = _lockedPxPerMm * 10;
-          spacing.mmPerPx = mmPerTick / (_lockedPxPerMm * mmPerTick);
+          spacing.mmPerPx = 1 / _lockedPxPerMm;
         }
 
         const absAngle = Math.abs(fineAngle % 180);
@@ -5396,6 +5250,58 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         .catch(() => null); // swallow errors; crop handler will retry if null
     }
 
+    // Interpole (bilinéaire) un masque RMBG brut vers la résolution cible
+    function interpolateMaskToSize(maskRaw, w, h) {
+      const { data, width: mw, height: mh } = maskRaw;
+      const channels = data.length / (mw * mh);
+      const mask = new Float32Array(w * h);
+      for (let y = 0; y < h; y++) {
+        const sy = h > 1 ? y * (mh - 1) / (h - 1) : 0;
+        const sy0 = Math.floor(sy), sy1 = Math.min(mh - 1, sy0 + 1), fy = sy - sy0;
+        for (let x = 0; x < w; x++) {
+          const sx = w > 1 ? x * (mw - 1) / (w - 1) : 0;
+          const sx0 = Math.floor(sx), sx1 = Math.min(mw - 1, sx0 + 1), fx = sx - sx0;
+          mask[y * w + x] = (
+            data[(sy0 * mw + sx0) * channels] * (1 - fx) * (1 - fy) +
+            data[(sy0 * mw + sx1) * channels] * fx * (1 - fy) +
+            data[(sy1 * mw + sx0) * channels] * (1 - fx) * fy +
+            data[(sy1 * mw + sx1) * channels] * fx * fy
+          ) / 255;
+        }
+      }
+      return mask;
+    }
+
+    // ── Raffinement du masque après recadrage ─────────────────────────────────
+    // Le masque pré-calculé provient de l'inférence 1024 px sur la scène
+    // ENTIÈRE : si le bijou n'occupait qu'une fraction du cadre, sa résolution
+    // effective est faible. Une fois l'image recadrée affichée, on relance
+    // RMBG sur le recadrage (l'objet remplit le cadre → contour bien plus fin)
+    // et on remplace le masque, sauf si l'utilisateur a commencé à éditer.
+    let _refineToken = 0;
+    function startMaskRefinement() {
+      const token = ++_refineToken;
+      const img = sourceImage;
+      const w = img.width, h = img.height;
+      const { dataUrl } = rmbgScaledDataUrl(img);
+      window.runRMBG(dataUrl).then(maskRaw => {
+        // Abandon si l'utilisateur a avancé ou édité entre-temps
+        if (token !== _refineToken) return;
+        if (sourceImage !== img || currentStage !== 'ai-detect') return;
+        if (!aiDetectedMask) return;
+        if (hybridMode || eraseMode || manualContours.length > 0 || subtractContours.length > 0) return;
+        if (workspaceCard.classList.contains('hidden')) return;
+        aiDetectedMask  = interpolateMaskToSize(maskRaw, w, h);
+        excludeRulerFromMask(aiDetectedMask, w, h);
+        aiConnectedMask = computeConnectedMask(aiDetectedMask, w, h);
+        reRenderAIMask(+aiCorrSlider.value);
+        if (aiMetrics && aiMetrics.areaPx > 0) {
+          aiAcceptBtn.disabled = false;
+          aiStatusEl.textContent = 'Contour affiné sur l\'image recadrée ✓ Ajustez le curseur si besoin.';
+        }
+      }).catch(() => {}); // en cas d'échec, le masque pré-calculé reste affiché
+    }
+
     // ── AI-driven crop: detect contour via RMBG model, then crop tight ────────
     calibCropBtn.addEventListener('click', async () => {
       if (!sourceImage || !autoCalibration?.ruler) return;
@@ -5440,23 +5346,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         await yieldUI();
 
         // ── 2. Interpolate mask to full source resolution ──
-        const { data: maskData, width: mw, height: mh } = maskRaw;
-        const channels = maskData.length / (mw * mh);
-        const mask = new Float32Array(w * h);
-        for (let y = 0; y < h; y++) {
-          const sy = y * (mh - 1) / (h - 1);
-          const sy0 = Math.floor(sy), sy1 = Math.min(mh - 1, sy0 + 1), fy = sy - sy0;
-          for (let x = 0; x < w; x++) {
-            const sx = x * (mw - 1) / (w - 1);
-            const sx0 = Math.floor(sx), sx1 = Math.min(mw - 1, sx0 + 1), fx = sx - sx0;
-            mask[y * w + x] = (
-              maskData[(sy0 * mw + sx0) * channels] * (1 - fx) * (1 - fy) +
-              maskData[(sy0 * mw + sx1) * channels] * fx * (1 - fy) +
-              maskData[(sy1 * mw + sx0) * channels] * (1 - fx) * fy +
-              maskData[(sy1 * mw + sx1) * channels] * fx * fy
-            ) / 255;
-          }
-        }
+        const mask = interpolateMaskToSize(maskRaw, w, h);
 
         // ── 3. Exclude the ruler strip from the mask (existing helper) ──
         excludeRulerFromMask(mask, w, h);
@@ -5621,6 +5511,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       autoCalibration    = null;
       autoCalibOverlay   = null;
       aiDetectedMask     = null;
+      aiConnectedMask    = null;
       aiMaskOffscreen    = null;
       aiMetrics          = null;
       hybridMode         = false;
@@ -5675,91 +5566,135 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       }
     }
 
-    // Fill enclosed holes in a binary mask (useful for rings / hollow objects).
-    // Uses a BFS flood-fill from the image border to find reachable background pixels;
-    // any background pixel not reachable from the border is an interior hole → set to 1.
-    // Hysteresis expansion: grow high-confidence regions into adjacent
-    // low-confidence pixels. Captures metallic / reflective surfaces that
-    // RMBG rates with low but non-zero probability.
-    // HIGH = clear foreground threshold, LOW = weakest signal still considered
-    // part of the object when connected to a HIGH pixel.
-    function dilateConnectedMask(mask, w, h) {
-      const HIGH = 0.22, LOW = 0.015;
+    // Expansion par hystérésis : étend les régions de forte confiance vers les
+    // pixels voisins de confiance faible mais non nulle (surfaces métalliques /
+    // réfléchissantes que RMBG note bas). Contrairement à l'ancienne version
+    // qui ÉCRASAIT les probabilités du masque (aplaties à 0,22 — le curseur
+    // Détail/Silhouette perdait toute granularité), on renvoie un bitmap de
+    // connexité séparé ; le masque de probabilités reste intact et le seuil
+    // relâché appliqué aux pixels connectés suit le curseur (cf. buildBinaryMask).
+    const HYST_HIGH  = 0.22;   // seuil « franchement objet » (graines)
+    const HYST_LOW   = 0.015;  // signal le plus faible encore rattachable
+    const HYST_RELAX = 0.25;   // facteur de relâchement du seuil pour les pixels connectés
+    function computeConnectedMask(mask, w, h) {
       const n = w * h;
-      const queued = new Uint8Array(n);
-      const queue  = new Int32Array(n);
+      const conn  = new Uint8Array(n);
+      const queue = new Int32Array(n);
       let head = 0, tail = 0;
 
-      // Seed from every high-confidence pixel
+      // Graines : tous les pixels de forte confiance
       for (let i = 0; i < n; i++) {
-        if (mask[i] >= HIGH) { queued[i] = 1; queue[tail++] = i; }
+        if (mask[i] >= HYST_HIGH) { conn[i] = 1; queue[tail++] = i; }
       }
 
-      // BFS: expand into adjacent pixels with mask >= LOW
+      // BFS : expansion vers les pixels adjacents avec mask >= HYST_LOW
       while (head < tail) {
         const i = queue[head++];
         const x = i % w, y = (i / w) | 0;
         const expand = (j) => {
-          if (!queued[j] && mask[j] >= LOW) {
-            queued[j] = 1;
-            mask[j] = HIGH; // promote so it renders at any slider position
-            queue[tail++] = j;
-          }
+          if (!conn[j] && mask[j] >= HYST_LOW) { conn[j] = 1; queue[tail++] = j; }
         };
         if (x > 0)   expand(i - 1);
         if (x < w-1) expand(i + 1);
         if (y > 0)   expand(i - w);
         if (y < h-1) expand(i + w);
       }
+      return conn;
     }
 
-    function fillMaskHoles(mask, w, h) {
-      const THRESH = 0.5;
-      const visited = new Uint8Array(w * h);
-      // Use a typed array as a manual queue for performance on large images
-      const queue = new Int32Array(w * h);
-      let head = 0, tail = 0;
+    // ── Mesure du masque : surface + longueur de contour ──────────────────────
+    // Longueur de contour par marching squares avec interpolation linéaire sur
+    // un champ lissé 3×3. L'ancien comptage de pixels de bord sous-estimait
+    // jusqu'à ~30 % sur les bords obliques (et −10 % sur un cercle) — or le
+    // périmètre entre directement dans le prix via Stotale. Validé sur formes
+    // de périmètre connu (cercle, carrés 0°/22,5°/45°, anneau) : erreur ≤ 0,7 %.
+    // Donne aussi un périmètre cohérent avec le mode manuel (polygones euclidiens).
 
-      const push = (i) => {
-        if (!visited[i] && mask[i] < THRESH) { visited[i] = 1; queue[tail++] = i; }
-      };
-
-      // Seed from all 4 borders
-      for (let x = 0; x < w; x++) { push(x); push((h - 1) * w + x); }
-      for (let y = 1; y < h - 1; y++) { push(y * w); push(y * w + w - 1); }
-
-      while (head < tail) {
-        const i = queue[head++];
-        const x = i % w, y = (i / w) | 0;
-        if (x > 0)   push(i - 1);
-        if (x < w-1) push(i + 1);
-        if (y > 0)   push(i - w);
-        if (y < h-1) push(i + w);
-      }
-
-      // Unvisited background pixels = interior holes → fill to foreground
-      let filled = 0;
-      for (let i = 0; i < w * h; i++) {
-        if (!visited[i] && mask[i] < THRESH) { mask[i] = 1.0; filled++; }
-      }
-      return filled; // number of pixels filled (0 means no holes found)
-    }
-
-    function computeAIMetrics(mask, w, h, thr = 0.5, subtractMask = null) {
-      let areaPx = 0, perimeterPx = 0;
+    // Lissage 3×3 séparable (hors image = fond)
+    function blurMask3x3(inside, w, h) {
+      const tmp = new Float32Array(w * h);
+      const out = new Float32Array(w * h);
       for (let y = 0; y < h; y++) {
+        const r = y * w;
         for (let x = 0; x < w; x++) {
-          const i = y * w + x;
-          if (mask[i] < thr || (subtractMask && subtractMask[i])) continue;
-          areaPx++;
-          const left  = x === 0   || mask[i-1] < thr || (subtractMask && subtractMask[i-1]);
-          const right = x === w-1 || mask[i+1] < thr || (subtractMask && subtractMask[i+1]);
-          const top   = y === 0   || mask[i-w] < thr || (subtractMask && subtractMask[i-w]);
-          const bot   = y === h-1 || mask[i+w] < thr || (subtractMask && subtractMask[i+w]);
-          if (left || right || top || bot) perimeterPx++;
+          const l = x > 0     ? inside[r + x - 1] : 0;
+          const c = inside[r + x];
+          const d = x < w - 1 ? inside[r + x + 1] : 0;
+          tmp[r + x] = (l + c + d) / 3;
         }
       }
-      return { areaPx, perimeterPx };
+      for (let y = 0; y < h; y++) {
+        const r = y * w;
+        for (let x = 0; x < w; x++) {
+          const u = y > 0     ? tmp[r - w + x] : 0;
+          const c = tmp[r + x];
+          const d = y < h - 1 ? tmp[r + w + x] : 0;
+          out[r + x] = (u + c + d) / 3;
+        }
+      }
+      return out;
+    }
+
+    function maskContourLength(inside, w, h) {
+      const field = blurMask3x3(inside, w, h);
+      const at = (x, y) => (x >= 0 && x < w && y >= 0 && y < h) ? field[y * w + x] : 0;
+      const ITH = 0.5;
+      const cross = (a, b) => (ITH - a) / (b - a);
+      const seg = (p, q) => Math.hypot(q[0] - p[0], q[1] - p[1]);
+      let len = 0;
+      for (let y = -1; y < h; y++) {
+        for (let x = -1; x < w; x++) {
+          const a = at(x, y), b = at(x + 1, y), c = at(x, y + 1), d = at(x + 1, y + 1);
+          let cfg = 0;
+          if (a >= ITH) cfg |= 1;
+          if (b >= ITH) cfg |= 2;
+          if (c >= ITH) cfg |= 4;
+          if (d >= ITH) cfg |= 8;
+          if (cfg === 0 || cfg === 15) continue;
+          // Croisements interpolés sur les 4 arêtes de la cellule (coords 0-1)
+          const top    = [cross(a, b), 0];
+          const bottom = [cross(c, d), 1];
+          const left   = [0, cross(a, c)];
+          const right  = [1, cross(b, d)];
+          switch (cfg) {
+            case 1: case 14: len += seg(top, left); break;
+            case 2: case 13: len += seg(top, right); break;
+            case 4: case 11: len += seg(left, bottom); break;
+            case 8: case 7:  len += seg(right, bottom); break;
+            case 3: case 12: len += seg(left, right); break;
+            case 5: case 10: len += seg(top, bottom); break;
+            case 6:  len += seg(top, right) + seg(left, bottom); break;
+            case 9:  len += seg(top, left) + seg(right, bottom); break;
+          }
+        }
+      }
+      return len;
+    }
+
+    // Masque binaire d'inclusion : probabilité ≥ seuil, hors zones retirées,
+    // plus zones ajoutées manuellement (le retrait gagne sur l'ajout).
+    // Les pixels connectés par hystérésis (conn) bénéficient d'un seuil
+    // relâché proportionnel au curseur — le halo se resserre quand on va
+    // vers Détail au lieu de basculer d'un bloc.
+    // Source unique pour le rendu ET les métriques : ce qui est affiché en
+    // vert est exactement ce qui est mesuré.
+    function buildBinaryMask(mask, w, h, thr, subtractMask = null, addMask = null, conn = null) {
+      const n = w * h;
+      const relaxedThr = Math.max(HYST_LOW, thr * HYST_RELAX);
+      const inside = new Uint8Array(n);
+      for (let i = 0; i < n; i++) {
+        if (subtractMask && subtractMask[i]) continue;
+        if (mask[i] >= thr ||
+            (conn && conn[i] && mask[i] >= relaxedThr) ||
+            (addMask && addMask[i])) inside[i] = 1;
+      }
+      return inside;
+    }
+
+    function computeMaskMetrics(inside, w, h) {
+      let areaPx = 0;
+      for (let i = 0; i < inside.length; i++) areaPx += inside[i];
+      return { areaPx, perimeterPx: maskContourLength(inside, w, h) };
     }
 
     // Rasterise an array of polygon contours to a Uint8Array lookup (1 = inside)
@@ -5782,21 +5717,19 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       return out;
     }
 
-    function buildAIMaskOffscreen(mask, w, h, thr = 0.5, subtractMask = null, addMask = null) {
+    // Rendu de l'overlay vert à partir du masque binaire d'inclusion
+    function buildAIMaskOffscreen(inside, w, h) {
       const imgData = new ImageData(w, h);
       const d = imgData.data;
       for (let y = 0; y < h; y++) {
         for (let x = 0; x < w; x++) {
           const i = y * w + x;
-          const inAI  = mask[i] >= thr && !(subtractMask && subtractMask[i]);
-          const inAdd = !!(addMask && addMask[i]);
-          if (!inAI && !inAdd) continue;
-          const neighborIn = (nx, ny) => {
-            if (nx < 0 || nx >= w || ny < 0 || ny >= h) return false;
-            const ni = ny * w + nx;
-            return (mask[ni] >= thr && !(subtractMask && subtractMask[ni])) || !!(addMask && addMask[ni]);
-          };
-          const border = !neighborIn(x-1,y) || !neighborIn(x+1,y) || !neighborIn(x,y-1) || !neighborIn(x,y+1);
+          if (!inside[i]) continue;
+          const border =
+            x === 0     || !inside[i - 1] ||
+            x === w - 1 || !inside[i + 1] ||
+            y === 0     || !inside[i - w] ||
+            y === h - 1 || !inside[i + w];
           const p = i * 4;
           d[p] = 30; d[p+1] = 210; d[p+2] = 60;
           d[p+3] = border ? 255 : 110;
@@ -5808,7 +5741,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       return oc;
     }
 
-    // slider value 0=Détail, 10=Silhouette → threshold 0.75 → 0.05
+    // slider value 0=Détail, 10=Silhouette → threshold 0.85 → 0.01 (échelle log)
     function reRenderAIMask(sliderVal) {
       if (!aiDetectedMask || !sourceImage) return;
       const w = sourceImage.width, h = sourceImage.height;
@@ -5816,8 +5749,15 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       const thr = 0.85 * Math.pow(0.01 / 0.85, sliderVal / 10);
       const subtractMask = subtractContours.length > 0 ? rasterizeContours(subtractContours, w, h) : null;
       const addMask = (hybridMode && manualContours.length > 0) ? rasterizeContours(manualContours, w, h) : null;
-      aiMetrics = computeAIMetrics(aiDetectedMask, w, h, thr, subtractMask);
-      aiMaskOffscreen = buildAIMaskOffscreen(aiDetectedMask, w, h, thr, subtractMask, addMask);
+      // Métriques sans les zones ajoutées (elles sont intégrées au moment du
+      // calcul final par computeCombinedMetrics) ; rendu avec, pour que
+      // l'utilisateur voie ses ajouts.
+      const insideMetrics = buildBinaryMask(aiDetectedMask, w, h, thr, subtractMask, null, aiConnectedMask);
+      aiMetrics = computeMaskMetrics(insideMetrics, w, h);
+      const insideRender = addMask
+        ? buildBinaryMask(aiDetectedMask, w, h, thr, subtractMask, addMask, aiConnectedMask)
+        : insideMetrics;
+      aiMaskOffscreen = buildAIMaskOffscreen(insideRender, w, h);
       renderNormalPreview();
     }
 
@@ -5825,8 +5765,41 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       reRenderAIMask(+aiCorrSlider.value);
     });
 
+    // Position initiale du curseur Détail/Silhouette : cherche, parmi les
+    // positions 5 à 9, celle où la surface varie le moins entre voisines
+    // (plateau = seuil le moins sensible, donc le plus fiable). Bornée autour
+    // de l'ancien défaut fixe (7) pour rester prévisible sur masque atypique.
+    function chooseDefaultSliderValue(mask, conn, w, h) {
+      // Échantillonnage grossier (≤ 256 px) — on estime une tendance, pas une mesure
+      const SCALE = Math.min(1, 256 / Math.max(w, h));
+      const sw = Math.max(1, Math.round(w * SCALE));
+      const sh = Math.max(1, Math.round(h * SCALE));
+      const areas = [];
+      for (let v = 0; v <= 10; v++) {
+        const thr = 0.85 * Math.pow(0.01 / 0.85, v / 10);
+        const relaxedThr = Math.max(HYST_LOW, thr * HYST_RELAX);
+        let a = 0;
+        for (let y = 0; y < sh; y++) {
+          const rowOffset = Math.min(h - 1, Math.round(y / SCALE)) * w;
+          for (let x = 0; x < sw; x++) {
+            const i = rowOffset + Math.min(w - 1, Math.round(x / SCALE));
+            if (mask[i] >= thr || (conn && conn[i] && mask[i] >= relaxedThr)) a++;
+          }
+        }
+        areas.push(a);
+      }
+      let best = 7, bestDelta = Infinity;
+      for (let v = 5; v <= 9; v++) {
+        const delta = Math.abs(areas[v + 1] - areas[v - 1]) / Math.max(1, areas[v]);
+        if (delta < bestDelta) { bestDelta = delta; best = v; }
+      }
+      return best;
+    }
+
     async function runAIDetection() {
+      _refineToken++;            // invalide tout raffinement en attente
       aiDetectedMask = null;
+      aiConnectedMask = null;
       aiMaskOffscreen = null;
       aiMetrics = null;
       aiAcceptBtn.disabled = true;
@@ -5847,7 +5820,11 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           // Ruler-exclusion was applied before crop; redo it here against the
           // (transformed) calibration so anything that leaked across is zeroed.
           excludeRulerFromMask(aiDetectedMask, w, h);
-          dilateConnectedMask(aiDetectedMask, w, h);
+          aiConnectedMask = computeConnectedMask(aiDetectedMask, w, h);
+          // Affiche ce masque tout de suite, puis affine en arrière-plan avec
+          // une inférence RMBG sur l'image recadrée (résolution effective bien
+          // meilleure : l'objet remplit maintenant le cadre).
+          startMaskRefinement();
         } else {
           // Downscale to 1024 px max — RMBG resizes internally anyway
           const { dataUrl } = rmbgScaledDataUrl(sourceImage);
@@ -5859,29 +5836,15 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
               aiStatusEl.textContent = 'Téléchargement du modèle…';
           });
 
-          const { data, width: mw, height: mh } = maskRaw;
-          const channels = data.length / (mw * mh);
-
-          aiDetectedMask = new Float32Array(w * h);
-          for (let y = 0; y < h; y++) {
-            const sy = y * (mh-1) / (h-1);
-            const sy0 = Math.floor(sy), sy1 = Math.min(mh-1, sy0+1), fy = sy - sy0;
-            for (let x = 0; x < w; x++) {
-              const sx = x * (mw-1) / (w-1);
-              const sx0 = Math.floor(sx), sx1 = Math.min(mw-1, sx0+1), fx = sx - sx0;
-              aiDetectedMask[y*w+x] = (
-                data[(sy0*mw+sx0)*channels]*(1-fx)*(1-fy) +
-                data[(sy0*mw+sx1)*channels]*fx*(1-fy) +
-                data[(sy1*mw+sx0)*channels]*(1-fx)*fy +
-                data[(sy1*mw+sx1)*channels]*fx*fy
-              ) / 255;
-            }
-          }
+          aiDetectedMask = interpolateMaskToSize(maskRaw, w, h);
 
           // Automatically remove the ruler band from the mask (it's not part of the object)
           excludeRulerFromMask(aiDetectedMask, w, h);
-          dilateConnectedMask(aiDetectedMask, w, h);
+          aiConnectedMask = computeConnectedMask(aiDetectedMask, w, h);
         }
+
+        // Position initiale du curseur adaptée au masque (plateau de surface stable)
+        aiCorrSlider.value = chooseDefaultSliderValue(aiDetectedMask, aiConnectedMask, w, h);
 
         // Build initial mask using slider threshold (consistent with slider position)
         reRenderAIMask(+aiCorrSlider.value);
@@ -5925,6 +5888,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
 
     aiManualBtn.addEventListener('click', () => {
       aiDetectedMask = null;
+      aiConnectedMask = null;
       aiMaskOffscreen = null;
       aiMetrics = null;
       hybridMode = false;
@@ -6094,6 +6058,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     aiManualCalibBtn?.addEventListener('click', () => {
       // Efface les résultats IA et bascule sur la calibration manuelle par points.
       aiDetectedMask   = null;
+      aiConnectedMask  = null;
       aiMaskOffscreen  = null;
       aiMetrics        = null;
       hybridMode       = false;
@@ -6112,89 +6077,19 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       renderNormalPreview();
     });
 
-    // Combined metrics: AI mask union manual polygons (canvas rasterisation at scaled resolution)
+    // Combined metrics: masque IA ∪ polygones ajoutés, moins les zones retirées.
+    // Travaille à PLEINE résolution avec la même mesure (marching squares) que
+    // le mode IA pur → un même masque donne les mêmes valeurs dans tous les modes
+    // (l'ancienne version travaillait à ≤ 1024 px, d'où de légers écarts).
     function computeCombinedMetrics() {
       if (!aiDetectedMask || !sourceImage) return null;
       const W = sourceImage.width, H = sourceImage.height;
       const thr = 0.85 * Math.pow(0.01 / 0.85, +aiCorrSlider.value / 10);
-
-      // Work at reduced resolution to stay fast on large images
-      const SCALE = Math.min(1, 1024 / Math.max(W, H));
-      const sw = Math.max(1, Math.round(W * SCALE));
-      const sh = Math.max(1, Math.round(H * SCALE));
-
-      const combined = new Uint8Array(sw * sh);
-
-      // Fill from AI mask
-      for (let y = 0; y < sh; y++) {
-        const sy = Math.min(H - 1, Math.round(y / SCALE));
-        for (let x = 0; x < sw; x++) {
-          const sx = Math.min(W - 1, Math.round(x / SCALE));
-          if (aiDetectedMask[sy * W + sx] >= thr) combined[y * sw + x] = 1;
-        }
-      }
-
-      // Rasterise manual polygons onto combined mask
-      if (manualContours.length > 0) {
-        const mc = document.createElement('canvas');
-        mc.width = sw; mc.height = sh;
-        const mctx = mc.getContext('2d');
-        mctx.fillStyle = 'white';
-        for (const contour of manualContours) {
-          if (contour.points.length < 3) continue;
-          mctx.beginPath();
-          mctx.moveTo(contour.points[0].x * SCALE, contour.points[0].y * SCALE);
-          for (let i = 1; i < contour.points.length; i++)
-            mctx.lineTo(contour.points[i].x * SCALE, contour.points[i].y * SCALE);
-          mctx.closePath();
-          mctx.fill();
-        }
-        const id = mctx.getImageData(0, 0, sw, sh).data;
-        for (let i = 0; i < sw * sh; i++) {
-          if (id[i * 4 + 3] > 0) combined[i] = 1;
-        }
-      }
-
-      // Subtract erased zones
-      if (subtractContours.length > 0) {
-        const sc = document.createElement('canvas');
-        sc.width = sw; sc.height = sh;
-        const sctx = sc.getContext('2d');
-        sctx.fillStyle = 'white';
-        for (const contour of subtractContours) {
-          if (contour.points.length < 3) continue;
-          sctx.beginPath();
-          sctx.moveTo(contour.points[0].x * SCALE, contour.points[0].y * SCALE);
-          for (let i = 1; i < contour.points.length; i++)
-            sctx.lineTo(contour.points[i].x * SCALE, contour.points[i].y * SCALE);
-          sctx.closePath();
-          sctx.fill();
-        }
-        const sid = sctx.getImageData(0, 0, sw, sh).data;
-        for (let i = 0; i < sw * sh; i++) {
-          if (sid[i * 4 + 3] > 0) combined[i] = 0;
-        }
-      }
-
-      // Count area + perimeter at scaled resolution → scale back
-      let areaPx = 0, perimeterPx = 0;
-      for (let y = 0; y < sh; y++) {
-        for (let x = 0; x < sw; x++) {
-          if (!combined[y * sw + x]) continue;
-          areaPx++;
-          const border =
-            (x === 0    || !combined[y * sw + x - 1]) ||
-            (x === sw-1 || !combined[y * sw + x + 1]) ||
-            (y === 0    || !combined[(y-1) * sw + x]) ||
-            (y === sh-1 || !combined[(y+1) * sw + x]);
-          if (border) perimeterPx++;
-        }
-      }
-      return {
-        areaPx:      areaPx      / (SCALE * SCALE),
-        perimeterPx: perimeterPx / SCALE,
-        count: 1
-      };
+      const subtractMask = subtractContours.length > 0 ? rasterizeContours(subtractContours, W, H) : null;
+      const addMask = manualContours.length > 0 ? rasterizeContours(manualContours, W, H) : null;
+      const inside = buildBinaryMask(aiDetectedMask, W, H, thr, subtractMask, addMask, aiConnectedMask);
+      const { areaPx, perimeterPx } = computeMaskMetrics(inside, W, H);
+      return { areaPx, perimeterPx, count: 1 };
     }
 
     previewCanvas.addEventListener('click', (e) => {
@@ -6248,7 +6143,35 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         }
         manualCurrent.push({ x, y });
         manualHoverPoint = null;
-        setStatus(`Points sélectionnés: ${manualCurrent.length}. Cliquez pour continuer, revenez au 1er point pour fermer.`);
+        setStatus(`Points sélectionnés: ${manualCurrent.length}. Cliquez pour continuer, revenez au 1er point pour fermer (Retour arrière : retirer le dernier point, Échap : abandonner).`);
+        renderNormalPreview();
+      }
+    });
+
+    // Édition du tracé en cours : Retour arrière retire le dernier point posé,
+    // Échap abandonne le polygone en cours (avant, un mauvais clic obligeait
+    // à tout effacer).
+    document.addEventListener('keydown', (e) => {
+      const isDrawingMode = (currentStage === 'select' && manualMode) ||
+                            (currentStage === 'ai-detect' && (hybridMode || eraseMode));
+      if (!isDrawingMode || !manualCurrent.length) return;
+      const tag = (e.target?.tagName || '').toUpperCase();
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if (e.key === 'Backspace') {
+        e.preventDefault();
+        manualCurrent.pop();
+        manualNearStart = false;
+        setStatus(manualCurrent.length
+          ? `Point retiré — ${manualCurrent.length} restant(s).`
+          : 'Tracé vidé. Cliquez pour recommencer.');
+        renderNormalPreview();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        manualCurrent = [];
+        manualDrawing = false;
+        manualHoverPoint = null;
+        manualNearStart = false;
+        setStatus('Tracé abandonné. Cliquez pour recommencer.');
         renderNormalPreview();
       }
     });
@@ -6319,6 +6242,47 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       const factor = e.deltaY > 0 ? 0.9 : 1.1;
       setZoom(viewScale * factor, x, y);
     }, { passive: false });
+
+    // ── Zoom/pan tactile (pinch à deux doigts) ────────────────────────────────
+    // Le flux cible des photos de téléphone : sans pinch, impossible de tracer
+    // un contour précis sur mobile. Le tap simple reste un clic (pose de point) ;
+    // deux doigts = zoom + déplacement.
+    let pinchState = null;
+    function touchMidpoint(t0, t1) {
+      return { clientX: (t0.clientX + t1.clientX) / 2, clientY: (t0.clientY + t1.clientY) / 2 };
+    }
+    previewCanvas.addEventListener('touchstart', (e) => {
+      if (!sourceImage || e.touches.length !== 2) return;
+      e.preventDefault();
+      const t0 = e.touches[0], t1 = e.touches[1];
+      pinchState = {
+        startDist: Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY),
+        startScale: viewScale,
+        // point image sous le milieu des deux doigts au départ
+        anchor: getCanvasXY(touchMidpoint(t0, t1))
+      };
+    }, { passive: false });
+    previewCanvas.addEventListener('touchmove', (e) => {
+      if (!pinchState || e.touches.length !== 2) return;
+      e.preventDefault();
+      const t0 = e.touches[0], t1 = e.touches[1];
+      const dist = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
+      viewScale = Math.min(5, Math.max(1, pinchState.startScale * (dist / Math.max(1, pinchState.startDist))));
+      // Garder le point image d'origine sous le milieu actuel des doigts
+      const mid = touchMidpoint(t0, t1);
+      const rect = previewCanvas.getBoundingClientRect();
+      const canvasX = (mid.clientX - rect.left) * (previewCanvas.width / rect.width);
+      const canvasY = (mid.clientY - rect.top)  * (previewCanvas.height / rect.height);
+      viewOffsetX = pinchState.anchor.x - canvasX / viewScale;
+      viewOffsetY = pinchState.anchor.y - canvasY / viewScale;
+      clampView();
+      if (zoomResetBtn) zoomResetBtn.textContent = `${Math.round(viewScale * 100)}%`;
+      renderNormalPreview();
+    }, { passive: false });
+    previewCanvas.addEventListener('touchend', (e) => {
+      if (e.touches.length < 2) pinchState = null;
+    });
+    previewCanvas.addEventListener('touchcancel', () => { pinchState = null; });
 
     previewCanvas.addEventListener('contextmenu', (e) => {
       e.preventDefault();
