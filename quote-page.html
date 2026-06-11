@@ -442,8 +442,13 @@
   <div style="max-width:700px; width:100%; position:relative;">
     <button id="authModalCloseBtn" type="button" title="Fermer" style="position:absolute; top:-12px; right:-12px; z-index:1; width:36px; height:36px; border-radius:50%; background:#1f1b17; color:#fff; border:none; font-size:1.1rem; cursor:pointer; display:flex; align-items:center; justify-content:center; box-shadow:0 2px 8px rgba(0,0,0,0.4);">✕</button>
   <div class="card" id="authGate">
-    <h2>Accès membre</h2>
-    <p class="hint">Connectez-vous pour enregistrer vos articles et passer commande. Si vous n'avez pas de compte, inscrivez-vous.</p>
+    <h2 id="authGateTitle">Accès membre</h2>
+    <!-- Bandeau contextuel : affiché quand le modal est ouvert depuis "Ajouter au panier" en mode invité -->
+    <div id="authContextBanner" style="display:none; background:#f2ece3; border:1px solid #e3dcd2; border-radius:8px; padding:12px 14px; margin:8px 0 4px; font-size:0.92rem; color:#5b4f44; line-height:1.5;">
+      ✅ <strong>Votre prix est calculé !</strong><br>
+      Créez un compte gratuit (moins de 2 min) pour sauvegarder cet article dans <em>Mes articles</em> et passer commande — votre devis sera ajouté automatiquement au panier.
+    </div>
+    <p class="hint" id="authGateHint">Connectez-vous pour enregistrer vos articles et passer commande. Si vous n'avez pas de compte, inscrivez-vous.</p>
 
     <div id="authLoginSection">
       <div class="grid" style="margin-top: 10px;">
@@ -857,6 +862,14 @@
 
     <div class="card hidden" id="resultsCard">
       <h2>Résultats</h2>
+      <!-- Bannière visible uniquement pour les invités après calcul du prix -->
+      <div id="guestResultBanner" style="display:none; background:#f2ece3; border:1px solid #e3dcd2; border-radius:8px; padding:14px 16px; margin-bottom:14px; gap:12px; flex-wrap:wrap; align-items:center;">
+        <span style="flex:1; min-width:200px; font-size:0.92rem; color:#5b4f44;">
+          💾 <strong>Prix calculé !</strong> Créez un compte gratuit pour sauvegarder ce devis et passer commande.
+        </span>
+        <button type="button" onclick="openAuthModal('save-quote')" style="white-space:nowrap;">Créer un compte</button>
+        <button type="button" class="secondary" onclick="openAuthModal('login')" style="white-space:nowrap;">Se connecter</button>
+      </div>
       <table>
         <thead>
           <tr>
@@ -1144,9 +1157,24 @@
     const authModal   = document.getElementById('authModal');
     const appContainer = document.getElementById('appContainer');
     let currentUser = null;
+    let pendingCartItem = null; // Article en attente d'ajout (invité → connexion)
 
-    function openAuthModal() {
+    function openAuthModal(context) {
       if (authModal) authModal.style.display = 'flex';
+      const titleEl  = document.getElementById('authGateTitle');
+      const bannerEl = document.getElementById('authContextBanner');
+      const hintEl   = document.getElementById('authGateHint');
+      if (context === 'save-quote') {
+        if (titleEl)  titleEl.textContent  = 'Sauvegardez votre devis';
+        if (bannerEl) bannerEl.style.display = '';
+        if (hintEl)   hintEl.style.display  = 'none';
+        // Ouvrir directement le panneau d'inscription (chemin le plus probable)
+        showRegister(true);
+      } else {
+        if (titleEl)  titleEl.textContent  = 'Accès membre';
+        if (bannerEl) bannerEl.style.display = 'none';
+        if (hintEl)   hintEl.style.display  = '';
+      }
     }
     function closeAuthModal() {
       if (authModal) authModal.style.display = 'none';
@@ -1162,6 +1190,11 @@
       const loginBtn = document.getElementById('nav-loginBtn');
       if (loginBtn) loginBtn.style.display = loggedIn ? 'none' : '';
       if (authBar) authBar.style.display = loggedIn ? 'flex' : 'none';
+      // Masquer la bannière invité dès que l'utilisateur est connecté
+      if (loggedIn) {
+        const guestBanner = document.getElementById('guestResultBanner');
+        if (guestBanner) guestBanner.style.display = 'none';
+      }
     }
 
     document.getElementById('authModalCloseBtn')?.addEventListener('click', closeAuthModal);
@@ -1856,7 +1889,7 @@
     async function addToCart(item) {
       try {
         const user = auth.currentUser;
-        if (!user) { openAuthModal(); return; }
+        if (!user) { pendingCartItem = item; openAuthModal('save-quote'); return; }
         const supplierRef = await window.ensureSupplierReference?.();
         if (!supplierRef) {
           setStatus('Impossible de générer la référence fournisseur.', true);
@@ -2552,6 +2585,12 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
             loadArticles();
             loadCartItems();
             loadAccount();
+            // Flush article en attente : si l'invité avait cliqué "Ajouter" avant connexion
+            if (pendingCartItem) {
+              const item = pendingCartItem;
+              pendingCartItem = null;
+              setTimeout(() => addToCart(item), 200);
+            }
             return;
           }
 
@@ -2572,6 +2611,12 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
               loadArticles();
               loadCartItems();
               loadAccount();
+              // Flush article en attente : si l'invité avait cliqué "Ajouter" avant connexion
+              if (pendingCartItem) {
+                const item = pendingCartItem;
+                pendingCartItem = null;
+                setTimeout(() => addToCart(item), 200);
+              }
               return;
             }
           }
@@ -3413,6 +3458,9 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       resultsCard.classList.remove('hidden');
       workspaceCard.classList.add('hidden');
       setStatus('Calcul terminé.');
+      // Afficher la bannière d'invitation uniquement pour les invités
+      const guestBanner = document.getElementById('guestResultBanner');
+      if (guestBanner) guestBanner.style.display = auth.currentUser ? 'none' : 'flex';
 
       const payload = {
         referenceClient: referenceInput.value.trim(),
