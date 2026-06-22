@@ -748,13 +748,22 @@
 
     <div class="card" id="nouvelArticleCard">
       <h2>Nouvel article</h2>
-      <p class="hint">Photo obligatoire de la pièce à côté d'une règle graduée sur fond uni. Cliquez ensuite sur 2 points de la règle dont vous connaissez la distance pour calibrer l'image.</p>
+
+      <!-- ── Sélecteur de mode : Photo ou Fichier 3D ── -->
+      <div id="inputModeToggle" style="display:flex; gap:0; margin-bottom:14px; border:1px solid var(--line); border-radius:8px; overflow:hidden; width:fit-content;">
+        <button type="button" id="modePhotoBtn" style="padding:8px 18px; border:none; border-radius:0; font-size:0.9rem; cursor:pointer; background:var(--accent); color:#fff; transition:background .15s, color .15s;">📷 Photo + Règle</button>
+        <button type="button" id="mode3dBtn" style="padding:8px 18px; border:none; border-radius:0; font-size:0.9rem; cursor:pointer; background:var(--soft); color:var(--ink); transition:background .15s, color .15s;">📐 Fichier 3D</button>
+      </div>
+
+      <p class="hint" id="hintPhoto">Photo obligatoire de la pièce à côté d'une règle graduée sur fond uni. Cliquez ensuite sur 2 points de la règle dont vous connaissez la distance pour calibrer l'image.</p>
+      <p class="hint" id="hint3d" style="display:none;">Déposez un fichier 3D (STL ou OBJ) pour extraire automatiquement la surface. Pas besoin de photo ni de poids.</p>
+
       <div class="grid">
         <div>
           <label for="reference">Référence client (renseignement non obligatoire)</label>
           <input id="reference" type="text" required placeholder="Ex: FA-00231" />
         </div>
-        <div>
+        <div id="weightRow">
           <label for="weight">Poids (g)*</label>
           <div style="display: flex; gap: 8px;">
             <input id="weight" type="number" required step="0.01" min="0" placeholder="Ex: 12.50" style="flex: 1;" />
@@ -786,14 +795,57 @@
           </div>
           <p class="hint" id="silverStatus" style="display:none;"></p>
         </div>
-        <div>
+        <div id="photoRow">
           <label for="photoInput">Photo de l'article*</label>
           <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
             <input id="photoInput" type="file" required accept="image/*" style="flex:1; min-width:0;" />
             <button id="cameraBtn" type="button" class="secondary" style="white-space:nowrap; flex-shrink:0;" title="Prendre une photo avec la caméra">📷 Caméra</button>
           </div>
         </div>
+        <!-- ── Fichier 3D (masqué par défaut) ── -->
+        <div id="file3dRow" style="display:none;">
+          <label for="file3dInput">Fichier 3D (STL / OBJ)*</label>
+          <input id="file3dInput" type="file" accept=".stl,.obj" style="width:100%;" />
+        </div>
       </div>
+
+      <!-- ── Matériau pour estimation du poids (mode 3D uniquement) ── -->
+      <div id="material3dRow" class="grid" style="display:none; margin-top:10px;">
+        <div>
+          <label for="material3d">Matériau de la pièce</label>
+          <select id="material3d">
+            <option value="7.40">Étain (Ecobijal) — 7,40 g/cm³</option>
+            <option value="8.50">Laiton (fonte cire perdue) — 8,50 g/cm³</option>
+            <option value="8.96">Cuivre — 8,96 g/cm³</option>
+            <option value="10.50">Argent 925 — 10,50 g/cm³</option>
+            <option value="19.32">Or 750 (18k) — 19,32 g/cm³</option>
+          </select>
+        </div>
+        <div>
+          <label for="unit3d">Unité du fichier 3D</label>
+          <select id="unit3d">
+            <option value="1" selected>Millimètres (mm)</option>
+            <option value="0.1">Centimètres (cm)</option>
+            <option value="0.001">Mètres (m)</option>
+            <option value="25.4">Pouces (inch)</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- ── Résultat analyse 3D ── -->
+      <div id="file3dResult" style="display:none; margin-top:12px; background:#eff6ff; border:1px solid #dbeafe; border-radius:10px; padding:14px;">
+        <div style="font-weight:600; margin-bottom:8px;">Analyse du fichier 3D</div>
+        <div class="kpi">
+          <div>Surface <strong id="file3dSurface">—</strong> mm²</div>
+          <div>Volume <strong id="file3dVolume">—</strong> mm³</div>
+          <div>Poids estimé <strong id="file3dWeight">—</strong> g</div>
+          <div>Dimensions <strong id="file3dDims">—</strong></div>
+        </div>
+        <div style="margin-top:12px; text-align:center;">
+          <button type="button" id="file3dCalcBtn" style="padding:10px 24px;">Calculer le prix</button>
+        </div>
+      </div>
+
       <p class="status" id="formStatus" role="status" aria-live="polite" style="display:none;"></p>
     </div>
 
@@ -1177,8 +1229,10 @@
         if (titleEl)  titleEl.textContent  = 'Sauvegardez votre devis';
         if (bannerEl) bannerEl.style.display = '';
         if (hintEl)   hintEl.style.display  = 'none';
-        // Ouvrir directement le panneau d'inscription (chemin le plus probable)
-        showRegister(true);
+        // Ouvrir en mode connexion (formulaire court) — l'invité peut basculer vers
+        // l'inscription via "S'inscrire". Forcer l'inscription complète dès le départ
+        // est trop abrupt et peut donner l'impression que "rien ne se passe".
+        showRegister(false);
       } else {
         if (titleEl)  titleEl.textContent  = 'Accès membre';
         if (bannerEl) bannerEl.style.display = 'none';
@@ -1750,10 +1804,16 @@
         .replace(/'/g, '&#39;');
     }
 
-    // N'accepte qu'une data-URL d'image (générée par l'app). Tout le reste → ''
-    // pour empêcher une éventuelle évasion d'attribut via un src forgé.
+    // N'accepte qu'une data-URL d'image (générée par l'app ou importée depuis l'ERP).
+    // Normalise aussi le format court de l'ERP : data:png;base64,… → data:image/png;base64,…
     function safePhotoSrc(url) {
-      return (typeof url === 'string' && /^data:image\/(png|jpe?g|webp|gif);base64,/i.test(url)) ? url : '';
+      if (typeof url !== 'string') return '';
+      // Format standard : data:image/png;base64,...
+      if (/^data:image\/(png|jpe?g|webp|gif);base64,/i.test(url)) return url;
+      // Format ERP court : data:png;base64,... → normaliser
+      const shortMatch = url.match(/^data:(png|jpe?g|webp|gif);base64,/i);
+      if (shortMatch) return url.replace(/^data:(png|jpe?g|webp|gif);base64,/i, `data:image/${shortMatch[1].toLowerCase()};base64,`);
+      return '';
     }
 
     async function fileToBase64Thumbnail(file) {
@@ -1898,7 +1958,14 @@
     async function addToCart(item) {
       try {
         const user = auth.currentUser;
-        if (!user) { pendingCartItem = item; openAuthModal('save-quote'); return; }
+        if (!user) {
+          pendingCartItem = item;
+          openAuthModal('save-quote');
+          // Scroll vers le haut pour que le modal soit visible (crucial en iframe / mobile)
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+          try { window.parent?.postMessage({ type: 'scrollToIframe' }, '*'); } catch {}
+          return 'deferred';
+        }
         const supplierRef = await window.ensureSupplierReference?.();
         if (!supplierRef) {
           setStatus('Impossible de générer la référence fournisseur.', true);
@@ -3410,12 +3477,13 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           formStatus.style.display = 'none';
           try {
             if (window.addToCart) {
-              await window.addToCart(item);          // attend la fin (anti double-ajout)
-              setStatus('Ajouté au panier.');
+              const added = await window.addToCart(item); // attend la fin (anti double-ajout)
+              // 'deferred' = invité redirigé vers connexion, pas encore ajouté
+              if (added !== 'deferred') setStatus('Ajouté au panier.');
             }
           } finally {
             // Succès : addToCart a déjà réinitialisé le workflow (boutons masqués).
-            // Échec : on réactive pour permettre un nouvel essai.
+            // Échec ou différé : on réactive pour permettre un nouvel essai après connexion.
             resultBtns.forEach(b => { b.disabled = false; });
           }
         });
@@ -6338,6 +6406,349 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       if (!e.target.closest('td img')) return;
       photoPreview.style.display = 'none';
     });
+
+    // ════════════════════════════════════════════════════════════════════════
+    // MODE FICHIER 3D — analyse STL/OBJ dans le navigateur
+    // ════════════════════════════════════════════════════════════════════════
+    (function setup3DMode() {
+      const modePhotoBtn = document.getElementById('modePhotoBtn');
+      const mode3dBtn    = document.getElementById('mode3dBtn');
+      const hintPhoto    = document.getElementById('hintPhoto');
+      const hint3d       = document.getElementById('hint3d');
+      const weightRow    = document.getElementById('weightRow');
+      const photoRow     = document.getElementById('photoRow');
+      const file3dRow    = document.getElementById('file3dRow');
+      const material3dRow = document.getElementById('material3dRow');
+      const file3dInput  = document.getElementById('file3dInput');
+      const file3dResult = document.getElementById('file3dResult');
+      const file3dCalcBtn = document.getElementById('file3dCalcBtn');
+      const material3dSel = document.getElementById('material3d');
+      const unit3dSel     = document.getElementById('unit3d');
+      if (!modePhotoBtn || !mode3dBtn) return;
+
+      let currentMode = 'photo';
+      let last3dData = null;
+
+      function setMode(mode) {
+        currentMode = mode;
+        const is3d = mode === '3d';
+        modePhotoBtn.style.background = is3d ? 'var(--soft)' : 'var(--accent)';
+        modePhotoBtn.style.color      = is3d ? 'var(--ink)' : '#fff';
+        mode3dBtn.style.background    = is3d ? 'var(--accent)' : 'var(--soft)';
+        mode3dBtn.style.color         = is3d ? '#fff' : 'var(--ink)';
+        hintPhoto.style.display  = is3d ? 'none' : '';
+        hint3d.style.display     = is3d ? '' : 'none';
+        weightRow.style.display  = is3d ? 'none' : '';
+        photoRow.style.display   = is3d ? 'none' : '';
+        file3dRow.style.display  = is3d ? '' : 'none';
+        material3dRow.style.display = is3d ? '' : 'none';
+        file3dResult.style.display  = 'none';
+        last3dData = null;
+      }
+
+      modePhotoBtn.addEventListener('click', () => setMode('photo'));
+      mode3dBtn.addEventListener('click', () => setMode('3d'));
+
+      // ── Parseur STL (binaire + ASCII) ──
+      function parseSTL(buffer) {
+        const dv = new DataView(buffer);
+        const isBinary = (() => {
+          try {
+            const header = new Uint8Array(buffer, 0, 80);
+            const text = new TextDecoder('ascii').decode(header);
+            if (text.trimStart().startsWith('solid')) {
+              const full = new TextDecoder('ascii').decode(new Uint8Array(buffer));
+              if (full.includes('endsolid')) return false;
+            }
+            return true;
+          } catch { return true; }
+        })();
+
+        if (isBinary) {
+          const triCount = dv.getUint32(80, true);
+          const positions = new Float32Array(triCount * 9);
+          for (let i = 0; i < triCount; i++) {
+            const off = 84 + i * 50;
+            for (let v = 0; v < 3; v++) {
+              positions[i * 9 + v * 3]     = dv.getFloat32(off + 12 + v * 12, true);
+              positions[i * 9 + v * 3 + 1] = dv.getFloat32(off + 12 + v * 12 + 4, true);
+              positions[i * 9 + v * 3 + 2] = dv.getFloat32(off + 12 + v * 12 + 8, true);
+            }
+          }
+          return positions;
+        }
+
+        const text = new TextDecoder().decode(new Uint8Array(buffer));
+        const verts = [];
+        const re = /vertex\s+([-\d.eE+]+)\s+([-\d.eE+]+)\s+([-\d.eE+]+)/g;
+        let m;
+        while ((m = re.exec(text))) {
+          verts.push(parseFloat(m[1]), parseFloat(m[2]), parseFloat(m[3]));
+        }
+        return new Float32Array(verts);
+      }
+
+      // ── Parseur OBJ ──
+      function parseOBJ(text) {
+        const verts = [];
+        const tris = [];
+        for (const line of text.split('\n')) {
+          const parts = line.trim().split(/\s+/);
+          if (parts[0] === 'v' && parts.length >= 4) {
+            verts.push([parseFloat(parts[1]), parseFloat(parts[2]), parseFloat(parts[3])]);
+          } else if (parts[0] === 'f') {
+            const idx = parts.slice(1).map(s => parseInt(s.split('/')[0], 10) - 1);
+            for (let i = 1; i < idx.length - 1; i++) {
+              tris.push(idx[0], idx[i], idx[i + 1]);
+            }
+          }
+        }
+        const positions = new Float32Array(tris.length * 3);
+        for (let i = 0; i < tris.length; i++) {
+          const v = verts[tris[i]];
+          positions[i * 3]     = v[0];
+          positions[i * 3 + 1] = v[1];
+          positions[i * 3 + 2] = v[2];
+        }
+        return positions;
+      }
+
+      // ── Calculs géométriques sur un mesh (triangle soup) ──
+      function computeMeshMetrics(positions, unitScale) {
+        const n = positions.length / 9;
+        let surfaceMm2 = 0, signedVolume = 0;
+        let minX = Infinity, minY = Infinity, minZ = Infinity;
+        let maxX = -Infinity, maxY = -Infinity, maxZ = -Infinity;
+
+        for (let i = 0; i < n; i++) {
+          const off = i * 9;
+          const ax = positions[off] * unitScale, ay = positions[off + 1] * unitScale, az = positions[off + 2] * unitScale;
+          const bx = positions[off + 3] * unitScale, by = positions[off + 4] * unitScale, bz = positions[off + 5] * unitScale;
+          const cx = positions[off + 6] * unitScale, cy = positions[off + 7] * unitScale, cz = positions[off + 8] * unitScale;
+
+          // surface : demi-norme du produit vectoriel
+          const abx = bx - ax, aby = by - ay, abz = bz - az;
+          const acx = cx - ax, acy = cy - ay, acz = cz - az;
+          const crossX = aby * acz - abz * acy;
+          const crossY = abz * acx - abx * acz;
+          const crossZ = abx * acy - aby * acx;
+          surfaceMm2 += Math.sqrt(crossX * crossX + crossY * crossY + crossZ * crossZ) / 2;
+
+          // volume signé (théorème de la divergence)
+          signedVolume += (ax * (by * cz - bz * cy) + bx * (cy * az - cz * ay) + cx * (ay * bz - az * by)) / 6;
+
+          for (const x of [ax, bx, cx]) { if (x < minX) minX = x; if (x > maxX) maxX = x; }
+          for (const y of [ay, by, cy]) { if (y < minY) minY = y; if (y > maxY) maxY = y; }
+          for (const z of [az, bz, cz]) { if (z < minZ) minZ = z; if (z > maxZ) maxZ = z; }
+        }
+
+        return {
+          surfaceMm2,
+          volumeMm3: Math.abs(signedVolume),
+          dimX: maxX - minX,
+          dimY: maxY - minY,
+          dimZ: maxZ - minZ
+        };
+      }
+
+      function updateDisplay(metrics, density) {
+        const volumeCm3 = metrics.volumeMm3 / 1000;
+        const weightG = volumeCm3 * density;
+        document.getElementById('file3dSurface').textContent = metrics.surfaceMm2.toFixed(1);
+        document.getElementById('file3dVolume').textContent  = metrics.volumeMm3.toFixed(1);
+        document.getElementById('file3dWeight').textContent   = weightG.toFixed(2);
+        document.getElementById('file3dDims').textContent     =
+          `${metrics.dimX.toFixed(1)} × ${metrics.dimY.toFixed(1)} × ${metrics.dimZ.toFixed(1)} mm`;
+        file3dResult.style.display = '';
+        last3dData = { metrics, density, weightG };
+      }
+
+      file3dInput.addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        file3dResult.style.display = 'none';
+        setFormStatus('Analyse du fichier 3D…', false);
+
+        try {
+          const ext = file.name.split('.').pop().toLowerCase();
+          let positions;
+          if (ext === 'stl') {
+            const buf = await file.arrayBuffer();
+            positions = parseSTL(buf);
+          } else if (ext === 'obj') {
+            const text = await file.text();
+            positions = parseOBJ(text);
+          } else {
+            setFormStatus('Format non supporté. Utilisez un fichier .stl ou .obj.', true);
+            return;
+          }
+
+          if (positions.length < 9) {
+            setFormStatus('Fichier 3D vide ou invalide.', true);
+            return;
+          }
+
+          const unitScale = parseFloat(unit3dSel.value);
+          const density = parseFloat(material3dSel.value);
+          const metrics = computeMeshMetrics(positions, unitScale);
+          updateDisplay(metrics, density);
+          setFormStatus('Fichier 3D analysé.', false);
+        } catch (err) {
+          console.error('Erreur analyse 3D:', err);
+          setFormStatus('Erreur lors de l\'analyse du fichier 3D.', true);
+        }
+      });
+
+      material3dSel.addEventListener('change', () => {
+        if (!last3dData) return;
+        const density = parseFloat(material3dSel.value);
+        updateDisplay(last3dData.metrics, density);
+      });
+
+      unit3dSel.addEventListener('change', () => {
+        if (!file3dInput.files[0]) return;
+        file3dInput.dispatchEvent(new Event('change'));
+      });
+
+      // ── Calcul du prix depuis les données 3D ──
+      file3dCalcBtn.addEventListener('click', async () => {
+        if (!last3dData) return;
+        const { metrics, weightG } = last3dData;
+
+        if (!descriptionInput.value.trim()) {
+          setFormStatus('Veuillez saisir une description.', true);
+          return;
+        }
+
+        if (!window.currentSupplierRef && window.supplierRefInput && !window.supplierRefInput.value) {
+          try {
+            const preview = await previewNextSupplierReference();
+            if (preview?.supplierRef) window.supplierRefInput.value = preview.supplierRef;
+            else window.supplierRefInput.value = window.fallbackSupplierReference?.() || 'XXXX0001';
+          } catch { window.supplierRefInput.value = window.fallbackSupplierReference?.() || 'XXXX0001'; }
+        }
+
+        // En 3D le mesh donne déjà la surface totale réelle (pas une projection 2D),
+        // donc on l'utilise directement comme Stotale, sans facteurSurface ni terme périmètre.
+        const surfaceMm2 = metrics.surfaceMm2;
+        const h = weightG / (PRICING.constanteHauteur * surfaceMm2);
+        const stotale = surfaceMm2;
+
+        const goldRate = Number(goldRateInput.value) || 0;
+        const goldFactor = goldRate / PRICING.diviseurOr;
+        const silverRate = Number(silverRateInput?.value) || 0;
+
+        if (surfaceOut) surfaceOut.textContent = surfaceMm2.toFixed(2);
+        if (perimeterOut) perimeterOut.textContent = '—';
+        if (heightOut) heightOut.textContent = h.toFixed(4);
+        if (stotalOut) stotalOut.textContent = stotale.toFixed(2);
+
+        const pricesOr = PRICING.prestations.map(p => ({
+          label: p.label, code: p.code, coloris: p.coloris,
+          formula: buildPriceFormula(p, stotale, goldRate),
+          price: stotale * (PRICING.base + p.fixe + (PRICING.coefOr + p.orSupp) * goldFactor)
+        }));
+        const pricesArgent = PRICING.prestationsArgent.map(p => ({
+          label: p.label, code: p.code, coloris: p.coloris,
+          formula: buildSilverFormula(p, stotale, silverRate),
+          price: stotale * (PRICING.base + p.agCoef * silverRate / PRICING.diviseurArgent)
+        }));
+        const prices = [...pricesOr, ...pricesArgent];
+
+        lastQuoteContext = {
+          referenceClient: referenceInput.value.trim(),
+          referenceSupplier: (window.supplierRefInput?.value || '').trim(),
+          description: descriptionInput.value.trim()
+        };
+
+        priceTableBody.innerHTML = '';
+        prices.forEach((row) => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td>${row.label}</td>
+            <td>${row.price.toFixed(2)} €</td>
+            <td><button type="button" class="secondary" data-label="${row.label}" data-code="${row.code}" data-coloris="${row.coloris}" data-price="${row.price}">Ajouter</button></td>
+          `;
+          priceTableBody.appendChild(tr);
+        });
+
+        priceTableBody.querySelectorAll('button[data-code]').forEach(btn => {
+          btn.addEventListener('click', async (e) => {
+            e.preventDefault(); e.stopPropagation();
+            if (btn.disabled) return;
+            const resultBtns = priceTableBody.querySelectorAll('button[data-code]');
+            resultBtns.forEach(b => { b.disabled = true; });
+            const item = {
+              source: 'result-3d',
+              reference: '',
+              referenceCode: btn.dataset.code || '',
+              referenceClient: lastQuoteContext?.referenceClient || '',
+              referenceSupplier: lastQuoteContext?.referenceSupplier || '',
+              description: `${btn.dataset.coloris || ''} sur ${lastQuoteContext?.description || ''}`.trim(),
+              unitPrice: Number(btn.dataset.price) || 0,
+              surfaceTotalMm2: stotale,
+              quantity: 1,
+              photoDataUrl: ''
+            };
+            try {
+              if (window.addToCart) {
+                const added = await window.addToCart(item);
+                if (added !== 'deferred') setStatus('Ajouté au panier.');
+              }
+            } finally {
+              resultBtns.forEach(b => { b.disabled = false; });
+            }
+          });
+        });
+
+        resultsCard.classList.remove('hidden');
+        workspaceCard.classList.add('hidden');
+        const resultsWarning = document.getElementById('resultsWarning');
+        const H_MIN_MM = 0.1, H_MAX_MM = 50;
+        const heightWarning = (!Number.isFinite(h) || h < H_MIN_MM || h > H_MAX_MM)
+          ? `⚠ Hauteur moyenne calculée inhabituelle (${Number.isFinite(h) ? h.toFixed(2) : '∞'} mm). Vérifiez l'unité du fichier 3D et le matériau choisi.`
+          : '';
+        if (resultsWarning) {
+          resultsWarning.textContent = heightWarning;
+          resultsWarning.style.display = heightWarning ? 'block' : 'none';
+        }
+        setStatus('Calcul terminé (fichier 3D).');
+        const guestBanner = document.getElementById('guestResultBanner');
+        if (guestBanner) guestBanner.style.display = auth.currentUser ? 'none' : 'flex';
+
+        const payload = {
+          referenceClient: referenceInput.value.trim(),
+          referenceSupplier: (window.supplierRefInput?.value || '').trim() || null,
+          description: descriptionInput.value.trim(),
+          weight: weightG,
+          goldRate,
+          silverRate,
+          surfaceMm2,
+          perimeterMm: null,
+          heightMm: h,
+          surfaceTotalMm2: stotale,
+          prices,
+          source3d: {
+            fileName: file3dInput.files[0]?.name || '',
+            volumeMm3: metrics.volumeMm3,
+            material: material3dSel.options[material3dSel.selectedIndex].text,
+            unit: unit3dSel.options[unit3dSel.selectedIndex].text
+          },
+          calibration: null,
+          roi: null,
+          adjustments: null,
+          selection: { mode: '3d-file' }
+        };
+
+        try {
+          if (window.saveQuoteToFirestore) {
+            await window.saveQuoteToFirestore(payload, null, null);
+          }
+        } catch (err) {
+          setStatus(err?.message || 'Enregistrement Firebase impossible.', true);
+        }
+      });
+    })();
   </script>
 
   <script>
