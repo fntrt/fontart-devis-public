@@ -3499,7 +3499,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       setStatus('Calcul terminé.');
       // Afficher la bannière d'invitation uniquement pour les invités
       const guestBanner = document.getElementById('guestResultBanner');
-      if (guestBanner) guestBanner.style.display = auth.currentUser ? 'none' : 'flex';
+      if (guestBanner) guestBanner.style.display = window._fb?.auth?.currentUser ? 'none' : 'flex';
 
       const payload = {
         referenceClient: referenceInput.value.trim(),
@@ -6714,7 +6714,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         }
         setStatus('Calcul terminé (fichier 3D).');
         const guestBanner = document.getElementById('guestResultBanner');
-        if (guestBanner) guestBanner.style.display = auth.currentUser ? 'none' : 'flex';
+        if (guestBanner) guestBanner.style.display = window._fb?.auth?.currentUser ? 'none' : 'flex';
 
         const payload = {
           referenceClient: referenceInput.value.trim(),
