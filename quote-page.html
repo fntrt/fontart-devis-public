@@ -6915,7 +6915,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       const full  = Math.round(average);
       stars.textContent = '★'.repeat(full) + '☆'.repeat(5 - full);
       text.textContent  = ` ${average.toFixed(1)} / 5 · ${count} avis`;
-      badge.style.display = 'block';
+      // Badge masqué ici — la note est affichée sur fontart.fr/service-dorure-bijoux
     }
 
     // ── 3. Sauvegarder la note (transaction : met à jour le résumé) ──────
