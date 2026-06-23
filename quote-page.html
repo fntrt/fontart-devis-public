@@ -1270,7 +1270,7 @@
     const db = getFirestore(app);
 
     // Exposé pour le système de notation (module séparé sans accès aux imports Firestore)
-    window._fb = { db, auth, doc, getDoc, runTransaction, serverTimestamp };
+    window._fb = { db, auth, doc, getDoc, setDoc, runTransaction, serverTimestamp };
 
     // Dans un iframe tiers, localStorage est bloqué/partitionné par le navigateur.
     // On utilise sessionStorage en priorité, sinon mémoire pure.
@@ -3358,23 +3358,23 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     };
     let PRICING = null;
     const _pricingReady = (async () => {
+      const fb = window._fb;
+      if (!fb) { PRICING = _PRICING_SEED; return; }
       try {
-        const snap = await getDoc(doc(db, 'config', 'pricing'));
+        const snap = await fb.getDoc(fb.doc(fb.db, 'config', 'pricing'));
         if (snap.exists()) {
           PRICING = snap.data();
           return;
         }
       } catch (e) { console.warn('Firestore config/pricing read failed:', e.message); }
-      // Document absent → seed automatique si connecté
-      if (auth.currentUser) {
+      if (fb.auth.currentUser) {
         try {
-          await setDoc(doc(db, 'config', 'pricing'), { ..._PRICING_SEED, updatedAt: serverTimestamp() });
+          await fb.setDoc(fb.doc(fb.db, 'config', 'pricing'), { ..._PRICING_SEED, updatedAt: fb.serverTimestamp() });
           PRICING = _PRICING_SEED;
           console.log('Barème initial écrit dans Firestore (config/pricing).');
           return;
         } catch (e) { console.warn('Firestore config/pricing seed failed:', e.message); }
       }
-      // Pas connecté ou écriture échouée → utiliser le seed en mémoire
       PRICING = _PRICING_SEED;
     })();
 
@@ -3748,19 +3748,24 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       inputEl.value = eurPerKg.toFixed(2);
       localStorage.setItem(cacheKey, eurPerKg.toFixed(2));
       localStorage.setItem(cacheTsKey, row.d);
-      try {
-        await setDoc(doc(db, 'config', 'metalRates'), {
-          [metal]: eurPerKg,
-          [`${metal}Date`]: row.d,
-          [`${metal}UpdatedAt`]: serverTimestamp()
-        }, { merge: true });
-      } catch (_) { /* Firestore write failed — localStorage is enough */ }
+      const fb = window._fb;
+      if (fb) {
+        try {
+          await fb.setDoc(fb.doc(fb.db, 'config', 'metalRates'), {
+            [metal]: eurPerKg,
+            [`${metal}Date`]: row.d,
+            [`${metal}UpdatedAt`]: fb.serverTimestamp()
+          }, { merge: true });
+        } catch (_) {}
+      }
     }
 
     async function _updateRate(metal, lbmaUrl, cacheKey, cacheTsKey, inputEl) {
+      const fb = window._fb;
       // 1. Try Firestore shared cache (fast, no CORS proxy needed)
       try {
-        const snap = await getDoc(doc(db, 'config', 'metalRates'));
+        if (!fb) throw new Error('no fb');
+        const snap = await fb.getDoc(fb.doc(fb.db, 'config', 'metalRates'));
         if (snap.exists()) {
           const d = snap.data();
           const rate = d[metal];
