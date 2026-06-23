@@ -3357,15 +3357,14 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       ]
     };
     let PRICING = null;
-    let _pricingReady = null;
-    const _pricingPromise = (async () => {
+    const _pricingReady = (async () => {
       try {
         const snap = await getDoc(doc(db, 'config', 'pricing'));
         if (snap.exists()) {
           PRICING = snap.data();
           return;
         }
-      } catch (_) {}
+      } catch (e) { console.warn('Firestore config/pricing read failed:', e.message); }
       // Document absent → seed automatique si connecté
       if (auth.currentUser) {
         try {
@@ -3373,12 +3372,11 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           PRICING = _PRICING_SEED;
           console.log('Barème initial écrit dans Firestore (config/pricing).');
           return;
-        } catch (_) {}
+        } catch (e) { console.warn('Firestore config/pricing seed failed:', e.message); }
       }
       // Pas connecté ou écriture échouée → utiliser le seed en mémoire
       PRICING = _PRICING_SEED;
     })();
-    _pricingReady = _pricingPromise;
 
     // Reconstruit la chaîne « formule » (enregistrée dans le devis Firestore) à
     // partir des constantes du barème — garde le calcul et la formule synchronisés.
@@ -4426,9 +4424,10 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       runAIDetection();
     });
 
-    confirmContoursBtn.addEventListener('click', () => {
+    confirmContoursBtn.addEventListener('click', async () => {
       setFormStatus('Calcul en cours...', false);
-      computeAndDisplayPrices();
+      try { await computeAndDisplayPrices(); }
+      catch (err) { setStatus('Erreur lors du calcul : ' + (err?.message || err), true); console.error(err); }
     });
 
 
@@ -6052,10 +6051,11 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       }
     }
 
-    aiAcceptBtn.addEventListener('click', () => {
+    aiAcceptBtn.addEventListener('click', async () => {
       manualMode = false;
       previewCanvas.style.cursor = '';
-      computeAndDisplayPrices();
+      try { await computeAndDisplayPrices(); }
+      catch (err) { setStatus('Erreur lors du calcul : ' + (err?.message || err), true); console.error(err); }
     });
 
     aiManualBtn.addEventListener('click', () => {
