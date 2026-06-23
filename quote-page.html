@@ -1012,6 +1012,9 @@
         </thead>
         <tbody id="priceTableBody"></tbody>
       </table>
+      <p style="margin-top:12px; font-size:0.85rem; color:#8a7a6a; line-height:1.5; border-top:1px solid #e3dcd2; padding-top:10px;">
+        Prix indicatif basé sur les mesures fournies. Le tarif définitif sera confirmé après réception et mesure de la pièce en atelier.
+      </p>
     </div>
 
     <div class="card hidden" id="quotesCard">
@@ -3309,8 +3312,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     function computePriceFromSurface(colorCode, surfaceTotalMm2, goldRate) {
       const stotale = Number(surfaceTotalMm2) || 0;
       const gold = Number(goldRate) || 0;
-      if (!stotale) return null;
-      // Même barème que computeAndDisplayPrices (source unique : PRICING)
+      if (!stotale || !PRICING) return null;
       const p = PRICING.prestations.find(x => x.code === (colorCode || '').toUpperCase());
       if (!p) return null;
       const goldFactor = gold / PRICING.diviseurOr;
@@ -3333,39 +3335,24 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     };
 
     // ════════════════════════════════════════════════════════════════════════
-    // BARÈME TARIFAIRE — coefficients de calcul des prix de dorure
-    // Pour ajuster un tarif, modifie UNIQUEMENT les valeurs ci-dessous (un seul
-    // endroit : le calcul ET la formule enregistrée en découlent automatiquement).
-    //
-    //   hauteur  = poids / (constanteHauteur × surface_mm²)
-    //   Stotale  = surface_mm² × facteurSurface + hauteur × périmètre_mm
-    //   prix     = Stotale × ( base + fixe + (coefOr + orSupp) × (cours_or / diviseurOr) )
+    // BARÈME TARIFAIRE — chargé depuis Firestore (config/pricing).
+    // Les coefficients ne sont plus dans le code source.
+    // Pour initialiser ou mettre à jour le barème dans Firestore, utilisez
+    // la console Firebase ou un script admin (voir README).
     // ════════════════════════════════════════════════════════════════════════
-    const PRICING = {
-      constanteHauteur: 0.0073,            // hauteur = poids / (constanteHauteur × surface)
-      facteurSurface:   2,                 // Stotale = surface × facteurSurface + hauteur × périmètre
-      diviseurOr:       100000,            // le cours de l'or est divisé par ce diviseur
-      base:             0.0019,            // coefficient de base, commun à toutes les prestations
-      coefOr:           0.0008166666667,   // coefficient « or » commun (× cours de l'or)
-      // Une ligne par prestation — l'ordre détermine l'affichage :
-      //   fixe   : surcoût fixe (indépendant du cours de l'or)
-      //   orSupp : supplément « or » ajouté à coefOr (× cours de l'or)
-      prestations: [
-        { code: 'FAV', label: 'Flash or avec vernis cataphorèse', coloris: 'Flash + Vernis', fixe: 0.0003842, orSupp: 0 },
-        { code: 'D1',  label: 'Dorure 1µm', coloris: 'Doré 1', fixe: 0, orSupp: 0.0012166666667 },
-        { code: 'D2',  label: 'Dorure 2µm', coloris: 'Doré 2', fixe: 0, orSupp: 0.0024333333333 },
-        { code: 'D3',  label: 'Dorure 3µm', coloris: 'Doré 3', fixe: 0, orSupp: 0.00365 },
-      ],
-
-      // ── Argenture ──  prix = Stotale × ( base + agCoef × cours_argent / diviseurArgent )
-      // agCoef déduit du barème Excel (≈ 0,0054546 × grade ; exact à ~0,1 % sur 10-1000 mm²).
-      diviseurArgent: 100000,            // le cours de l'argent est divisé par ce diviseur
-      prestationsArgent: [
-        { code: 'AG15', label: 'Argenture 15µm', coloris: 'Argent 15', agCoef: 0.08182 },
-        { code: 'AG20', label: 'Argenture 20µm', coloris: 'Argent 20', agCoef: 0.10909 },
-        { code: 'AG30', label: 'Argenture 30µm', coloris: 'Argent 30', agCoef: 0.16364 },
-      ]
-    };
+    let PRICING = null;
+    let _pricingReady = null;
+    const _pricingPromise = (async () => {
+      try {
+        const snap = await getDoc(doc(db, 'config', 'pricing'));
+        if (snap.exists()) {
+          PRICING = snap.data();
+          return;
+        }
+      } catch (_) {}
+      setStatus('Barème tarifaire indisponible — rechargez la page ou vérifiez votre connexion.', true);
+    })();
+    _pricingReady = _pricingPromise;
 
     // Reconstruit la chaîne « formule » (enregistrée dans le devis Firestore) à
     // partir des constantes du barème — garde le calcul et la formule synchronisés.
@@ -3420,6 +3407,11 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     }
 
     async function computeAndDisplayPrices() {
+      await _pricingReady;
+      if (!PRICING) {
+        setStatus('Barème tarifaire non chargé. Rechargez la page.', true);
+        return;
+      }
       if (!_rulerDetected) {
         setStatus('Impossible de calculer un prix : aucune règle graduée n\'a été détectée dans la photo. Recommencez avec une photo incluant une règle bien visible.', true);
         return;
@@ -3722,49 +3714,64 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       return best;
     }
 
-    async function updateGoldRate() {
-      const cacheKey = 'goldRateEurKg';
-      const cacheTsKey = 'goldRateEurKgTs';
-      const url = 'https://prices.lbma.org.uk/json/gold_am.json';
+    async function _fetchAndCacheLbma(metal, lbmaUrl, cacheKey, cacheTsKey, inputEl) {
+      const data = await fetchJson(lbmaUrl);
+      const row = selectLbmaFixing(data);
+      if (!row) throw new Error('No fixing');
+      const eurPerOz = Number(row.v[2]);
+      if (!Number.isFinite(eurPerOz)) throw new Error('Bad value');
+      const eurPerKg = eurPerOz * OZ_PER_KG;
+      inputEl.value = eurPerKg.toFixed(2);
+      localStorage.setItem(cacheKey, eurPerKg.toFixed(2));
+      localStorage.setItem(cacheTsKey, row.d);
       try {
-        const data = await fetchJson(url);
-        const row = selectLbmaFixing(data);
-        if (!row) throw new Error('No fixing');
-        const eurPerOz = Number(row.v[2]);
-        if (!Number.isFinite(eurPerOz)) throw new Error('Bad value');
-        const eurPerKg = eurPerOz * OZ_PER_KG;
-        goldRateInput.value = eurPerKg.toFixed(2);
-        localStorage.setItem(cacheKey, eurPerKg.toFixed(2));
-        localStorage.setItem(cacheTsKey, row.d);
-      } catch (err) {
-        const cached = localStorage.getItem(cacheKey);
-        if (cached) {
-          goldRateInput.value = cached;
-        }
-      }
+        await setDoc(doc(db, 'config', 'metalRates'), {
+          [metal]: eurPerKg,
+          [`${metal}Date`]: row.d,
+          [`${metal}UpdatedAt`]: serverTimestamp()
+        }, { merge: true });
+      } catch (_) { /* Firestore write failed — localStorage is enough */ }
     }
 
-    // Cours de l'argent LBMA — même structure que l'or (v[2] = EUR/once)
-    async function updateSilverRate() {
-      const cacheKey = 'silverRateEurKg';
-      const cacheTsKey = 'silverRateEurKgTs';
-      const url = 'https://prices.lbma.org.uk/json/silver.json';
+    async function _updateRate(metal, lbmaUrl, cacheKey, cacheTsKey, inputEl) {
+      // 1. Try Firestore shared cache (fast, no CORS proxy needed)
       try {
-        const data = await fetchJson(url);
-        const row = selectLbmaFixing(data);
-        if (!row) throw new Error('No fixing');
-        const eurPerOz = Number(row.v[2]);
-        if (!Number.isFinite(eurPerOz)) throw new Error('Bad value');
-        const eurPerKg = eurPerOz * OZ_PER_KG;
-        silverRateInput.value = eurPerKg.toFixed(2);
-        localStorage.setItem(cacheKey, eurPerKg.toFixed(2));
-        localStorage.setItem(cacheTsKey, row.d);
-      } catch (err) {
-        const cached = localStorage.getItem(cacheKey);
-        if (cached) {
-          silverRateInput.value = cached;
+        const snap = await getDoc(doc(db, 'config', 'metalRates'));
+        if (snap.exists()) {
+          const d = snap.data();
+          const rate = d[metal];
+          const rateDate = d[`${metal}Date`];
+          if (rate && rateDate) {
+            const ageMs = Date.now() - new Date(rateDate + 'T12:00:00Z').getTime();
+            if (ageMs < 36 * 3600 * 1000) {
+              inputEl.value = Number(rate).toFixed(2);
+              localStorage.setItem(cacheKey, Number(rate).toFixed(2));
+              localStorage.setItem(cacheTsKey, rateDate);
+              return;
+            }
+          }
         }
-      }
+      } catch (_) { /* Firestore read failed — try LBMA */ }
+
+      // 2. Firestore stale or missing → fetch LBMA, write back to Firestore
+      try {
+        await _fetchAndCacheLbma(metal, lbmaUrl, cacheKey, cacheTsKey, inputEl);
+        return;
+      } catch (_) {}
+
+      // 3. Fallback: localStorage
+      const cached = localStorage.getItem(cacheKey);
+      if (cached) inputEl.value = cached;
+    }
+
+    async function updateGoldRate() {
+      await _updateRate('gold', 'https://prices.lbma.org.uk/json/gold_am.json',
+        'goldRateEurKg', 'goldRateEurKgTs', goldRateInput);
+    }
+
+    async function updateSilverRate() {
+      await _updateRate('silver', 'https://prices.lbma.org.uk/json/silver.json',
+        'silverRateEurKg', 'silverRateEurKgTs', silverRateInput);
     }
 
     referenceInput.addEventListener('input', updateStartAvailability);
@@ -6684,6 +6691,11 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       // ── Calcul du prix depuis les données 3D ──
       file3dCalcBtn.addEventListener('click', async () => {
         if (!last3dData) return;
+        await _pricingReady;
+        if (!PRICING) {
+          setStatus('Barème tarifaire non chargé. Rechargez la page.', true);
+          return;
+        }
         const { metrics, weightG } = last3dData;
 
         if (!descriptionInput.value.trim()) {

@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <title>Initialiser le barème dans Firestore</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 600px; margin: 40px auto; padding: 0 20px; }
+    pre { background: #f5f5f5; padding: 16px; border-radius: 8px; overflow: auto; font-size: 0.85rem; }
+    button { padding: 12px 24px; font-size: 1rem; cursor: pointer; border: none; border-radius: 6px; background: #1f1b17; color: #fff; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    .status { margin-top: 16px; padding: 12px; border-radius: 8px; }
+    .ok { background: #d4edda; color: #155724; }
+    .err { background: #f8d7da; color: #721c24; }
+  </style>
+</head>
+<body>
+  <h1>Initialiser config/pricing dans Firestore</h1>
+  <p>Ce script écrit le barème tarifaire dans le document <code>config/pricing</code> de Firestore.
+     À lancer une seule fois, ou après modification des coefficients.</p>
+  <p><strong>Vous devez être connecté</strong> avec un compte autorisé (les règles Firestore doivent autoriser l'écriture sur <code>config/pricing</code>).</p>
+
+  <h3>Barème qui sera écrit :</h3>
+  <pre id="preview"></pre>
+
+  <button id="writeBtn">Écrire dans Firestore</button>
+  <div id="status"></div>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/12.10.0/firebase-app.js";
+    import { getAuth, signInWithEmailAndPassword, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/12.10.0/firebase-auth.js";
+    import { getFirestore, doc, setDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/12.10.0/firebase-firestore.js";
+
+    const firebaseConfig = {
+      apiKey: "AIzaSyDRLgbcZXP0ezEDPgq_ZYdgrTppWCxYt98",
+      authDomain: "devis-dorure.firebaseapp.com",
+      projectId: "devis-dorure",
+      storageBucket: "devis-dorure.firebasestorage.app",
+      messagingSenderId: "47596669965",
+      appId: "1:47596669965:web:64eabaefd9f73042b39944"
+    };
+
+    const app = initializeApp(firebaseConfig);
+    const auth = getAuth(app);
+    const db = getFirestore(app);
+
+    const PRICING = {
+      constanteHauteur: 0.0073,
+      facteurSurface: 2,
+      diviseurOr: 100000,
+      base: 0.0019,
+      coefOr: 0.0008166666667,
+      prestations: [
+        { code: 'FAV', label: 'Flash or avec vernis cataphorèse', coloris: 'Flash + Vernis', fixe: 0.0003842, orSupp: 0 },
+        { code: 'D1',  label: 'Dorure 1µm', coloris: 'Doré 1', fixe: 0, orSupp: 0.0012166666667 },
+        { code: 'D2',  label: 'Dorure 2µm', coloris: 'Doré 2', fixe: 0, orSupp: 0.0024333333333 },
+        { code: 'D3',  label: 'Dorure 3µm', coloris: 'Doré 3', fixe: 0, orSupp: 0.00365 },
+      ],
+      diviseurArgent: 100000,
+      prestationsArgent: [
+        { code: 'AG15', label: 'Argenture 15µm', coloris: 'Argent 15', agCoef: 0.08182 },
+        { code: 'AG20', label: 'Argenture 20µm', coloris: 'Argent 20', agCoef: 0.10909 },
+        { code: 'AG30', label: 'Argenture 30µm', coloris: 'Argent 30', agCoef: 0.16364 },
+      ]
+    };
+
+    document.getElementById('preview').textContent = JSON.stringify(PRICING, null, 2);
+
+    const statusEl = document.getElementById('status');
+    const writeBtn = document.getElementById('writeBtn');
+
+    onAuthStateChanged(auth, user => {
+      if (user) {
+        statusEl.innerHTML = `<div class="status ok">Connecté : ${user.email}</div>`;
+      } else {
+        statusEl.innerHTML = `<div class="status err">Non connecté. Connectez-vous d'abord sur l'application principale.</div>`;
+      }
+    });
+
+    writeBtn.addEventListener('click', async () => {
+      if (!auth.currentUser) {
+        const email = prompt('Email admin :');
+        const pwd = prompt('Mot de passe :');
+        if (!email || !pwd) return;
+        try {
+          await signInWithEmailAndPassword(auth, email, pwd);
+        } catch (err) {
+          statusEl.innerHTML = `<div class="status err">Connexion échouée : ${err.message}</div>`;
+          return;
+        }
+      }
+
+      writeBtn.disabled = true;
+      writeBtn.textContent = 'Écriture…';
+      try {
+        await setDoc(doc(db, 'config', 'pricing'), {
+          ...PRICING,
+          updatedAt: serverTimestamp()
+        });
+        statusEl.innerHTML = `<div class="status ok">✓ Barème écrit dans config/pricing. Vous pouvez fermer cette page.</div>`;
+      } catch (err) {
+        statusEl.innerHTML = `<div class="status err">Erreur : ${err.message}</div>`;
+      } finally {
+        writeBtn.disabled = false;
+        writeBtn.textContent = 'Écrire dans Firestore';
+      }
+    });
+  </script>
+</body>
+</html>
