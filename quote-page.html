@@ -740,6 +740,20 @@
       <p class="hint" id="hintPhoto">Photo obligatoire de la pièce à côté d'une règle graduée sur fond uni. Cliquez ensuite sur 2 points de la règle dont vous connaissez la distance pour calibrer l'image.</p>
       <p class="hint" id="hint3d" style="display:none;">Déposez un fichier 3D (STL ou OBJ) pour extraire automatiquement la surface. Pas besoin de photo ni de poids.</p>
 
+      <details id="videoTuto" style="margin-bottom:14px;">
+        <summary style="cursor:pointer; font-size:0.9rem; color:var(--accent); font-weight:500;">
+          ▶ Voir le tutoriel vidéo (20 s)
+        </summary>
+        <div style="position:relative; padding-bottom:56.25%; height:0; overflow:hidden; border-radius:10px; margin-top:10px;">
+          <iframe id="videoTutoFrame" data-src="https://www.youtube.com/embed/ZK7w7UJIP94"
+            title="Tutoriel — Créer un nouvel article" frameborder="0"
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            allowfullscreen loading="lazy"
+            style="position:absolute; top:0; left:0; width:100%; height:100%; border-radius:10px;">
+          </iframe>
+        </div>
+      </details>
+
       <div class="grid">
         <div>
           <label for="reference">Référence client (renseignement non obligatoire)</label>
@@ -6403,6 +6417,12 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     updateStartAvailability();
     setStage('idle');
     setStatus('Chargez une image pour démarrer.');
+
+    const videoTuto = document.getElementById('videoTuto');
+    if (videoTuto) videoTuto.addEventListener('toggle', () => {
+      const frame = document.getElementById('videoTutoFrame');
+      if (videoTuto.open && frame && !frame.src) frame.src = frame.dataset.src;
+    });
     updateGoldRate();
     updateSilverRate();
 
