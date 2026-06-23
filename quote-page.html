@@ -140,6 +140,77 @@
       .workspace { grid-template-columns: 1fr; }
     }
 
+    @media (max-width: 600px) {
+      #appNav { gap: 2px; padding: 6px 8px; }
+      #appNav button { padding: 6px 10px; font-size: 0.8rem; }
+
+      /* Toolbar button rows: stack when needed */
+      #autoScaleSection > div,
+      #scaleSection > div,
+      #aiSection > div:last-child,
+      #selectSection > div {
+        flex-direction: column;
+        align-items: stretch;
+      }
+      #autoScaleSection button,
+      #scaleSection button,
+      #aiSection button,
+      #selectSection button {
+        width: 100%;
+      }
+
+      /* Tables → stacked cards */
+      #quotesCard table thead,
+      #cartCard table thead,
+      #resultsCard table thead { display: none; }
+
+      #quotesCard table tbody tr,
+      #cartCard table tbody tr,
+      #resultsCard table tbody tr {
+        display: block;
+        border: 1px solid #e5e7eb;
+        border-radius: 8px;
+        padding: 10px 12px;
+        margin-bottom: 8px;
+        background: #fafaf8;
+      }
+
+      #quotesCard table tbody td,
+      #cartCard table tbody td,
+      #resultsCard table tbody td {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 4px 0;
+        border-bottom: none;
+        gap: 8px;
+      }
+
+      #quotesCard table tbody td::before,
+      #cartCard table tbody td::before,
+      #resultsCard table tbody td::before {
+        content: attr(data-label);
+        font-weight: 600;
+        font-size: 0.85rem;
+        color: #6b5f54;
+        flex-shrink: 0;
+      }
+
+      #quotesCard table tbody td:empty::before,
+      #cartCard table tbody td:empty::before { content: none; }
+
+      /* Cart footer */
+      #cartCard .inline { flex-direction: column; align-items: stretch; }
+      #cartCard .inline button { width: 100%; }
+
+      /* Pagination controls */
+      #quotesCard > div:nth-child(3) { flex-direction: column; align-items: stretch; }
+      #quotesCard > div:nth-child(3) label { margin-left: 0; }
+
+      /* Guest banner */
+      #guestResultBanner { flex-direction: column; text-align: center; }
+    }
+
     .canvas-wrap {
       border: 1px dashed var(--line);
       border-radius: 12px;
@@ -2210,11 +2281,11 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           ? `<img src="${safeSrc}" alt="photo" style="width:64px;height:auto;border-radius:6px;border:1px solid #e2e8f0;" />`
           : '-';
         tr.innerHTML = `
-          <td>${imgHtml}</td>
-          <td>${escapeHtml(data.referenceClient || '-')}</td>
-          <td>${escapeHtml(data.reference || '-')}</td>
-          <td>${escapeHtml(data.description || '-')}</td>
-          <td><button type="button" class="secondary" style="white-space:nowrap" data-article-add="${docSnap.id}">Ajouter au panier</button></td>
+          <td data-label="Photo">${imgHtml}</td>
+          <td data-label="Réf. client">${escapeHtml(data.referenceClient || '-')}</td>
+          <td data-label="Référence">${escapeHtml(data.reference || '-')}</td>
+          <td data-label="Description">${escapeHtml(data.description || '-')}</td>
+          <td data-label=""><button type="button" class="secondary" style="white-space:nowrap" data-article-add="${docSnap.id}">Ajouter au panier</button></td>
         `;
         quotesTableBody.appendChild(tr);
       });
@@ -2368,7 +2439,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         const snap = await getDocs(q);
         const validateOrderBtn = document.getElementById('validateOrderBtn');
         if (snap.empty) {
-          cartTableBody.innerHTML = '<tr><td colspan="7">Panier vide.</td></tr>';
+          cartTableBody.innerHTML = '<tr><td colspan="8">Panier vide.</td></tr>';
           cartTotal.textContent = '0 €';
           if (validateOrderBtn) validateOrderBtn.style.display = 'none';
           return;
@@ -2387,16 +2458,16 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           total += lineTotal;
           const cartTr = document.createElement('tr');
           cartTr.innerHTML = `
-            <td>${imgHtml}</td>
-            <td>${escapeHtml(data.referenceClient || '-')}</td>
-            <td>${escapeHtml(data.reference || '-')}</td>
-            <td>${escapeHtml(data.description || '-')}</td>
-            <td>${unit.toFixed(2)} €</td>
-            <td>
+            <td data-label="Photo">${imgHtml}</td>
+            <td data-label="Réf. client">${escapeHtml(data.referenceClient || '-')}</td>
+            <td data-label="Référence">${escapeHtml(data.reference || '-')}</td>
+            <td data-label="Description">${escapeHtml(data.description || '-')}</td>
+            <td data-label="Prix">${unit.toFixed(2)} €</td>
+            <td data-label="Qté">
               <input type="number" min="1" step="1" value="${qty}" style="width:70px;" data-cart-qty="${docSnap.id}" />
             </td>
-            <td>${lineTotal.toFixed(2)} €</td>
-            <td>
+            <td data-label="Total">${lineTotal.toFixed(2)} €</td>
+            <td data-label="">
               <button type="button" class="secondary" data-cart-del="${docSnap.id}">Supprimer</button>
             </td>
           `;
@@ -2428,7 +2499,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           });
         });
       } catch (err) {
-        cartTableBody.innerHTML = '<tr><td colspan="7">Impossible de charger le panier (index manquant).</td></tr>';
+        cartTableBody.innerHTML = '<tr><td colspan="8">Impossible de charger le panier (index manquant).</td></tr>';
         cartCard.classList.remove('hidden');
         cartTotal.textContent = '0 €';
         setAuthStatus('Impossible de charger le panier (index manquant).', true);
@@ -3446,9 +3517,9 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         const tr = document.createElement('tr');
         const desc = `${row.coloris} sur ${lastQuoteContext?.description || ''}`.trim();
         tr.innerHTML = `
-          <td>${row.label}</td>
-          <td>${row.price.toFixed(2)} €</td>
-          <td><button type="button" class="secondary" data-label="${row.label}" data-code="${row.code}" data-coloris="${row.coloris}" data-price="${row.price}">Ajouter</button></td>
+          <td data-label="Couleur">${row.label}</td>
+          <td data-label="Prix">${row.price.toFixed(2)} €</td>
+          <td data-label=""><button type="button" class="secondary" data-label="${row.label}" data-code="${row.code}" data-coloris="${row.coloris}" data-price="${row.price}">Ajouter</button></td>
         `;
         priceTableBody.appendChild(tr);
       });
@@ -6665,9 +6736,9 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         prices.forEach((row) => {
           const tr = document.createElement('tr');
           tr.innerHTML = `
-            <td>${row.label}</td>
-            <td>${row.price.toFixed(2)} €</td>
-            <td><button type="button" class="secondary" data-label="${row.label}" data-code="${row.code}" data-coloris="${row.coloris}" data-price="${row.price}">Ajouter</button></td>
+            <td data-label="Couleur">${row.label}</td>
+            <td data-label="Prix">${row.price.toFixed(2)} €</td>
+            <td data-label=""><button type="button" class="secondary" data-label="${row.label}" data-code="${row.code}" data-coloris="${row.coloris}" data-price="${row.price}">Ajouter</button></td>
           `;
           priceTableBody.appendChild(tr);
         });
