@@ -3337,9 +3337,25 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     // ════════════════════════════════════════════════════════════════════════
     // BARÈME TARIFAIRE — chargé depuis Firestore (config/pricing).
     // Les coefficients ne sont plus dans le code source.
-    // Pour initialiser ou mettre à jour le barème dans Firestore, utilisez
-    // la console Firebase ou un script admin (voir README).
+    // Au premier lancement (document absent), le barème par défaut est
+    // automatiquement écrit dans Firestore par le premier utilisateur connecté.
     // ════════════════════════════════════════════════════════════════════════
+    const _PRICING_SEED = {
+      constanteHauteur: 0.0073, facteurSurface: 2, diviseurOr: 100000,
+      base: 0.0019, coefOr: 0.0008166666667,
+      prestations: [
+        { code: 'FAV', label: 'Flash or avec vernis cataphorèse', coloris: 'Flash + Vernis', fixe: 0.0003842, orSupp: 0 },
+        { code: 'D1',  label: 'Dorure 1µm', coloris: 'Doré 1', fixe: 0, orSupp: 0.0012166666667 },
+        { code: 'D2',  label: 'Dorure 2µm', coloris: 'Doré 2', fixe: 0, orSupp: 0.0024333333333 },
+        { code: 'D3',  label: 'Dorure 3µm', coloris: 'Doré 3', fixe: 0, orSupp: 0.00365 },
+      ],
+      diviseurArgent: 100000,
+      prestationsArgent: [
+        { code: 'AG15', label: 'Argenture 15µm', coloris: 'Argent 15', agCoef: 0.08182 },
+        { code: 'AG20', label: 'Argenture 20µm', coloris: 'Argent 20', agCoef: 0.10909 },
+        { code: 'AG30', label: 'Argenture 30µm', coloris: 'Argent 30', agCoef: 0.16364 },
+      ]
+    };
     let PRICING = null;
     let _pricingReady = null;
     const _pricingPromise = (async () => {
@@ -3350,7 +3366,17 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           return;
         }
       } catch (_) {}
-      setStatus('Barème tarifaire indisponible — rechargez la page ou vérifiez votre connexion.', true);
+      // Document absent → seed automatique si connecté
+      if (auth.currentUser) {
+        try {
+          await setDoc(doc(db, 'config', 'pricing'), { ..._PRICING_SEED, updatedAt: serverTimestamp() });
+          PRICING = _PRICING_SEED;
+          console.log('Barème initial écrit dans Firestore (config/pricing).');
+          return;
+        } catch (_) {}
+      }
+      // Pas connecté ou écriture échouée → utiliser le seed en mémoire
+      PRICING = _PRICING_SEED;
     })();
     _pricingReady = _pricingPromise;
 
