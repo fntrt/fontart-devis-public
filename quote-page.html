@@ -1295,6 +1295,7 @@
     window.openAuthModal  = openAuthModal;
     window.closeAuthModal = closeAuthModal;
     const ADMIN_EMAIL = 'guillaume@fontart.fr';
+    window.ADMIN_EMAIL = ADMIN_EMAIL;
 
     function updateNavForAuth(loggedIn) {
       const restricted = ['quotesCard', 'cartCard', 'accountCard'];
@@ -3410,7 +3411,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         st.textContent = msg; st.style.color = isError ? 'var(--danger)' : 'green'; st.style.display = '';
       };
       if (!fb || !fb.auth.currentUser) { setAdminStatus('Non connecté.', true); return; }
-      if (fb.auth.currentUser.email !== ADMIN_EMAIL) { setAdminStatus('Accès refusé.', true); return; }
+      if (fb.auth.currentUser.email !== window.ADMIN_EMAIL) { setAdminStatus('Accès refusé.', true); return; }
 
       const val = (id) => Number(document.getElementById(id).value) || 0;
       const prestations = [];
