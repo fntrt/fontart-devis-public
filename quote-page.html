@@ -695,6 +695,7 @@
       <button onclick="navTo('cartCard')" id="nav-cartCard">Ma commande</button>
       <button onclick="navTo('accountCard')" id="nav-accountCard">Mon compte</button>
       <button onclick="navTo('aideCard')" id="nav-aideCard">Aide</button>
+      <button onclick="navTo('adminCard')" id="nav-adminCard" style="display:none;">Admin</button>
       <button id="nav-loginBtn" onclick="openAuthModal()" style="margin-left:auto; background:rgba(255,255,255,0.15); color:#fff; border:1px solid rgba(255,255,255,0.3); border-radius:6px; padding:8px 16px; font-size:0.85rem; white-space:nowrap;">Se connecter</button>
       <div id="authBar" style="margin-left:auto; display:none; align-items:center; gap:10px;">
         <span id="authUser" style="color:rgba(255,255,255,0.75); font-size:0.85rem;"></span>
@@ -1090,6 +1091,56 @@
       <p class="status" id="accountStatus" style="display:none;"></p>
     </div>
 
+    <!-- ── Admin : édition du barème tarifaire ── -->
+    <div class="card hidden" id="adminCard">
+      <h2>Barème tarifaire</h2>
+      <p class="hint">Modifiez les coefficients du barème. Les changements sont enregistrés dans Firestore et pris en compte immédiatement.</p>
+
+      <h3 style="margin:16px 0 8px;">Paramètres généraux</h3>
+      <div class="grid">
+        <div><label for="adminConstanteHauteur">Constante hauteur</label><input id="adminConstanteHauteur" type="number" step="any" /></div>
+        <div><label for="adminFacteurSurface">Facteur surface</label><input id="adminFacteurSurface" type="number" step="any" /></div>
+        <div><label for="adminBase">Base</label><input id="adminBase" type="number" step="any" /></div>
+        <div><label for="adminCoefOr">Coef. or</label><input id="adminCoefOr" type="number" step="any" /></div>
+        <div><label for="adminDiviseurOr">Diviseur or</label><input id="adminDiviseurOr" type="number" step="any" /></div>
+        <div><label for="adminDiviseurArgent">Diviseur argent</label><input id="adminDiviseurArgent" type="number" step="any" /></div>
+      </div>
+
+      <h3 style="margin:16px 0 8px;">Prestations or</h3>
+      <div style="overflow-x:auto;">
+        <table style="width:100%; border-collapse:collapse; font-size:0.9rem;">
+          <thead><tr>
+            <th style="text-align:left; padding:6px;">Code</th>
+            <th style="text-align:left; padding:6px;">Libellé</th>
+            <th style="text-align:left; padding:6px;">Coloris</th>
+            <th style="text-align:right; padding:6px;">Fixe</th>
+            <th style="text-align:right; padding:6px;">Or supp.</th>
+          </tr></thead>
+          <tbody id="adminPrestationsOr"></tbody>
+        </table>
+      </div>
+
+      <h3 style="margin:16px 0 8px;">Prestations argent</h3>
+      <div style="overflow-x:auto;">
+        <table style="width:100%; border-collapse:collapse; font-size:0.9rem;">
+          <thead><tr>
+            <th style="text-align:left; padding:6px;">Code</th>
+            <th style="text-align:left; padding:6px;">Libellé</th>
+            <th style="text-align:left; padding:6px;">Coloris</th>
+            <th style="text-align:right; padding:6px;">Coef. Ag</th>
+          </tr></thead>
+          <tbody id="adminPrestationsAg"></tbody>
+        </table>
+      </div>
+
+      <div class="inline" style="margin-top:16px; gap:12px;">
+        <button id="adminSaveBtn" type="button">Enregistrer</button>
+        <button id="adminAddOrBtn" type="button" class="secondary">+ Prestation or</button>
+        <button id="adminAddAgBtn" type="button" class="secondary">+ Prestation argent</button>
+      </div>
+      <p class="status" id="adminStatus" style="display:none;"></p>
+    </div>
+
     <div class="card hidden" id="aideCard">
       <div class="tuto-wrap">
         <h2>Comment passer votre commande ?</h2>
@@ -1243,6 +1294,8 @@
     }
     window.openAuthModal  = openAuthModal;
     window.closeAuthModal = closeAuthModal;
+    const ADMIN_EMAIL = 'guillaume@fontart.fr';
+
     function updateNavForAuth(loggedIn) {
       const restricted = ['quotesCard', 'cartCard', 'accountCard'];
       restricted.forEach(id => {
@@ -1252,7 +1305,8 @@
       const loginBtn = document.getElementById('nav-loginBtn');
       if (loginBtn) loginBtn.style.display = loggedIn ? 'none' : '';
       if (authBar) authBar.style.display = loggedIn ? 'flex' : 'none';
-      // Masquer la bannière invité dès que l'utilisateur est connecté
+      const adminBtn = document.getElementById('nav-adminCard');
+      if (adminBtn) adminBtn.style.display = (loggedIn && currentUser?.email === ADMIN_EMAIL) ? '' : 'none';
       if (loggedIn) {
         const guestBanner = document.getElementById('guestResultBanner');
         if (guestBanner) guestBanner.style.display = 'none';
@@ -2010,18 +2064,19 @@
     window.addToCart = addToCart;
 
     // Navigation entre sections
-    const navSections = ['nouvelArticleCard', 'quotesCard', 'cartCard', 'accountCard', 'aideCard'];
-    const allNavCards = ['nouvelArticleCard', 'workspaceCard', 'resultsCard', 'quotesCard', 'cartCard', 'accountCard', 'aideCard'];
+    const navSections = ['nouvelArticleCard', 'quotesCard', 'cartCard', 'accountCard', 'aideCard', 'adminCard'];
+    const allNavCards = ['nouvelArticleCard', 'workspaceCard', 'resultsCard', 'quotesCard', 'cartCard', 'accountCard', 'aideCard', 'adminCard'];
     let _wsVisible = false;
     let _resVisible = false;
     let _formVisible = true;
 
     window.navTo = function(sectionId) {
-      const RESTRICTED = ['quotesCard', 'cartCard', 'accountCard'];
+      const RESTRICTED = ['quotesCard', 'cartCard', 'accountCard', 'adminCard'];
       if (RESTRICTED.includes(sectionId) && !currentUser) {
         openAuthModal();
         return;
       }
+      if (sectionId === 'adminCard' && currentUser?.email !== ADMIN_EMAIL) return;
       // Sauvegarder l'état workspace/results/form avant de quitter Nouvel article
       const currentActive = navSections.find(id =>
         document.getElementById('nav-' + id)?.classList.contains('nav-active')
@@ -2052,9 +2107,10 @@
       }
 
       // Charger les données si nécessaire
-      if (sectionId === 'quotesCard')  loadArticles(); // le cache interne évite les requêtes inutiles
+      if (sectionId === 'quotesCard')  loadArticles();
       if (sectionId === 'cartCard')    loadCartItems();
       if (sectionId === 'accountCard') loadAccount();
+      if (sectionId === 'adminCard')   loadAdminPricing();
 
       window.scrollTo({ top: 0, behavior: 'smooth' });
       try { window.parent?.postMessage({ type: 'scrollToIframe' }, '*'); } catch(e) {}
@@ -2623,7 +2679,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         updateNavForAuth(false);
         showRegister(false);
         // Si on était sur un onglet restreint, revenir à Nouvel article
-        const RESTRICTED = ['quotesCard', 'cartCard', 'accountCard'];
+        const RESTRICTED = ['quotesCard', 'cartCard', 'accountCard', 'adminCard'];
         const active = navSections?.find(id => document.getElementById('nav-' + id)?.classList.contains('nav-active'));
         if (active && RESTRICTED.includes(active)) navTo('nouvelArticleCard');
         return;
@@ -2660,7 +2716,12 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
             loadArticles();
             loadCartItems();
             loadAccount();
-            // Flush article en attente : si l'invité avait cliqué "Ajouter" avant connexion
+            if (!PRICING) {
+              try {
+                const pSnap = await getDoc(doc(db, 'config', 'pricing'));
+                if (pSnap.exists()) PRICING = pSnap.data();
+              } catch (e) { console.warn('Pricing reload after login failed:', e.message); }
+            }
             if (pendingCartItem) {
               const item = pendingCartItem;
               pendingCartItem = null;
@@ -2686,7 +2747,12 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
               loadArticles();
               loadCartItems();
               loadAccount();
-              // Flush article en attente : si l'invité avait cliqué "Ajouter" avant connexion
+              if (!PRICING) {
+                try {
+                  const pSnap = await getDoc(doc(db, 'config', 'pricing'));
+                  if (pSnap.exists()) PRICING = pSnap.data();
+                } catch (e) { console.warn('Pricing reload after login failed:', e.message); }
+              }
               if (pendingCartItem) {
                 const item = pendingCartItem;
                 pendingCartItem = null;
@@ -3260,48 +3326,127 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     };
 
     // ════════════════════════════════════════════════════════════════════════
-    // BARÈME TARIFAIRE — chargé depuis Firestore (config/pricing).
-    // Les coefficients ne sont plus dans le code source.
-    // Au premier lancement (document absent), le barème par défaut est
-    // automatiquement écrit dans Firestore par le premier utilisateur connecté.
+    // BARÈME TARIFAIRE — chargé exclusivement depuis Firestore (config/pricing).
+    // Aucun coefficient n'est stocké dans le code source.
+    // L'onglet Admin permet de créer/modifier le barème.
     // ════════════════════════════════════════════════════════════════════════
-    const _PRICING_SEED = {
-      constanteHauteur: 0.0073, facteurSurface: 2, diviseurOr: 100000,
-      base: 0.0019, coefOr: 0.0008166666667,
-      prestations: [
-        { code: 'FAV', label: 'Flash or avec vernis cataphorèse', coloris: 'Flash + Vernis', fixe: 0.0003842, orSupp: 0 },
-        { code: 'D1',  label: 'Dorure 1µm', coloris: 'Doré 1', fixe: 0, orSupp: 0.0012166666667 },
-        { code: 'D2',  label: 'Dorure 2µm', coloris: 'Doré 2', fixe: 0, orSupp: 0.0024333333333 },
-        { code: 'D3',  label: 'Dorure 3µm', coloris: 'Doré 3', fixe: 0, orSupp: 0.00365 },
-      ],
-      diviseurArgent: 100000,
-      prestationsArgent: [
-        { code: 'AG15', label: 'Argenture 15µm', coloris: 'Argent 15', agCoef: 0.08182 },
-        { code: 'AG20', label: 'Argenture 20µm', coloris: 'Argent 20', agCoef: 0.10909 },
-        { code: 'AG30', label: 'Argenture 30µm', coloris: 'Argent 30', agCoef: 0.16364 },
-      ]
-    };
     let PRICING = null;
     const _pricingReady = (async () => {
       const fb = window._fb;
-      if (!fb) { PRICING = _PRICING_SEED; return; }
+      if (!fb) return;
       try {
         const snap = await fb.getDoc(fb.doc(fb.db, 'config', 'pricing'));
         if (snap.exists()) {
           PRICING = snap.data();
-          return;
         }
       } catch (e) { console.warn('Firestore config/pricing read failed:', e.message); }
-      if (fb.auth.currentUser) {
-        try {
-          await fb.setDoc(fb.doc(fb.db, 'config', 'pricing'), { ..._PRICING_SEED, updatedAt: fb.serverTimestamp() });
-          PRICING = _PRICING_SEED;
-          console.log('Barème initial écrit dans Firestore (config/pricing).');
-          return;
-        } catch (e) { console.warn('Firestore config/pricing seed failed:', e.message); }
-      }
-      PRICING = _PRICING_SEED;
     })();
+
+    // ── Admin : chargement / sauvegarde du barème ──
+    function _adminOrRow(p) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><input type="text" value="${p.code || ''}" data-field="code" style="width:60px;" /></td>
+        <td><input type="text" value="${p.label || ''}" data-field="label" style="width:200px;" /></td>
+        <td><input type="text" value="${p.coloris || ''}" data-field="coloris" style="width:120px;" /></td>
+        <td><input type="number" step="any" value="${p.fixe ?? 0}" data-field="fixe" style="width:100px; text-align:right;" /></td>
+        <td style="display:flex; align-items:center; gap:4px;">
+          <input type="number" step="any" value="${p.orSupp ?? 0}" data-field="orSupp" style="width:100px; text-align:right;" />
+          <button type="button" class="secondary" style="padding:4px 8px; font-size:0.75rem;" data-remove-row>✕</button>
+        </td>`;
+      tr.querySelector('[data-remove-row]').addEventListener('click', () => tr.remove());
+      return tr;
+    }
+    function _adminAgRow(p) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td><input type="text" value="${p.code || ''}" data-field="code" style="width:60px;" /></td>
+        <td><input type="text" value="${p.label || ''}" data-field="label" style="width:200px;" /></td>
+        <td><input type="text" value="${p.coloris || ''}" data-field="coloris" style="width:120px;" /></td>
+        <td style="display:flex; align-items:center; gap:4px;">
+          <input type="number" step="any" value="${p.agCoef ?? 0}" data-field="agCoef" style="width:100px; text-align:right;" />
+          <button type="button" class="secondary" style="padding:4px 8px; font-size:0.75rem;" data-remove-row>✕</button>
+        </td>`;
+      tr.querySelector('[data-remove-row]').addEventListener('click', () => tr.remove());
+      return tr;
+    }
+
+    function loadAdminPricing() {
+      if (!PRICING) {
+        const st = document.getElementById('adminStatus');
+        if (st) { st.textContent = 'Barème non chargé depuis Firestore. Vérifiez les règles ou initialisez le barème.'; st.style.color = 'var(--danger)'; st.style.display = ''; }
+        return;
+      }
+      document.getElementById('adminConstanteHauteur').value = PRICING.constanteHauteur ?? '';
+      document.getElementById('adminFacteurSurface').value   = PRICING.facteurSurface ?? '';
+      document.getElementById('adminBase').value             = PRICING.base ?? '';
+      document.getElementById('adminCoefOr').value           = PRICING.coefOr ?? '';
+      document.getElementById('adminDiviseurOr').value       = PRICING.diviseurOr ?? '';
+      document.getElementById('adminDiviseurArgent').value   = PRICING.diviseurArgent ?? '';
+      const orBody = document.getElementById('adminPrestationsOr');
+      orBody.innerHTML = '';
+      (PRICING.prestations || []).forEach(p => orBody.appendChild(_adminOrRow(p)));
+      const agBody = document.getElementById('adminPrestationsAg');
+      agBody.innerHTML = '';
+      (PRICING.prestationsArgent || []).forEach(p => agBody.appendChild(_adminAgRow(p)));
+    }
+
+    document.getElementById('adminAddOrBtn')?.addEventListener('click', () => {
+      document.getElementById('adminPrestationsOr').appendChild(
+        _adminOrRow({ code: '', label: '', coloris: '', fixe: 0, orSupp: 0 })
+      );
+    });
+    document.getElementById('adminAddAgBtn')?.addEventListener('click', () => {
+      document.getElementById('adminPrestationsAg').appendChild(
+        _adminAgRow({ code: '', label: '', coloris: '', agCoef: 0 })
+      );
+    });
+
+    document.getElementById('adminSaveBtn')?.addEventListener('click', async () => {
+      const fb = window._fb;
+      const st = document.getElementById('adminStatus');
+      const setAdminStatus = (msg, isError = false) => {
+        if (!st) return;
+        st.textContent = msg; st.style.color = isError ? 'var(--danger)' : 'green'; st.style.display = '';
+      };
+      if (!fb || !fb.auth.currentUser) { setAdminStatus('Non connecté.', true); return; }
+      if (fb.auth.currentUser.email !== ADMIN_EMAIL) { setAdminStatus('Accès refusé.', true); return; }
+
+      const val = (id) => Number(document.getElementById(id).value) || 0;
+      const prestations = [];
+      document.getElementById('adminPrestationsOr').querySelectorAll('tr').forEach(tr => {
+        const fields = {};
+        tr.querySelectorAll('input').forEach(inp => { fields[inp.dataset.field] = inp.type === 'number' ? Number(inp.value) || 0 : inp.value.trim(); });
+        if (fields.code) prestations.push(fields);
+      });
+      const prestationsArgent = [];
+      document.getElementById('adminPrestationsAg').querySelectorAll('tr').forEach(tr => {
+        const fields = {};
+        tr.querySelectorAll('input').forEach(inp => { fields[inp.dataset.field] = inp.type === 'number' ? Number(inp.value) || 0 : inp.value.trim(); });
+        if (fields.code) prestationsArgent.push(fields);
+      });
+
+      const newPricing = {
+        constanteHauteur: val('adminConstanteHauteur'),
+        facteurSurface:   val('adminFacteurSurface'),
+        base:             val('adminBase'),
+        coefOr:           val('adminCoefOr'),
+        diviseurOr:       val('adminDiviseurOr'),
+        diviseurArgent:   val('adminDiviseurArgent'),
+        prestations,
+        prestationsArgent,
+        updatedAt: fb.serverTimestamp()
+      };
+
+      try {
+        await fb.setDoc(fb.doc(fb.db, 'config', 'pricing'), newPricing);
+        PRICING = { ...newPricing, updatedAt: null };
+        setAdminStatus('Barème enregistré.');
+      } catch (e) {
+        console.error('Admin save failed:', e);
+        setAdminStatus('Erreur : ' + (e.message || 'Enregistrement impossible.'), true);
+      }
+    });
 
     // Reconstruit la chaîne « formule » (enregistrée dans le devis Firestore) à
     // partir des constantes du barème — garde le calcul et la formule synchronisés.
@@ -3358,7 +3503,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     async function computeAndDisplayPrices() {
       await _pricingReady;
       if (!PRICING) {
-        setStatus('Barème tarifaire non chargé. Rechargez la page.', true);
+        setStatus('Barème tarifaire non disponible. Connectez-vous pour obtenir les prix.', true);
         return;
       }
       if (!_rulerDetected) {
@@ -6655,7 +6800,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         if (!last3dData) return;
         await _pricingReady;
         if (!PRICING) {
-          setStatus('Barème tarifaire non chargé. Rechargez la page.', true);
+          setStatus('Barème tarifaire non disponible. Connectez-vous pour obtenir les prix.', true);
           return;
         }
         const { metrics, weightG } = last3dData;
