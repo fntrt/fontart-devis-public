@@ -413,7 +413,7 @@
 
 <!-- Popup confirmation commande -->
 <!-- ── Camera capture modal ── -->
-<div id="cameraModal" style="display:none; position:fixed; inset:0; z-index:10001; background:#000; flex-direction:column; align-items:center; justify-content:center;">
+<div id="cameraModal" role="dialog" aria-modal="true" aria-label="Capture photo" style="display:none; position:fixed; inset:0; z-index:10001; background:#000; flex-direction:column; align-items:center; justify-content:center;">
   <!-- video + tap-to-focus wrapper -->
   <div style="position:relative; width:100%; height:calc(100dvh - 110px); overflow:hidden;">
     <video id="cameraVideo" autoplay playsinline muted
@@ -427,20 +427,20 @@
     <!-- focus controls panel (shown only if camera supports focus) -->
     <div id="cameraFocusPanel" style="display:none; position:absolute; right:12px; top:50%;
          transform:translateY(-50%); flex-direction:column; align-items:center; gap:8px;">
-      <button id="focusFarBtn" type="button" title="Mise au point loin"
+      <button id="focusFarBtn" type="button" title="Mise au point loin" aria-label="Mise au point loin"
         style="width:44px; height:44px; border-radius:50%; background:rgba(0,0,0,0.55);
                border:1px solid rgba(255,255,255,0.35); color:#fff; font-size:1.1rem;
                cursor:pointer; display:flex; align-items:center; justify-content:center;">🔭</button>
       <div style="display:flex; flex-direction:column; align-items:center; gap:3px;">
-        <input id="focusSlider" type="range" orient="vertical"
+        <input id="focusSlider" type="range" orient="vertical" aria-label="Mise au point manuelle"
           style="writing-mode:vertical-lr; direction:rtl; width:32px; height:100px;
                  cursor:pointer; accent-color:#facc15;" />
       </div>
-      <button id="focusNearBtn" type="button" title="Mise au point proche (macro)"
+      <button id="focusNearBtn" type="button" title="Mise au point proche (macro)" aria-label="Mise au point proche"
         style="width:44px; height:44px; border-radius:50%; background:rgba(0,0,0,0.55);
                border:1px solid rgba(255,255,255,0.35); color:#fff; font-size:1.1rem;
                cursor:pointer; display:flex; align-items:center; justify-content:center;">🔬</button>
-      <button id="focusAutoBtn" type="button" title="Autofocus continu"
+      <button id="focusAutoBtn" type="button" title="Autofocus continu" aria-label="Autofocus continu"
         style="width:44px; height:36px; border-radius:8px; background:rgba(250,204,21,0.85);
                border:none; color:#000; font-size:.72rem; font-weight:700;
                cursor:pointer; line-height:1;">AF<br>auto</button>
@@ -455,15 +455,15 @@
   <div style="position:absolute; bottom:0; left:0; right:0; padding:14px 20px;
                background:rgba(0,0,0,0.75); display:flex; align-items:center;
                justify-content:center; gap:20px;">
-    <button id="cameraSwitchBtn" type="button" title="Basculer caméra avant / arrière"
+    <button id="cameraSwitchBtn" type="button" title="Basculer caméra avant / arrière" aria-label="Basculer caméra"
       style="width:48px; height:48px; border-radius:50%; background:rgba(255,255,255,0.15);
              border:2px solid rgba(255,255,255,0.4); color:#fff; font-size:1.3rem;
              cursor:pointer; display:flex; align-items:center; justify-content:center;">🔄</button>
-    <button id="cameraCaptureBtn" type="button" title="Prendre la photo"
+    <button id="cameraCaptureBtn" type="button" title="Prendre la photo" aria-label="Prendre la photo"
       style="width:68px; height:68px; border-radius:50%; background:#fff;
              border:5px solid #ccc; cursor:pointer; font-size:2rem;
              display:flex; align-items:center; justify-content:center; flex-shrink:0;">📸</button>
-    <button id="cameraCloseBtn" type="button" title="Annuler"
+    <button id="cameraCloseBtn" type="button" title="Annuler" aria-label="Fermer la caméra"
       style="width:48px; height:48px; border-radius:50%; background:rgba(255,255,255,0.15);
              border:2px solid rgba(255,255,255,0.4); color:#fff; font-size:1.2rem;
              cursor:pointer; display:flex; align-items:center; justify-content:center;">✕</button>
@@ -490,7 +490,7 @@
   </div>
 </div>
 
-<div id="orderModal" style="display:none; position:fixed; inset:0; z-index:10000; background:rgba(0,0,0,0.5); align-items:center; justify-content:center;">
+<div id="orderModal" role="dialog" aria-modal="true" aria-label="Confirmation de commande" style="display:none; position:fixed; inset:0; z-index:10000; background:rgba(0,0,0,0.5); align-items:center; justify-content:center;">
   <div style="background:white; border-radius:16px; padding:40px 36px; max-width:480px; width:90%; text-align:center; box-shadow:0 20px 60px rgba(0,0,0,0.3); position:relative;">
     <div style="font-size:3rem; margin-bottom:16px;">🎉</div>
     <h2 style="margin:0 0 12px; color:#1e293b; font-size:1.4rem;">Merci pour votre commande !</h2>
@@ -505,7 +505,7 @@
 </div>
 
 <!-- Popup confirmation de présence de règle -->
-<div id="rulerConfirmModal" style="display:none; position:fixed; inset:0; z-index:10002; background:rgba(0,0,0,0.5); align-items:center; justify-content:center; backdrop-filter: blur(4px);">
+<div id="rulerConfirmModal" role="dialog" aria-modal="true" aria-label="Confirmation de la règle" style="display:none; position:fixed; inset:0; z-index:10002; background:rgba(0,0,0,0.5); align-items:center; justify-content:center; backdrop-filter: blur(4px);">
   <div style="background:white; border-radius:16px; padding:32px 28px; max-width:440px; width:90%; text-align:center; box-shadow:0 20px 60px rgba(0,0,0,0.3); position:relative; font-family: inherit;">
     <div style="font-size:3rem; margin-bottom:16px;">📏</div>
     <h2 style="margin:0 0 12px; color:#1f1f1f; font-size:1.3rem; font-weight: 600;">Présence de la règle et fond uni</h2>
@@ -529,9 +529,9 @@
 </div>
 
 <!-- Auth modal overlay -->
-<div id="authModal" style="display:none; position:fixed; inset:0; z-index:9998; background:rgba(0,0,0,0.55); align-items:flex-start; justify-content:center; overflow-y:auto; padding:24px 16px; backdrop-filter:blur(3px);">
+<div id="authModal" role="dialog" aria-modal="true" aria-label="Connexion / Inscription" style="display:none; position:fixed; inset:0; z-index:9998; background:rgba(0,0,0,0.55); align-items:flex-start; justify-content:center; overflow-y:auto; padding:24px 16px; backdrop-filter:blur(3px);">
   <div style="max-width:700px; width:100%; position:relative;">
-    <button id="authModalCloseBtn" type="button" title="Fermer" style="position:absolute; top:-12px; right:-12px; z-index:1; width:36px; height:36px; border-radius:50%; background:#1f1b17; color:#fff; border:none; font-size:1.1rem; cursor:pointer; display:flex; align-items:center; justify-content:center; box-shadow:0 2px 8px rgba(0,0,0,0.4);">✕</button>
+    <button id="authModalCloseBtn" type="button" title="Fermer" aria-label="Fermer" style="position:absolute; top:-12px; right:-12px; z-index:1; width:36px; height:36px; border-radius:50%; background:#1f1b17; color:#fff; border:none; font-size:1.1rem; cursor:pointer; display:flex; align-items:center; justify-content:center; box-shadow:0 2px 8px rgba(0,0,0,0.4);">✕</button>
   <div class="card" id="authGate">
     <h2 id="authGateTitle">Accès membre</h2>
     <!-- Bandeau contextuel : affiché quand le modal est ouvert depuis "Ajouter au panier" en mode invité -->
@@ -689,7 +689,7 @@
   <div class="container" id="appContainer">
 
     <!-- Barre de navigation -->
-    <nav id="appNav">
+    <nav id="appNav" aria-label="Navigation principale">
       <button onclick="navTo('nouvelArticleCard')" id="nav-nouvelArticleCard" class="nav-active">Nouvel article</button>
       <button onclick="navTo('quotesCard')" id="nav-quotesCard">Mes articles</button>
       <button onclick="navTo('cartCard')" id="nav-cartCard">Ma commande</button>
@@ -710,7 +710,7 @@
     </div>
 
     <!-- Modal de notation ─────────────────────────────────────────────── -->
-    <div id="ratingModal" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:9999; align-items:center; justify-content:center;">
+    <div id="ratingModal" role="dialog" aria-modal="true" aria-label="Donnez votre avis" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,.45); z-index:9999; align-items:center; justify-content:center;">
       <div style="background:#fff; border-radius:14px; padding:28px 32px; max-width:340px; width:90%; text-align:center; box-shadow:0 8px 32px rgba(0,0,0,.18); position:relative;">
         <button id="ratingModalClose" style="position:absolute;top:10px;right:14px;background:none;border:none;font-size:1.3rem;cursor:pointer;color:#888;" aria-label="Fermer">✕</button>
         <div id="ratingModalBody">
@@ -1294,6 +1294,19 @@
     }
     window.openAuthModal  = openAuthModal;
     window.closeAuthModal = closeAuthModal;
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape') return;
+      if (authModal && authModal.style.display !== 'none') { closeAuthModal(); return; }
+      const orderModal = document.getElementById('orderModal');
+      if (orderModal && orderModal.style.display !== 'none') { orderModal.style.display = 'none'; return; }
+      const cameraModal = document.getElementById('cameraModal');
+      if (cameraModal && cameraModal.style.display !== 'none') {
+        document.getElementById('cameraCloseBtn')?.click();
+        return;
+      }
+    });
+
     const ADMIN_EMAIL = 'guillaume@fontart.fr';
     window.ADMIN_EMAIL = ADMIN_EMAIL;
 
