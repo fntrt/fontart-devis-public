@@ -2017,7 +2017,7 @@
           openAuthModal('save-quote');
           // Scroll vers le haut pour que le modal soit visible (crucial en iframe / mobile)
           window.scrollTo({ top: 0, behavior: 'smooth' });
-          try { window.parent?.postMessage({ type: 'scrollToIframe' }, '*'); } catch {}
+          try { window.parent?.postMessage({ type: 'scrollToIframe' }, 'https://www.fontart.fr'); } catch {}
           return 'deferred';
         }
         const supplierRef = await window.ensureSupplierReference?.();
@@ -2114,7 +2114,7 @@
       if (sectionId === 'adminCard')   loadAdminPricing();
 
       window.scrollTo({ top: 0, behavior: 'smooth' });
-      try { window.parent?.postMessage({ type: 'scrollToIframe' }, '*'); } catch(e) {}
+      try { window.parent?.postMessage({ type: 'scrollToIframe' }, 'https://www.fontart.fr'); } catch(e) {}
     };
 
 document.getElementById('validateOrderBtn')?.addEventListener('click', async () => {
@@ -4161,7 +4161,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         const nouvelArticleCard = document.getElementById('nouvelArticleCard');
         if (nouvelArticleCard) nouvelArticleCard.classList.add('hidden');
         window.scrollTo({ top: 0, behavior: 'smooth' });
-        try { window.parent?.postMessage({ type: 'scrollToIframe' }, '*'); } catch(e) {}
+        try { window.parent?.postMessage({ type: 'scrollToIframe' }, 'https://www.fontart.fr'); } catch(e) {}
         setStage('auto-scale');
         showPipelineLoader('calib', 'Détection de la règle…', 'Recherche de l\'orientation et des graduations');
         setStatus('Détection automatique de la règle en cours…');
@@ -4438,7 +4438,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           const nouvelArticleCard = document.getElementById('nouvelArticleCard');
           if (nouvelArticleCard) nouvelArticleCard.classList.add('hidden');
           window.scrollTo({ top: 0, behavior: 'smooth' });
-          try { window.parent?.postMessage({ type: 'scrollToIframe' }, '*'); } catch(e) {}
+          try { window.parent?.postMessage({ type: 'scrollToIframe' }, 'https://www.fontart.fr'); } catch(e) {}
           setStage('auto-scale');
           showPipelineLoader('calib', 'Détection de la règle…', 'Recherche de l\'orientation et des graduations');
           setStatus('Détection automatique de la règle en cours…');
@@ -6946,7 +6946,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     // Auto-resize iframe
     function sendHeight() {
       try {
-        window.parent?.postMessage({ type: 'iframeHeight', height: document.body.scrollHeight }, '*');
+        window.parent?.postMessage({ type: 'iframeHeight', height: document.body.scrollHeight }, 'https://www.fontart.fr');
       } catch(e) {}
     }
     new ResizeObserver(sendHeight).observe(document.body);
