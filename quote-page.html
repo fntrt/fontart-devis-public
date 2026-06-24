@@ -3908,6 +3908,11 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     const serialIndicator = document.getElementById('serialIndicator');
     const serialStatus = document.getElementById('serialStatus');
 
+    if (!('serial' in navigator)) {
+      if (serialConnectBtn) serialConnectBtn.style.display = 'none';
+      if (serialStatus) serialStatus.style.display = 'none';
+    }
+
     let serialPort = null;
     let serialReader = null;
     let keepReadingSerial = false;
@@ -7038,7 +7043,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           console.warn(`[RMBG] ${label} échec chargement :`, e?.message || e);
         }
       }
-      throw new Error('Aucun backend RMBG fonctionnel');
+      throw new Error('Détection IA indisponible sur ce navigateur. Utilisez Chrome ou Edge récent, ou tracez le contour manuellement.');
     }
 
     // Garde partagé : warmRMBG (pré-chauffage) et runRMBG (inférence réelle)
