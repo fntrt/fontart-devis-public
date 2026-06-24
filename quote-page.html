@@ -6943,11 +6943,16 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
   </script>
 
   <script>
-    // Auto-resize iframe
+    // Auto-resize iframe (throttled via rAF to avoid postMessage floods)
+    let _heightRAF = 0;
     function sendHeight() {
-      try {
-        window.parent?.postMessage({ type: 'iframeHeight', height: document.body.scrollHeight }, 'https://www.fontart.fr');
-      } catch(e) {}
+      if (_heightRAF) return;
+      _heightRAF = requestAnimationFrame(() => {
+        _heightRAF = 0;
+        try {
+          window.parent?.postMessage({ type: 'iframeHeight', height: document.body.scrollHeight }, 'https://www.fontart.fr');
+        } catch(e) {}
+      });
     }
     new ResizeObserver(sendHeight).observe(document.body);
     sendHeight();
