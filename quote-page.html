@@ -832,14 +832,19 @@
       <!-- ── Résultat analyse 3D ── -->
       <div id="file3dResult" style="display:none; margin-top:12px; background:#eff6ff; border:1px solid #dbeafe; border-radius:10px; padding:14px;">
         <div style="font-weight:600; margin-bottom:8px;">Analyse du fichier 3D</div>
-        <div class="kpi">
-          <div>Surface <strong id="file3dSurface">—</strong> mm²</div>
-          <div>Volume <strong id="file3dVolume">—</strong> mm³</div>
-          <div>Poids estimé <strong id="file3dWeight">—</strong> g</div>
-          <div>Dimensions <strong id="file3dDims">—</strong></div>
-        </div>
-        <div style="margin-top:12px; text-align:center;">
-          <button type="button" id="file3dCalcBtn" style="padding:10px 24px;">Calculer le prix</button>
+        <div style="display:flex; gap:16px; align-items:flex-start; flex-wrap:wrap;">
+          <img id="file3dPreview" alt="Aperçu 3D" style="display:none; width:220px; height:220px; object-fit:contain; border-radius:8px; border:1px solid #dbeafe; background:#f5f5f3;" />
+          <div style="flex:1; min-width:180px;">
+            <div class="kpi">
+              <div>Surface <strong id="file3dSurface">—</strong> mm²</div>
+              <div>Volume <strong id="file3dVolume">—</strong> mm³</div>
+              <div>Poids estimé <strong id="file3dWeight">—</strong> g</div>
+              <div>Dimensions <strong id="file3dDims">—</strong></div>
+            </div>
+            <div style="margin-top:12px; text-align:center;">
+              <button type="button" id="file3dCalcBtn" style="padding:10px 24px;">Calculer le prix</button>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -6632,6 +6637,75 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
 
       let currentMode = 'photo';
       let last3dData = null;
+      let _threeLoaded = null;
+
+      async function loadThree() {
+        if (_threeLoaded) return _threeLoaded;
+        _threeLoaded = import('https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.min.js');
+        return _threeLoaded;
+      }
+
+      async function render3DPreview(positions) {
+        const previewImg = document.getElementById('file3dPreview');
+        if (!previewImg) return;
+        try {
+          const THREE = await loadThree();
+          const scene = new THREE.Scene();
+          scene.background = new THREE.Color('#f5f5f3');
+
+          const geom = new THREE.BufferGeometry();
+          geom.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+          geom.computeVertexNormals();
+
+          const mat = new THREE.MeshStandardMaterial({
+            color: 0xD4900A, metalness: 0.6, roughness: 0.28
+          });
+          const mesh = new THREE.Mesh(geom, mat);
+          scene.add(mesh);
+
+          geom.computeBoundingBox();
+          const box = geom.boundingBox;
+          const center = new THREE.Vector3();
+          box.getCenter(center);
+          mesh.position.sub(center);
+
+          const size = new THREE.Vector3();
+          box.getSize(size);
+          const maxDim = Math.max(size.x, size.y, size.z) || 1;
+
+          const cam = new THREE.PerspectiveCamera(40, 1, 0.1, maxDim * 20);
+          const dist = maxDim * 1.8;
+          cam.position.set(dist * 0.7, dist * 0.5, dist * 0.9);
+          cam.lookAt(0, 0, 0);
+
+          scene.add(new THREE.DirectionalLight(0xffffff, 2).clone());
+          const l1 = new THREE.DirectionalLight(0xffffff, 2);
+          l1.position.set(3, -2, 5);
+          scene.add(l1);
+          const l2 = new THREE.DirectionalLight(0xfff8e0, 1);
+          l2.position.set(-3, 2, 2);
+          scene.add(l2);
+          const l3 = new THREE.DirectionalLight(0xffffff, 0.8);
+          l3.position.set(0, 5, 1);
+          scene.add(l3);
+          scene.add(new THREE.AmbientLight(0xffffff, 0.3));
+
+          const renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true });
+          renderer.setSize(512, 512);
+          renderer.setPixelRatio(1);
+          renderer.render(scene, cam);
+
+          previewImg.src = renderer.domElement.toDataURL('image/jpeg', 0.85);
+          previewImg.style.display = '';
+
+          renderer.dispose();
+          geom.dispose();
+          mat.dispose();
+        } catch (e) {
+          console.warn('[3D preview]', e?.message || e);
+          previewImg.style.display = 'none';
+        }
+      }
 
       function setMode(mode) {
         currentMode = mode;
@@ -6771,6 +6845,8 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         const file = e.target.files[0];
         if (!file) return;
         file3dResult.style.display = 'none';
+        const previewEl = document.getElementById('file3dPreview');
+        if (previewEl) previewEl.style.display = 'none';
         setFormStatus('Analyse du fichier 3D…', false);
 
         try {
@@ -6797,6 +6873,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           const metrics = computeMeshMetrics(positions, unitScale);
           updateDisplay(metrics, density);
           setFormStatus('Fichier 3D analysé.', false);
+          render3DPreview(positions);
         } catch (err) {
           console.error('Erreur analyse 3D:', err);
           setFormStatus('Erreur lors de l\'analyse du fichier 3D.', true);
