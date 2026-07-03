@@ -1252,6 +1252,9 @@
 
     // Exposé pour le système de notation (module séparé sans accès aux imports Firestore)
     window._fb = { db, auth, doc, getDoc, setDoc, runTransaction, serverTimestamp };
+    // Déclencher le chargement du barème maintenant que _fb est disponible.
+    // Appelé ici (module déféré) pour que les invités (non connectés) aient aussi les prix.
+    window._loadPricing?.();
 
     // Dans un iframe tiers, localStorage est bloqué/partitionné par le navigateur.
     // On utilise sessionStorage en priorité, sinon mémoire pure.
@@ -3350,16 +3353,20 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     // L'onglet Admin permet de créer/modifier le barème.
     // ════════════════════════════════════════════════════════════════════════
     let PRICING = null;
-    const _pricingReady = (async () => {
+    // _pricingReady est résolu par le module Firebase dès que _fb est disponible.
+    // On ne peut pas lire Firestore ici (script non-module) : window._fb n'existe
+    // pas encore au moment où ce script s'exécute (le module est déféré).
+    let _resolvePricing;
+    const _pricingReady = new Promise(resolve => { _resolvePricing = resolve; });
+    window._loadPricing = async function() {
       const fb = window._fb;
-      if (!fb) return;
+      if (!fb) { _resolvePricing(); return; }
       try {
         const snap = await fb.getDoc(fb.doc(fb.db, 'config', 'pricing'));
-        if (snap.exists()) {
-          PRICING = snap.data();
-        }
+        if (snap.exists()) PRICING = snap.data();
       } catch (e) { console.warn('Firestore config/pricing read failed:', e.message); }
-    })();
+      _resolvePricing();
+    };
 
     // ── Admin : chargement / sauvegarde du barème ──
     function _adminOrRow(p) {
