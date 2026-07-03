@@ -101,6 +101,24 @@ service cloud.firestore {
       allow write: if request.auth != null;
     }
 
+    // ── Statistiques funnel (compteurs journaliers anonymes) ──
+    // Écriture publique (les invités font partie du funnel), mais limitée :
+    // uniquement des compteurs connus, un seul incrément par requête.
+    // Aucune donnée personnelle. Au pire, un abus fausse des compteurs
+    // non critiques. Lecture réservée à l'admin (onglet Admin de l'outil).
+    match /funnelStats/{day} {
+      allow read: if request.auth != null
+                  && request.auth.token.email == 'guillaume@fontart.fr';
+      allow create: if request.resource.data.keys().hasOnly(
+                       ['visite_outil', 'devis_demarre', 'prix_affiche',
+                        'compte_cree', 'ajout_panier', 'commande_validee'])
+                    && request.resource.data.size() == 1;
+      allow update: if request.resource.data.keys().hasOnly(
+                       ['visite_outil', 'devis_demarre', 'prix_affiche',
+                        'compte_cree', 'ajout_panier', 'commande_validee'])
+                    && request.resource.data.diff(resource.data).affectedKeys().size() == 1;
+    }
+
     // ── Refus par défaut pour tout le reste ──
     match /{document=**} {
       allow read, write: if false;

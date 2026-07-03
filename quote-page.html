@@ -1143,6 +1143,25 @@
         <button id="adminAddAgBtn" type="button" class="secondary">+ Prestation argent</button>
       </div>
       <p class="status" id="adminStatus" style="display:none;"></p>
+
+      <h3 style="margin:28px 0 8px;">Statistiques du funnel — 14 derniers jours</h3>
+      <p class="hint">Compteurs anonymes par jour : où les visiteurs progressent et où ils abandonnent.</p>
+      <div style="overflow-x:auto; margin-top:10px;">
+        <table style="width:100%; border-collapse:collapse; font-size:0.88rem;">
+          <thead>
+            <tr style="border-bottom:2px solid var(--line); text-align:right;">
+              <th style="text-align:left; padding:6px 8px;">Date</th>
+              <th style="padding:6px 8px;">Visites</th>
+              <th style="padding:6px 8px;">Devis démarrés</th>
+              <th style="padding:6px 8px;">Prix affichés</th>
+              <th style="padding:6px 8px;">Comptes créés</th>
+              <th style="padding:6px 8px;">Ajouts panier</th>
+              <th style="padding:6px 8px;">Commandes</th>
+            </tr>
+          </thead>
+          <tbody id="funnelStatsBody"></tbody>
+        </table>
+      </div>
     </div>
 
     <div class="card hidden" id="aideCard">
@@ -1234,7 +1253,7 @@
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/12.10.0/firebase-app.js";
     import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, updateProfile, sendEmailVerification, sendPasswordResetEmail, confirmPasswordReset, reload, applyActionCode, setPersistence, browserSessionPersistence, inMemoryPersistence } from "https://www.gstatic.com/firebasejs/12.10.0/firebase-auth.js";
-    import { getFirestore, doc, setDoc, getDoc, collection, query, where, getDocs, addDoc, serverTimestamp, orderBy, limit, startAfter, updateDoc, deleteDoc, runTransaction } from "https://www.gstatic.com/firebasejs/12.10.0/firebase-firestore.js";
+    import { getFirestore, doc, setDoc, getDoc, collection, query, where, getDocs, addDoc, serverTimestamp, orderBy, limit, startAfter, updateDoc, deleteDoc, runTransaction, increment } from "https://www.gstatic.com/firebasejs/12.10.0/firebase-firestore.js";
 
     const firebaseConfig = {
       apiKey: "AIzaSyDRLgbcZXP0ezEDPgq_ZYdgrTppWCxYt98",
@@ -1254,6 +1273,52 @@
     // Déclencher le chargement du barème maintenant que _fb est disponible.
     // Appelé ici (module déféré) pour que les invités (non connectés) aient aussi les prix.
     window._loadPricing?.();
+
+    // ── Suivi du funnel : compteurs journaliers anonymes dans Firestore ──
+    // Aucun cookie, aucune donnée personnelle : simples compteurs agrégés par
+    // jour (funnelStats/{YYYY-MM-DD}), donc exempté de bannière de consentement.
+    // Chaque événement n'est compté qu'une fois par chargement de page pour
+    // mesurer la progression dans le funnel, pas le volume d'actions.
+    const FUNNEL_EVENTS = ['visite_outil', 'devis_demarre', 'prix_affiche', 'compte_cree', 'ajout_panier', 'commande_validee'];
+    const _trackedEvents = new Set();
+    window.trackEvent = function trackEvent(name) {
+      if (!FUNNEL_EVENTS.includes(name) || _trackedEvents.has(name)) return;
+      _trackedEvents.add(name);
+      const day = new Date().toISOString().slice(0, 10);
+      // Une écriture par événement (les règles Firestore n'acceptent qu'un
+      // compteur modifié à la fois). Échec silencieux : ne jamais gêner l'UX.
+      setDoc(doc(db, 'funnelStats', day), { [name]: increment(1) }, { merge: true })
+        .catch(err => console.warn('[Stats]', err?.message || err));
+    };
+    window.trackEvent('visite_outil');
+
+    // ── Lecture des stats funnel (onglet Admin) ──
+    window.loadFunnelStats = async function loadFunnelStats() {
+      const body = document.getElementById('funnelStatsBody');
+      if (!body) return;
+      body.innerHTML = '<tr><td colspan="7" style="text-align:center; color:#888;">Chargement…</td></tr>';
+      try {
+        const days = Array.from({ length: 14 }, (_, i) => {
+          const d = new Date(); d.setDate(d.getDate() - i);
+          return d.toISOString().slice(0, 10);
+        });
+        const snaps = await Promise.all(days.map(day => getDoc(doc(db, 'funnelStats', day))));
+        const rows = [];
+        const totals = Object.fromEntries(FUNNEL_EVENTS.map(e => [e, 0]));
+        snaps.forEach((snap, i) => {
+          if (!snap.exists()) return;
+          const d = snap.data() || {};
+          FUNNEL_EVENTS.forEach(e => { totals[e] += d[e] || 0; });
+          rows.push(`<tr><td>${days[i]}</td>${FUNNEL_EVENTS.map(e => `<td style="text-align:right;">${d[e] || 0}</td>`).join('')}</tr>`);
+        });
+        const totalRow = `<tr style="font-weight:600; border-top:2px solid var(--line);"><td>Total 14 j</td>${FUNNEL_EVENTS.map(e => `<td style="text-align:right;">${totals[e]}</td>`).join('')}</tr>`;
+        body.innerHTML = rows.length
+          ? rows.join('') + totalRow
+          : '<tr><td colspan="7" style="text-align:center; color:#888;">Aucune donnée pour le moment.</td></tr>';
+      } catch (err) {
+        body.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--danger);">Erreur : ${err?.message || err}</td></tr>`;
+      }
+    };
 
     // Dans un iframe tiers, localStorage est bloqué/partitionné par le navigateur.
     // On utilise sessionStorage en priorité, sinon mémoire pure.
@@ -1744,6 +1809,7 @@
           const credential = await createUserWithEmailAndPassword(auth, email, password);
           user = credential.user;
           console.log('[SignUp] Compte Firebase Auth créé:', user.uid);
+          window.trackEvent?.('compte_cree');
         }
         const displayName = `${firstName} ${lastName}`.trim();
         if (displayName) {
@@ -2060,6 +2126,7 @@
         item.reference = `${supplierRef}${code}`;
         await upsertArticle(item);
         await upsertCartItem(item);
+        window.trackEvent?.('ajout_panier');
         _invalidateArticlesCache();
         await loadArticles(0, true);
         await loadCartItems();
@@ -2131,7 +2198,7 @@
       if (sectionId === 'quotesCard')  loadArticles();
       if (sectionId === 'cartCard')    loadCartItems();
       if (sectionId === 'accountCard') loadAccount();
-      if (sectionId === 'adminCard')   loadAdminPricing();
+      if (sectionId === 'adminCard') { loadAdminPricing(); window.loadFunnelStats?.(); }
 
       window.scrollTo({ top: 0, behavior: 'smooth' });
       try { window.parent?.postMessage({ type: 'scrollToIframe' }, 'https://www.fontart.fr'); } catch(e) {}
@@ -2192,6 +2259,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         });
         await updateDoc(ref, { orderId: ref.id });
         console.log('[Commande] Commande créée :', ref.id);
+        window.trackEvent?.('commande_validee');
 
         // Vider le panier
         await Promise.all(snap.docs.map(d => deleteDoc(doc(db, 'cartItems', d.id))));
@@ -3676,6 +3744,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
 
       resultsCard.classList.remove('hidden');
       workspaceCard.classList.add('hidden');
+      window.trackEvent?.('prix_affiche');
       const resultsWarning = document.getElementById('resultsWarning');
       if (resultsWarning) {
         resultsWarning.textContent = heightWarning;
@@ -4179,6 +4248,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       }
 
       if (formStatus) formStatus.style.display = 'none';
+      window.trackEvent?.('devis_demarre');
       try {
         sourceImage = await loadImageFromFile(file);
         sourceImage = await downscaleSourceImage(sourceImage); // accélère toutes les boucles CPU
@@ -6857,6 +6927,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         const previewEl = document.getElementById('file3dPreview');
         if (previewEl) previewEl.style.display = 'none';
         setFormStatus('Analyse du fichier 3D…', false);
+        window.trackEvent?.('devis_demarre');
 
         try {
           const ext = file.name.split('.').pop().toLowerCase();
@@ -6998,6 +7069,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
 
         resultsCard.classList.remove('hidden');
         workspaceCard.classList.add('hidden');
+        window.trackEvent?.('prix_affiche');
         const resultsWarning = document.getElementById('resultsWarning');
         const H_MIN_MM = 0.1, H_MAX_MM = 50;
         const heightWarning = (!Number.isFinite(h) || h < H_MIN_MM || h > H_MAX_MM)
