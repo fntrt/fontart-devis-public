@@ -3362,6 +3362,9 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       const fb = window._fb;
       if (!fb) { _resolvePricing(); return; }
       try {
+        // Attendre que Firebase Auth ait déterminé l'état (connecté ou invité)
+        // avant d'envoyer la requête Firestore — évite un rejet silencieux.
+        await fb.auth.authStateReady();
         const snap = await fb.getDoc(fb.doc(fb.db, 'config', 'pricing'));
         if (snap.exists()) PRICING = snap.data();
       } catch (e) { console.warn('Firestore config/pricing read failed:', e.message); }
