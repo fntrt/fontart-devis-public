@@ -7265,19 +7265,22 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     }
 
     // ── 2. Charger le résumé et mettre à jour badge + JSON-LD ────────────
-    async function loadRatingSummary() {
-      try {
-        const snap = await getDoc(doc(db, 'ratingsSummary', 'global'));
-        if (!snap.exists()) return;
-        const { totalScore = 0, count = 0 } = snap.data();
-        if (count < 3) return; // pas assez d'avis pour afficher
-        const average = totalScore / count;
-        updateSchemaLD(average, count);
-        updateRatingBadge(average, count);
-      } catch (e) {
-        console.warn('[rating] loadRatingSummary:', e);
-      }
-    }
+	async function loadRatingSummary() {
+	  try {
+		const FSURL = 'https://firestore.googleapis.com/v1/projects/devis-dorure/databases/(default)/documents/ratingsSummary/global?key=AIzaSyDRLgbcZXP0ezEDPgq_ZYdgrTppWCxYt98';
+		const res = await fetch(FSURL);
+		const data = await res.json();
+		const f = data.fields || {};
+		const count = parseInt(f.count ? (f.count.integerValue || f.count.doubleValue || 0) : 0, 10);
+		const totalScore = parseFloat(f.totalScore ? (f.totalScore.doubleValue || f.totalScore.integerValue || 0) : 0);
+		if (count < 3) return; // pas assez d'avis pour afficher
+		const average = totalScore / count;
+		updateSchemaLD(average, count);
+		updateRatingBadge(average, count);
+	  } catch (e) {
+		console.warn('[rating] loadRatingSummary:', e);
+	  }
+	}
 
     function updateRatingBadge(average, count) {
       const badge = document.getElementById('ratingBadge');
