@@ -5865,6 +5865,34 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       setTimeout(() => { if (tok === _pipelineAbort) calibCropBtn.click(); }, 50);
     }
 
+    // Transpose la calibration (règle, graduations, échelle) du repère redressé vers
+    // l'image recadrée : le recadrage y est une translation de (cx0, cy0), l'angle
+    // devient 0 et l'échelle est inchangée. Renvoie false si trop peu de graduations
+    // subsistent dans le cadre (on retombe alors sur la re-détection).
+    function transferCalibrationToCrop(prev, cx0, cy0, cropW, cropH) {
+      if (!prev?.ruler || !prev.spacing) return false;
+      const r = prev.ruler;
+      const ruler = { ...r,
+        top:    clamp(r.top    - cy0, 0, cropH - 1),
+        bottom: clamp(r.bottom - cy0, 0, cropH - 1),
+        left:   clamp(r.left   - cx0, 0, cropW - 1),
+        right:  clamp(r.right  - cx0, 0, cropW - 1) };
+      if (ruler.bottom - ruler.top < 4 || ruler.right - ruler.left < 20) return false;
+      const ticks = (prev.ticks || [])
+        .filter(t => t.x >= cx0 && t.x < cx0 + cropW)
+        .map(t => ({ ...t, x: t.x - cx0, y0: t.y0 - cy0, y1: t.y1 - cy0 }));
+      if (ticks.length < 10) return false;
+      const spacing = { ...prev.spacing,
+        anchor:      prev.spacing.anchor - cx0,
+        majorAnchor: Number.isFinite(prev.spacing.majorAnchor) ? prev.spacing.majorAnchor - cx0 : prev.spacing.majorAnchor };
+      autoCalibration = { ruler, ticks, spacing, isVertical: false, fineAngle: 0,
+                          origW: cropW, origH: cropH, rW: cropW, rH: cropH };
+      autoCalibOverlay = buildAutoCalibOverlay(autoCalibration, cropW, cropH) || null;
+      _rulerDetected = true;
+      console.log(`[crop AI] calibration transposée : ${ticks.length} graduations, ${spacing.pxPerMm.toFixed(2)} px/mm`);
+      return true;
+    }
+
     calibCropBtn.addEventListener('click', async () => {
       if (!sourceImage || !autoCalibration?.ruler) return;
       calibCropBtn.disabled = true;
@@ -6032,6 +6060,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         // qui a passé le garde-fou) pour que la recalibration sur l'image recadrée
         // ne puisse PAS la faire dériver — cause des « 10 mm » faux observés.
         const lockedPxPerMm = autoCalibration?.spacing?.pxPerMm || null;
+        const prevCalib = autoCalibration;
 
         _smallCalibCache = null;
         resetWorkflowForImage();
@@ -6039,6 +6068,19 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         // Stash the cropped mask so runAIDetection skips a second RMBG call
         _precomputedAIMask = croppedMask;
         _lockedPxPerMm     = lockedPxPerMm;
+
+        if (FA.isMobile && transferCalibrationToCrop(prevCalib, cx0, cy0, cropW, cropH)) {
+          // Mobile : la règle est déjà connue dans le repère redressé ; le recadrage est
+          // une simple translation → on transpose la calibration au lieu de relancer
+          // 7 s de détection (mesuré 14 s pour les 2 passes sur un Galaxy).
+          acceptAutoCalibration();
+          showPipelineLoader('contour', 'Préparation du contour…',
+            'Application du masque sur l\'image recadrée');
+          setStage('ai-detect');
+          renderNormalPreview();
+          runAIDetection();
+          return;
+        }
 
         // Re-run ruler detection on the cropped image (position de la règle), mais
         // l'échelle reste verrouillée sur la 1re calibration.
