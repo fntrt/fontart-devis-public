@@ -6470,7 +6470,12 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           const abortAtStart = _pipelineAbort;
           if (refinePromise) {
             showPipelineLoader('contour', 'Finalisation…', 'Affinage du contour et calcul du prix');
-            await Promise.race([refinePromise, new Promise(r => setTimeout(r, 20000))]);
+            // Attendre l'affinage : sur un appareil lent (wasm interprété, 45 s par passe
+            // mesurés sous Vanadium) 20 s ne suffisaient pas et le prix partait du masque
+            // grossier. Plafond = 2× la dernière inférence + marge ; « Passer l'IA » reste
+            // disponible dans le loader.
+            const waitMs = Math.min(120000, Math.max(20000, 2 * (window._rmbgLastMs || 0) + 5000));
+            await Promise.race([refinePromise, new Promise(r => setTimeout(r, waitMs))]);
             if (abortAtStart !== _pipelineAbort) return;
           }
           _refineToken++;                 // plus d'affinage après le calcul du prix
