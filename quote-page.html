@@ -971,6 +971,8 @@
 
     <div class="card hidden" id="resultsCard">
       <h2>Résultats</h2>
+        </div>
+      </div>
       <!-- Alerte de vraisemblance (hauteur calculée hors plage plausible) -->
       <div id="resultsWarning" style="display:none; background:#fdf3e7; border:1px solid #e8c9a0; color:#8a5a17; border-radius:8px; padding:12px 14px; margin-bottom:12px; font-size:0.92rem; line-height:1.5;"></div>
       <!-- Bannière visible uniquement pour les invités après calcul du prix -->
@@ -991,6 +993,16 @@
         </thead>
         <tbody id="priceTableBody"></tbody>
       </table>
+      <!-- Parcours express (mobile) : le contour a été retenu sans validation → on le montre
+           et on laisse une porte vers l'ajustement -->
+      <div id="resultsContourBlock" style="display:none; gap:14px; align-items:center; flex-wrap:wrap; margin-top:14px; padding:12px; background:#f8f6f2; border:1px solid #e3dcd2; border-radius:10px;">
+        <img id="resultsContourThumb" alt="Contour détecté sur la photo" style="width:120px; height:120px; object-fit:contain; border-radius:8px; border:1px solid #e3dcd2; background:#fff;" />
+        <div style="flex:1; min-width:180px; font-size:.9rem; color:#5b4f44; line-height:1.5;">
+          Contour détecté automatiquement (en vert). Si la règle est incluse ou qu'une partie du bijou manque, ajustez-le : le prix sera recalculé.
+          <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;">
+            <button type="button" id="resultsAdjustBtn" class="secondary" style="white-space:nowrap;">✏️ Ajuster le contour</button>
+            <button type="button" id="resultsRetakeBtn" class="secondary" style="white-space:nowrap;">📷 Nouvelle photo</button>
+          </div>
       <p style="margin-top:12px; font-size:0.85rem; color:#8a7a6a; line-height:1.5; border-top:1px solid #e3dcd2; padding-top:10px;">
         Prix indicatif basé sur les mesures fournies. Le tarif définitif sera confirmé après réception et mesure de la pièce en atelier.
       </p>
@@ -2957,6 +2969,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     }
     document.getElementById('pipelineSkipBtn')?.addEventListener('click', () => {
       _pipelineAbort++;
+      _autoAcceptContour      = false;
       _pendingAutoPipeline    = false;
       _recalibratingAfterCrop = false;
       _precomputedAIMask      = null;
@@ -3086,6 +3099,10 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     let autoCalibration = null;   // { ruler, ticks, spacing } — detected ruler info
     let _pendingAutoPipeline    = false; // true between photo load and first crop; drives chained auto-pipeline
     let _pipelineAbort          = 0;     // incrémenté par « Passer l'IA » : les awaits en cours abandonnent
+    // Parcours express (mobile) : dès que le contour est détecté, on calcule le prix sans
+    // demander de valider — ajuster la règle ou dessiner un contour au doigt est trop
+    // pénible sur téléphone. Le contour reste visible et ajustable depuis les résultats.
+    let _autoAcceptContour      = false;
     let _precomputedAIMask      = null;  // if set, runAIDetection will skip RMBG and use this mask
     let _rulerDetected          = false; // true only when auto-calibration successfully finds a ruler
     let _recalibratingAfterCrop = false; // true when runAutoCalibration is re-run on the cropped image
@@ -3716,6 +3733,21 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       return { areaPx, perimeterPx, count: 0 };
     }
 
+    let _lastAutoAccepted = false;
+    document.getElementById('resultsAdjustBtn')?.addEventListener('click', () => {
+      resultsCard.classList.add('hidden');
+      workspaceCard.classList.remove('hidden');
+      setStage('ai-detect');
+      aiAcceptBtn.disabled = !(aiMetrics && aiMetrics.areaPx > 0);
+      setStatus('Ajustez le contour (curseur Détail/Silhouette, + Compléter, − Retirer), puis « ✓ Utiliser ce contour ».');
+      FA.scrollToTop();
+    });
+    document.getElementById('resultsRetakeBtn')?.addEventListener('click', () => {
+      resultsCard.classList.add('hidden');
+      resetToIdle();
+      FA.scrollToTop();
+    });
+
     async function computeAndDisplayPrices() {
       await _pricingReady;
       if (!PRICING) {
@@ -3865,6 +3897,15 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       resultsCard.classList.remove('hidden');
       workspaceCard.classList.add('hidden');
       window.trackEvent?.('prix_affiche');
+      // Parcours express : montrer le contour retenu et permettre de l'ajuster
+      const contourBlock = document.getElementById('resultsContourBlock');
+      if (contourBlock) {
+        const thumb = _lastAutoAccepted ? captureAnnotatedImage(360, 0.8) : null;
+        contourBlock.style.display = thumb ? 'flex' : 'none';
+        if (thumb) document.getElementById('resultsContourThumb').src = thumb;
+        _lastAutoAccepted = false;
+      }
+      FA.scrollToTop();
       const resultsWarning = document.getElementById('resultsWarning');
       if (resultsWarning) {
         resultsWarning.textContent = heightWarning;
@@ -5579,7 +5620,9 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           }
           hidePipelineLoader();
           setStage('auto-scale');
-          setStatus('Règle non détectée. Utilisez "Calibrer manuellement" pour sélectionner 2 points sur la règle, ou "← Retour" pour changer de photo.', true);
+          setStatus(FA.isMobile
+            ? 'Règle non détectée. « ← Retour » puis reprenez la photo : règle entière et nette, bijou à plat à côté, fond uni, sans ombre portée.'
+            : 'Règle non détectée. Utilisez "Calibrer manuellement" pour sélectionner 2 points sur la règle, ou "← Retour" pour changer de photo.', true);
           renderNormalPreview();
           return;
         }
@@ -5654,21 +5697,25 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           const majors = spacing.majorMatchedTicks || 0;
 
           if (conf >= CALIB_MIN_CONF && majors >= CALIB_MIN_MAJORS) {
-            showPipelineLoader('ai-crop', 'Analyse IA & recadrage…',
-              'Détection du contour du bijou par modèle de vision' +
-              (FA.isMobile ? ' — 1re fois : téléchargement du modèle (~15 Mo)' : ''));
-            const tok = _pipelineAbort;
-            setTimeout(() => { if (tok === _pipelineAbort) calibCropBtn.click(); }, 50);
+            startAutoChain();
           } else {
             // Détection douteuse → on s'arrête et on demande une vérification humaine
             hidePipelineLoader();
             setStage('auto-scale');
-            autoScaleStatus.textContent =
-              `⚠ Échelle à vérifier (confiance ${conf} %, ${majors} graduation(s) cm détectée(s)). ` +
-              `Comparez l'espacement orange à votre règle (1 graduation = 1 cm ?). ` +
-              `Si c'est faux, cliquez « Calibrer manuellement ».`;
-            setStatus('Échelle incertaine : vérifiez les graduations oranges sur la règle, ' +
-              'puis « Utiliser cette calibration », ou « Calibrer manuellement ».', true);
+            if (FA.isMobile) {
+              autoScaleStatus.textContent =
+                `⚠ Échelle à vérifier (confiance ${conf} %). Le repère orange « 10 mm » doit couvrir ` +
+                `exactement 1 cm sur votre règle. Si oui → « Utiliser cette calibration » ; ` +
+                `sinon → « ← Retour » et reprenez la photo (règle entière, à plat, fond uni).`;
+              setStatus('Vérifiez le repère orange « 10 mm » sur la règle, puis validez.', true);
+            } else {
+              autoScaleStatus.textContent =
+                `⚠ Échelle à vérifier (confiance ${conf} %, ${majors} graduation(s) cm détectée(s)). ` +
+                `Comparez l'espacement orange à votre règle (1 graduation = 1 cm ?). ` +
+                `Si c'est faux, cliquez « Calibrer manuellement ».`;
+              setStatus('Échelle incertaine : vérifiez les graduations oranges sur la règle, ' +
+                'puis « Utiliser cette calibration », ou « Calibrer manuellement ».', true);
+            }
             renderNormalPreview();
           }
         }
@@ -5750,11 +5797,11 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       // un contour un peu plus fin ; le masque pré-calculé suffit, l'utilisateur ajuste.
       // Avec le moteur léger (320 px), ce 2e passage sur le recadrage est au contraire
       // indispensable : le bijou seul remplit alors les 320 px.
-      if (FA.isMobile && !window._iaLight) return;
+      if (FA.isMobile && !window._iaLight) return null;
       const img = sourceImage;
       const w = img.width, h = img.height;
       const { dataUrl } = rmbgScaledDataUrl(img);
-      window.runRMBG(dataUrl).then(maskRaw => {
+      return window.runRMBG(dataUrl).then(maskRaw => {
         // Abandon si l'utilisateur a avancé ou édité entre-temps
         if (token !== _refineToken) return;
         if (sourceImage !== img || currentStage !== 'ai-detect') return;
@@ -5773,6 +5820,16 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     }
 
     // ── AI-driven crop: detect contour via RMBG model, then crop tight ────────
+    // Enchaînement automatique : recadrage IA → recalibration → contour (→ prix sur mobile)
+    function startAutoChain() {
+      _autoAcceptContour = FA.isMobile;
+      showPipelineLoader('ai-crop', 'Analyse IA & recadrage…',
+        'Détection du contour du bijou par modèle de vision' +
+        (FA.isMobile ? ' — 1re fois : téléchargement du modèle (~15 Mo)' : ''));
+      const tok = _pipelineAbort;
+      setTimeout(() => { if (tok === _pipelineAbort) calibCropBtn.click(); }, 50);
+    }
+
     calibCropBtn.addEventListener('click', async () => {
       if (!sourceImage || !autoCalibration?.ruler) return;
       calibCropBtn.disabled = true;
@@ -5967,6 +6024,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     // ── End AI-driven crop ────────────────────────────────────────────────────
 
     autoScaleAcceptBtn.addEventListener('click', () => {
+      if (FA.isMobile && autoCalibration?.ruler) { startAutoChain(); return; }
       if (!acceptAutoCalibration()) return;
       setStage('ai-detect');
       runAIDetection();
@@ -5981,6 +6039,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     });
 
     function resetToIdle() {
+      _autoAcceptContour = false;
       autoCalibration    = null;
       autoCalibOverlay   = null;
       aiDetectedMask     = null;
@@ -6280,6 +6339,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       aiSliderWrap.style.pointerEvents = 'none';
       aiCorrSlider.value = 7;   // permissive default — user tightens if needed
       aiStatusEl.textContent = 'Chargement du modèle IA…';
+      let refinePromise = null;
 
       try {
         const w = sourceImage.width, h = sourceImage.height;
@@ -6297,7 +6357,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           // Affiche ce masque tout de suite, puis affine en arrière-plan avec
           // une inférence RMBG sur l'image recadrée (résolution effective bien
           // meilleure : l'objet remplit maintenant le cadre).
-          startMaskRefinement();
+          refinePromise = startMaskRefinement();
         } else {
           // Compteur visible : l'inférence dure des dizaines de secondes sur mobile et
           // les callbacks de progression ne couvrent que le téléchargement.
@@ -6368,10 +6428,31 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
             'et le repère « 10 mm » couvre bien 1 cm de votre règle. Ajustez (Détail/Silhouette, − Retirer) si besoin.');
         }
 
+        // Parcours express : contour trouvé → on attend l'affinage (rapide avec le moteur
+        // léger) puis on affiche les prix sans demander de valider le contour.
+        if (_autoAcceptContour && aiMetrics && aiMetrics.areaPx > 0) {
+          _autoAcceptContour = false;
+          const abortAtStart = _pipelineAbort;
+          if (refinePromise) {
+            showPipelineLoader('contour', 'Finalisation…', 'Affinage du contour et calcul du prix');
+            await Promise.race([refinePromise, new Promise(r => setTimeout(r, 20000))]);
+            if (abortAtStart !== _pipelineAbort) return;
+          }
+          _refineToken++;                 // plus d'affinage après le calcul du prix
+          manualMode = false;
+          setStage('ai-detect');          // état cohérent si l'utilisateur revient « Ajuster »
+          hidePipelineLoader();
+          _lastAutoAccepted = true;
+          await computeAndDisplayPrices();
+          return;
+        }
+        _autoAcceptContour = false;
+
         // Pipeline finished — hide the loader and restore AI stage controls
         hidePipelineLoader();
         setStage('ai-detect');
       } catch (e) {
+        _autoAcceptContour = false;
         aiStatusEl.textContent = 'Erreur IA : ' + (e?.message ?? String(e));
         aiAcceptBtn.disabled = true;
         hidePipelineLoader();
