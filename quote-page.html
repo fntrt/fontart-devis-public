@@ -29,7 +29,47 @@
     "description": "Outil de devis automatisé pour bijoux : détection IA des contours, calibration par règle, calcul de surface et proposition de prix."
   }
   </script>
+  <script>
+    // Environnement d'exécution, partagé par tous les scripts (classiques et modules).
+    // La page vit surtout dans une iframe Squarespace (fontart.fr/service-dorure-bijoux) :
+    // position:fixed y est relatif à l'iframe (1 100 à 1 800 px de haut), donc une modale
+    // centrée peut être totalement hors de l'écran d'un téléphone.
+    window.FA = (() => {
+      const inIframe = window !== window.top;
+      let parentOrigin = 'https://www.fontart.fr';
+      try { if (inIframe && document.referrer) parentOrigin = new URL(document.referrer).origin; } catch (e) {}
+      const isMobile = matchMedia('(pointer: coarse)').matches && navigator.maxTouchPoints > 0
+                    && Math.min(screen.width, screen.height) < 900;
+      function postToParent(msg) {
+        if (!inIframe) return;
+        try { window.parent.postMessage(msg, parentOrigin); } catch (e) {}
+      }
+      // Remonte la page ET le site parent en haut de l'iframe (le parent écoute 'scrollToIframe')
+      function scrollToTop() {
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+        postToParent({ type: 'scrollToIframe' });
+      }
+      // Ouvre une modale plein écran : en iframe, on la cale en haut et on remonte le parent
+      // pour qu'elle soit dans la zone visible quel que soit l'endroit où l'utilisateur en était.
+      function openOverlay(el) {
+        if (!el) return;
+        if (inIframe) { el.classList.add('overlay-top'); scrollToTop(); }
+        el.style.display = 'flex';
+      }
+      return { inIframe, parentOrigin, isMobile, postToParent, scrollToTop, openOverlay };
+    })();
+  </script>
   <style>
+    /* Modale ouverte en iframe : alignée en haut, défilable si plus haute que la zone visible */
+    .overlay-top {
+      align-items: flex-start !important;
+      padding-top: 24px !important;
+      overflow-y: auto;
+    }
+    /* Caméra getUserMedia (desktop en iframe) : boîte bornée, sinon les boutons sont au fond de l'iframe */
+    #cameraModal.overlay-top { inset: 0 0 auto 0 !important; height: min(100dvh, 660px); padding-top: 0 !important; }
+    #cameraModal.overlay-top .camera-video-wrap { height: calc(100% - 110px) !important; }
+
     :root {
       --bg: #ffffff;
       --card: #ffffff;
@@ -414,7 +454,7 @@
 <!-- ── Camera capture modal ── -->
 <div id="cameraModal" role="dialog" aria-modal="true" aria-label="Capture photo" style="display:none; position:fixed; inset:0; z-index:10001; background:#000; flex-direction:column; align-items:center; justify-content:center;">
   <!-- video + tap-to-focus wrapper -->
-  <div style="position:relative; width:100%; height:calc(100dvh - 110px); overflow:hidden;">
+  <div class="camera-video-wrap" style="position:relative; width:100%; height:calc(100dvh - 110px); overflow:hidden;">
     <video id="cameraVideo" autoplay playsinline muted
       style="width:100%; height:100%; object-fit:contain; display:block; cursor:crosshair;"></video>
     <!-- tap-to-focus crosshair indicator -->
@@ -762,7 +802,7 @@
         <div id="weightRow">
           <label for="weight">Poids (g)*</label>
           <div style="display: flex; gap: 8px;">
-            <input id="weight" type="number" required step="0.01" min="0" placeholder="Ex: 12.50" style="flex: 1;" />
+            <input id="weight" type="text" inputmode="decimal" autocomplete="off" required placeholder="Ex: 12,50" style="flex: 1;" />
             <button type="button" id="serialConnectBtn" style="white-space: nowrap; padding: 9px 12px; display: inline-flex; align-items: center; gap: 6px; font-size: 0.9rem; background-color: var(--soft); color: var(--ink); border: 1px solid var(--line);">
               <span id="serialIndicator" style="display: inline-block; width: 8px; height: 8px; border-radius: 50%; background-color: #94a3b8; transition: background-color 0.3s;"></span>
               <span>Balance</span>
@@ -796,7 +836,11 @@
           <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
             <input id="photoInput" type="file" required accept="image/*" style="flex:1; min-width:0;" />
             <button id="cameraBtn" type="button" class="secondary" style="white-space:nowrap; flex-shrink:0;" title="Prendre une photo avec la caméra">📷 Caméra</button>
+            <!-- Mobile : ouvre directement l'appareil photo natif (pas de getUserMedia dans l'iframe) -->
+            <input id="photoCaptureInput" type="file" accept="image/*" capture="environment" style="display:none;" aria-hidden="true" tabindex="-1" />
           </div>
+          <!-- Sur mobile il n'y a pas d'infobulle : expliquer pourquoi la photo est grisée -->
+          <p class="hint" id="photoHint" style="display:none; margin-top:4px;">Renseignez d'abord le <strong>poids</strong> et la <strong>description</strong> pour activer la photo.</p>
         </div>
         <!-- ── Fichier 3D (masqué par défaut) ── -->
         <div id="file3dRow" style="display:none;">
@@ -1343,7 +1387,7 @@
     let pendingCartItem = null; // Article en attente d'ajout (invité → connexion)
 
     function openAuthModal(context) {
-      if (authModal) authModal.style.display = 'flex';
+      FA.openOverlay(authModal);
       const titleEl  = document.getElementById('authGateTitle');
       const bannerEl = document.getElementById('authContextBanner');
       const hintEl   = document.getElementById('authGateHint');
@@ -2102,8 +2146,7 @@
           pendingCartItem = item;
           openAuthModal('save-quote');
           // Scroll vers le haut pour que le modal soit visible (crucial en iframe / mobile)
-          window.scrollTo({ top: 0, behavior: 'smooth' });
-          try { window.parent?.postMessage({ type: 'scrollToIframe' }, 'https://www.fontart.fr'); } catch {}
+          FA.scrollToTop();
           return 'deferred';
         }
         const supplierRef = await window.ensureSupplierReference?.();
@@ -2200,8 +2243,7 @@
       if (sectionId === 'accountCard') loadAccount();
       if (sectionId === 'adminCard') { loadAdminPricing(); window.loadFunnelStats?.(); }
 
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-      try { window.parent?.postMessage({ type: 'scrollToIframe' }, 'https://www.fontart.fr'); } catch(e) {}
+      FA.scrollToTop();
     };
 
 document.getElementById('validateOrderBtn')?.addEventListener('click', async () => {
@@ -2265,8 +2307,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         await Promise.all(snap.docs.map(d => deleteDoc(doc(db, 'cartItems', d.id))));
         await loadCartItems();
 
-        const modal = document.getElementById('orderModal');
-        modal.style.display = 'flex';
+        FA.openOverlay(document.getElementById('orderModal'));
         btn.textContent = '✅ Commande validée';
         setTimeout(() => {
           btn.disabled = false;
@@ -2721,7 +2762,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
             await confirmPasswordReset(auth, oobCode, newPassword);
             isResettingPassword = false;
             window.history.replaceState({}, document.title, window.location.pathname);
-            window.parent?.postMessage('cleanUrl', 'https://fontart.fr');
+            FA.postToParent('cleanUrl');
             document.getElementById('authModalCloseBtn').style.display = '';
             document.getElementById('authResetSection')?.classList.add('hidden');
             document.getElementById('authLoginSection')?.classList.remove('hidden');
@@ -2746,7 +2787,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           await applyActionCode(auth, oobCode);
           console.log('[Auth] applyActionCode : succès');
           window.history.replaceState({}, document.title, window.location.pathname);
-          window.parent?.postMessage('cleanUrl', 'https://fontart.fr');
+          FA.postToParent('cleanUrl');
           resendVerifBtn?.classList.add('hidden');
           openAuthModal();
           setAuthStatus('✅ Adresse email vérifiée avec succès. Vous pouvez maintenant vous connecter.', false);
@@ -3049,6 +3090,8 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     function updateStartAvailability() {
       const { ok } = hasRequiredInputs();
       photoInput.disabled = !ok;
+      const photoHint = document.getElementById('photoHint');
+      if (photoHint) photoHint.style.display = ok ? 'none' : '';
       // Même règle pour la caméra : sinon l'utilisateur peut prendre une photo
       // qui sera jetée au moment du contrôle des champs obligatoires.
       const cameraBtn = document.getElementById('cameraBtn');
@@ -4208,7 +4251,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         const noBtn  = document.getElementById('rulerConfirmNoBtn');
         const skipChk = document.getElementById('rulerConfirmSkipChk');
         if (!modal || !yesBtn || !noBtn) { resolve(true); return; }
-        modal.style.display = 'flex';
+        FA.openOverlay(modal);
 
         function cleanup(result) {
           modal.style.display = 'none';
@@ -4228,23 +4271,20 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       });
     }
 
-    photoInput.addEventListener('change', async (e) => {
-      setFormStatus('Photo sélectionnée. Vérification...', false);
+    // Pipeline commun à toutes les sources de photo : fichier choisi, appareil photo
+    // natif (mobile) ou capture getUserMedia (desktop). Retourne false si abandon.
+    async function startPhotoPipeline(file, loadedMsg) {
       const { ok, missing } = hasRequiredInputs();
       if (!ok) {
-        setFormStatus(`Champs obligatoires manquants: ${missing.join(', ')}.`, true);
-        photoInput.value = '';
-        return;
+        setFormStatus(`Champs obligatoires manquants : ${missing.join(', ')}.`, true);
+        return false;
       }
-      const file = e.target.files[0];
-      if (!file) return;
 
       // ── Demander confirmation de la présence de la règle ──
       const confirmed = await askRulerConfirmation();
       if (!confirmed) {
-        photoInput.value = '';
         setFormStatus('Import annulé. Veuillez reprendre la photo avec une règle graduée.', true);
-        return;
+        return false;
       }
 
       if (formStatus) formStatus.style.display = 'none';
@@ -4262,19 +4302,44 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         if (workspaceCard) workspaceCard.classList.remove('hidden');
         const nouvelArticleCard = document.getElementById('nouvelArticleCard');
         if (nouvelArticleCard) nouvelArticleCard.classList.add('hidden');
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-        try { window.parent?.postMessage({ type: 'scrollToIframe' }, 'https://www.fontart.fr'); } catch(e) {}
+        FA.scrollToTop();
         setStage('auto-scale');
         showPipelineLoader('calib', 'Détection de la règle…', 'Recherche de l\'orientation et des graduations');
         setStatus('Détection automatique de la règle en cours…');
-        setFormStatus('Image chargée. Calibration automatique…', false);
+        setFormStatus(loadedMsg, false);
         renderNormalPreview();
         runAutoCalibration();
+        return true;
       } catch (err) {
         console.error(err);
         hidePipelineLoader();
-        setFormStatus('Impossible de charger l\'image.', true);
+        // Cas fréquent sur iPhone : photo HEIC que le navigateur ne décode pas
+        const heic = /hei[cf]$/i.test(file?.name || '') || /hei[cf]/i.test(file?.type || '');
+        setFormStatus(heic
+          ? 'Format HEIC non pris en charge. Sur iPhone : Réglages › Appareil photo › Formats › « Le plus compatible », puis reprenez la photo.'
+          : 'Impossible de charger l\'image. Essayez une autre photo (JPEG ou PNG).', true);
+        return false;
       }
+    }
+
+    photoInput.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      setFormStatus('Photo sélectionnée. Vérification...', false);
+      const ok = await startPhotoPipeline(file, 'Image chargée. Calibration automatique…');
+      if (!ok) photoInput.value = '';
+    });
+
+    // Mobile : le bouton « Caméra » ouvre l'appareil photo natif via <input capture>.
+    // Plus fiable que getUserMedia dans une iframe (permission au nom de github.io,
+    // modale fixed hors écran) et photo pleine résolution avec autofocus du téléphone.
+    const photoCaptureInput = document.getElementById('photoCaptureInput');
+    photoCaptureInput?.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      photoCaptureInput.value = '';
+      if (!file) return;
+      setFormStatus('Photo capturée. Vérification...', false);
+      await startPhotoPipeline(file, 'Photo capturée. Calibration automatique…');
     });
 
     // ── Camera capture ────────────────────────────────────────────────────────
@@ -4291,6 +4356,11 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       const fallbackBtn    = document.getElementById('cameraFallbackBtn');
       const openBtn        = document.getElementById('cameraBtn');
       if (!openBtn) return;
+
+      if (FA.isMobile && photoCaptureInput) {
+        openBtn.addEventListener('click', () => photoCaptureInput.click());
+        return;
+      }
 
       let stream = null;
       let facingMode = 'environment'; // start with rear camera
@@ -4473,7 +4543,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       }
 
       function openModal() {
-        modal.style.display = 'flex';
+        FA.openOverlay(modal);
         startStream();
       }
 
@@ -4508,49 +4578,9 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         }
         closeModal();
 
-        // ── Demander confirmation de la présence de la règle ──
-        const confirmed = await askRulerConfirmation();
-        if (!confirmed) {
-          setFormStatus('Import annulé. Veuillez reprendre la photo avec une règle graduée.', true);
-          return;
-        }
-
-        // blob → HTMLImageElement, same pipeline as file upload
-        try {
-          const { ok, missing } = hasRequiredInputs();
-          if (!ok) {
-            setFormStatus(`Champs obligatoires manquants : ${missing.join(', ')}.`, true);
-            return;
-          }
-          if (formStatus) formStatus.style.display = 'none';
-          const url = URL.createObjectURL(blob);
-          const img = await new Promise((res, rej) => {
-            const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url;
-          });
-          URL.revokeObjectURL(url);
-          sourceImage = await downscaleSourceImage(img); // accélère toutes les boucles CPU
-          tempCanvas.width  = sourceImage.width;
-          tempCanvas.height = sourceImage.height;
-          tempCtx.clearRect(0, 0, tempCanvas.width, tempCanvas.height);
-          tempCtx.drawImage(sourceImage, 0, 0);
-          resetWorkflowForImage();
-          _pendingAutoPipeline = true;     // trigger full auto pipeline on first calibration success
-          startBackgroundRMBG(sourceImage); // launch RMBG in parallel with calibration
-          if (workspaceCard) workspaceCard.classList.remove('hidden');
-          const nouvelArticleCard = document.getElementById('nouvelArticleCard');
-          if (nouvelArticleCard) nouvelArticleCard.classList.add('hidden');
-          window.scrollTo({ top: 0, behavior: 'smooth' });
-          try { window.parent?.postMessage({ type: 'scrollToIframe' }, 'https://www.fontart.fr'); } catch(e) {}
-          setStage('auto-scale');
-          showPipelineLoader('calib', 'Détection de la règle…', 'Recherche de l\'orientation et des graduations');
-          setStatus('Détection automatique de la règle en cours…');
-          setFormStatus('Photo capturée. Calibration automatique…', false);
-          renderNormalPreview();
-          runAutoCalibration();
-        } catch (err) {
-          console.error(err);
-          setFormStatus('Impossible de charger la photo capturée.', true);
-        }
+        // Même pipeline que l'import de fichier
+        const file = new File([blob], 'capture.jpg', { type: blob.type || 'image/jpeg' });
+        await startPhotoPipeline(file, 'Photo capturée. Calibration automatique…');
       }
 
       openBtn.addEventListener('click', openModal);
@@ -5541,7 +5571,8 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
 
           if (conf >= CALIB_MIN_CONF && majors >= CALIB_MIN_MAJORS) {
             showPipelineLoader('ai-crop', 'Analyse IA & recadrage…',
-              'Détection du contour du bijou par modèle de vision');
+              'Détection du contour du bijou par modèle de vision' +
+              (FA.isMobile ? ' — sur mobile, cela peut prendre une minute' : ''));
             setTimeout(() => calibCropBtn.click(), 50);
           } else {
             // Détection douteuse → on s'arrête et on demande une vérification humaine
@@ -6460,6 +6491,13 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       const isDrawingMode = (currentStage === 'select' && manualMode) ||
                             (currentStage === 'ai-detect' && (hybridMode || eraseMode));
       if (isDrawingMode && !isPanning) {
+        // Au doigt il n'y a pas de mousemove : tester ici la proximité du 1er point
+        // (tolérance élargie, un doigt est moins précis qu'un curseur).
+        if (!manualNearStart && manualCurrent.length >= 3) {
+          const rect = previewCanvas.getBoundingClientRect();
+          const threshold = (FA.isMobile ? 22 : 12) * (previewCanvas.width / rect.width);
+          manualNearStart = Math.hypot(x - manualCurrent[0].x, y - manualCurrent[0].y) <= threshold;
+        }
         if (manualNearStart) {
           if (eraseMode) {
             subtractContours.push({ points: [...manualCurrent] });
@@ -7126,7 +7164,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       _heightRAF = requestAnimationFrame(() => {
         _heightRAF = 0;
         try {
-          window.parent?.postMessage({ type: 'iframeHeight', height: document.body.scrollHeight }, 'https://www.fontart.fr');
+          FA.postToParent({ type: 'iframeHeight', height: document.body.scrollHeight });
         } catch(e) {}
       });
     }
@@ -7147,10 +7185,15 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     // NB : q8 sur WebGPU → KO (timeout, ops non supportées sur JSEP). Retiré.
     // NB : RMBG-1.4 a une taille d'entrée ONNX FIGÉE à 1024×1024 (testé : 512 →
     //      « Got 512 Expected 1024 »). Impossible de réduire la résolution.
+    // Mobile / peu de RAM : 176 Mo en fp32 saturent la mémoire d'un téléphone (onglet tué)
+    // et le téléchargement 4G est interminable → directement wasm q8 (44 Mo).
+    const lowEndDevice = !!window.FA?.isMobile || (navigator.deviceMemory && navigator.deviceMemory <= 4);
     const SEG_CONFIGS = [
-      ...(navigator.gpu ? [{ device: 'webgpu', dtype: 'fp32' }] : []), // 176 Mo — éprouvé, GPU
-      { device: 'wasm', dtype: 'q8' },                                  // 44 Mo — repli sans WebGPU
+      ...(navigator.gpu && !lowEndDevice ? [{ device: 'webgpu', dtype: 'fp32' }] : []), // 176 Mo — éprouvé, GPU
+      { device: 'wasm', dtype: 'q8' },                                                   // 44 Mo — repli sans WebGPU
     ];
+    // Inférence test 1024×1024 en wasm mono-thread sur un téléphone : bien plus de 12 s
+    const VALIDATE_TIMEOUT_MS = lowEndDevice ? 60000 : 12000;
 
     // Petite image test (64×64) pour valider qu'un backend produit un masque réel
     async function makeTestImageURL() {
@@ -7168,7 +7211,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         url = await makeTestImageURL();
         const t0 = performance.now();
         // Course contre un timeout : WebGPU peut se figer sans rejeter la promesse
-        const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error('timeout 12 s')), 12000));
+        const timeout = new Promise((_, rej) => setTimeout(() => rej(new Error(`timeout ${VALIDATE_TIMEOUT_MS / 1000} s`)), VALIDATE_TIMEOUT_MS));
         const r = await Promise.race([s(url, { threshold: 0 }), timeout]);
         const ms = Math.round(performance.now() - t0);
         const ok = !!(r && r[0] && r[0].mask && r[0].mask.data && r[0].mask.data.length > 0);
@@ -7183,7 +7226,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     }
 
     async function initSeg(onProgress) {
-      for (const cfg of SEG_CONFIGS) {
+      for (const [i, cfg] of SEG_CONFIGS.entries()) {
         const label = `${cfg.device}/${cfg.dtype}`;
         try {
           console.log(`[RMBG] Chargement ${label}…`);
@@ -7192,6 +7235,13 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
             dtype:  cfg.dtype,
             progress_callback: onProgress,
           });
+          // Sur téléphone, l'inférence test wasm (1024² mono-thread) coûte 20 à 60 s pour
+          // rien quand c'est le dernier backend : aucun repli possible, on l'utilise direct.
+          const isLast = i === SEG_CONFIGS.length - 1;
+          if (lowEndDevice && isLast) {
+            console.log(`[RMBG] ✓ Backend retenu sans validation (mobile) : ${label}`);
+            return s;
+          }
           if (await validateSeg(s, label)) {
             console.log(`[RMBG] ✓ Backend retenu : ${label}`);
             return s;
@@ -7393,7 +7443,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       bindRatingStarsOnce();
       body.style.display   = '';
       thanks.style.display = 'none';
-      modal.style.display  = 'flex';
+      FA.openOverlay(modal);
       renderModalStars(_modalSelected);
 
       // Focus initial sur l'étoile pertinente (accessibilité clavier)
