@@ -56,7 +56,20 @@
         if (inIframe) { el.classList.add('overlay-top'); scrollToTop(); }
         el.style.display = 'flex';
       }
-      return { inIframe, parentOrigin, isMobile, postToParent, scrollToTop, openOverlay };
+      // Chrono par étape (photo, règle, IA…) : affiché dans « Détails techniques » des
+      // résultats pour diagnostiquer les lenteurs sur appareil réel.
+      const perf = {
+        t: {}, t0: 0,
+        reset() { this.t = {}; this.t0 = performance.now(); },
+        add(k, ms) { this.t[k] = (this.t[k] || 0) + ms; this.n = this.n || {}; this.n[k] = (this.n[k] || 0) + 1; },
+        summary() {
+          const f = (k, label) => this.t[k] != null ? `${label} ${(this.t[k] / 1000).toFixed(1)} s${(this.n?.[k] || 1) > 1 ? ` (×${this.n[k]})` : ''}` : null;
+          const parts = [f('photo', 'photo'), f('calib', 'règle'), f('ia_dl', 'téléch. IA'), f('ia', 'inférence IA'), f('crop', 'attente IA+recadrage')].filter(Boolean);
+          const total = this.t0 ? ` · total ${((performance.now() - this.t0) / 1000).toFixed(0)} s` : '';
+          return parts.join(' · ') + total;
+        }
+      };
+      return { inIframe, parentOrigin, isMobile, postToParent, scrollToTop, openOverlay, perf };
     })();
   </script>
   <style>
@@ -1006,6 +1019,10 @@
       <p style="margin-top:12px; font-size:0.85rem; color:#8a7a6a; line-height:1.5; border-top:1px solid #e3dcd2; padding-top:10px;">
         Prix indicatif basé sur les mesures fournies. Le tarif définitif sera confirmé après réception et mesure de la pièce en atelier.
       </p>
+      <details style="margin-top:6px; font-size:0.78rem; color:#8a7a6a;">
+        <summary style="cursor:pointer;">⏱ Détails techniques</summary>
+        <div id="resultsPerf" style="margin-top:4px; font-variant-numeric:tabular-nums;"></div>
+      </details>
     </div>
 
     <div class="card hidden" id="quotesCard">
@@ -2934,13 +2951,22 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
 
     // Chronomètre du loader : sur mobile les étapes durent des dizaines de secondes,
     // un compteur qui avance montre que ça travaille (et donne un chiffre à remonter).
-    let _loaderTimer = null, _loaderT0 = 0, _loaderStepT0 = 0;
+    let _loaderTimer = null, _loaderT0 = 0, _loaderStepT0 = 0, _loaderStepKey = '';
+    function closeLoaderStep() {
+      if (!_loaderStepT0) return;
+      const ms = performance.now() - _loaderStepT0;
+      console.log(`[pipeline] ${_loaderStepKey} : ${Math.round(ms / 1000)} s`);
+      if (_loaderStepKey === 'calib')   FA.perf.add('calib', ms);
+      if (_loaderStepKey === 'ai-crop') FA.perf.add('crop', ms);   // attente IA + recadrage
+      _loaderStepT0 = 0;
+    }
     function startLoaderClock(stepKey) {
       const el = document.getElementById('pipelineLoaderElapsed');
       if (!el) return;
       const now = performance.now();
       if (!_loaderTimer) _loaderT0 = now;
-      if (_loaderStepT0) console.log(`[pipeline] étape précédente : ${Math.round((now - _loaderStepT0) / 1000)} s`);
+      closeLoaderStep();
+      _loaderStepKey = stepKey;
       _loaderStepT0 = now;
       console.log(`[pipeline] → ${stepKey}`);
       const tick = () => {
@@ -2995,11 +3021,12 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     function stopLoaderClock() {
       const btn = document.getElementById('pipelineSkipBtn');
       if (btn) { btn.style.display = 'none'; btn.classList.add('secondary'); delete btn.dataset.alerted; }
+      closeLoaderStep();
       if (_loaderTimer) {
         console.log(`[pipeline] terminé en ${Math.round((performance.now() - _loaderT0) / 1000)} s`);
         clearInterval(_loaderTimer);
       }
-      _loaderTimer = null; _loaderStepT0 = 0;
+      _loaderTimer = null;
     }
 
     function showPipelineLoader(stepKey, title, detail = '') {
@@ -3897,6 +3924,11 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       resultsCard.classList.remove('hidden');
       workspaceCard.classList.add('hidden');
       window.trackEvent?.('prix_affiche');
+      const perfEl = document.getElementById('resultsPerf');
+      if (perfEl) {
+        perfEl.textContent = `${FA.perf.summary()} · ${window._iaLight ? 'U²-Net-p' : 'RMBG-1.4'} · ${sourceImage ? sourceImage.width + '×' + sourceImage.height : ''} · ${navigator.hardwareConcurrency || '?'} cœurs`;
+        console.log('[perf]', perfEl.textContent);
+      }
       // Parcours express : montrer le contour retenu et permettre de l'ajuster
       const contourBlock = document.getElementById('resultsContourBlock');
       if (contourBlock) {
@@ -4408,8 +4440,11 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       if (formStatus) formStatus.style.display = 'none';
       window.trackEvent?.('devis_demarre');
       try {
+        FA.perf.reset();
+        const tPhoto = performance.now();
         sourceImage = await loadImageFromFile(file);
         sourceImage = await downscaleSourceImage(sourceImage); // accélère toutes les boucles CPU
+        FA.perf.add('photo', performance.now() - tPhoto);
         tempCanvas.width = sourceImage.width;
         tempCanvas.height = sourceImage.height;
         tempCtx.clearRect(0, 0, tempCanvas.width, tempCanvas.height);
@@ -7424,7 +7459,21 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       ort.env.wasm.wasmPaths = ORT_CDN;
       // Worker : l'inférence ne bloque pas le thread principal (calibration, compteur)
       ort.env.wasm.proxy = true;
-      const bytes = await fetchWithProgress(LIGHT_URL, onProgress);
+      // GitHub Pages ne met le modèle en cache que 10 min : on le garde dans le Cache
+      // Storage du navigateur pour ne plus le retélécharger aux visites suivantes.
+      const tDl = performance.now();
+      let bytes = null;
+      let cache = null;
+      try { cache = await caches.open('fontart-ia-v1'); } catch (e) {}
+      try {
+        const hit = cache && await cache.match(LIGHT_URL);
+        if (hit) { bytes = new Uint8Array(await hit.arrayBuffer()); console.log('[IA] modèle depuis le cache navigateur'); }
+      } catch (e) {}
+      if (!bytes) {
+        bytes = await fetchWithProgress(LIGHT_URL, onProgress);
+        try { await cache?.put(LIGHT_URL, new Response(bytes, { headers: { 'Content-Type': 'application/octet-stream' } })); } catch (e) {}
+      }
+      window.FA?.perf?.add('ia_dl', performance.now() - tDl);
       const session = await ort.InferenceSession.create(bytes, { executionProviders: ['wasm'] });
       onProgress?.({ status: 'done' });
       console.log('[IA] U²-Net-p prêt —', session.inputNames, '→', session.outputNames);
@@ -7576,6 +7625,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       const ms = Math.round(performance.now() - t0);
       console.log(`[IA] inférence ${useLight ? 'U²-Net-p' : 'RMBG-1.4'} : ${ms} ms`);
       window._rmbgLastMs = ms;
+      window.FA?.perf?.add('ia', ms);
       return mask;
     };
 
