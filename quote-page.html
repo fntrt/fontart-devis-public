@@ -5,6 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Devis autonome - Fontart</title>
   <link rel="canonical" href="https://www.fontart.fr/service-dorure-bijoux" />
+  <!-- PWA : installable sur l'écran d'accueil (manifest.json + sw.js à la racine du site) -->
+  <link rel="manifest" href="manifest.json" />
+  <meta name="theme-color" content="#1f1b17" />
+  <link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png" />
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="Devis Font'Art" />
   <!-- Fil d'Ariane : vitrine Fontart → outil de devis -->
   <script type="application/ld+json">
   {
@@ -745,6 +753,15 @@
 
 
   <div class="container" id="appContainer">
+    <!-- Installation PWA (mobile) : lien vers la page seule depuis l'iframe Squarespace,
+         bouton d'installation (Android) ou consigne (iPhone) sur la page seule ;
+         masqué une fois installée -->
+    <div id="pwaInstallBar" style="display:none; align-items:center; gap:10px; flex-wrap:wrap; background:#f2ece3; border:1px solid #e3dcd2; border-radius:12px; padding:10px 14px; font-size:.9rem; color:#5b4f44;">
+      <span id="pwaInstallText" style="flex:1; min-width:180px;">📲 Ajoutez l'outil de devis à votre écran d'accueil.</span>
+      <a id="pwaInstallLink" href="quote-page.html?install=1" target="_top" style="display:none; white-space:nowrap; background:#1f1b17; color:#fff; text-decoration:none; border-radius:8px; padding:8px 14px; font-weight:600;">Installer l'application</a>
+      <button type="button" id="pwaInstallBtn" style="display:none; white-space:nowrap;">Installer l'application</button>
+      <button type="button" id="pwaInstallClose" class="secondary" aria-label="Fermer" style="padding:6px 10px;">✕</button>
+    </div>
 
     <!-- Barre de navigation -->
     <nav id="appNav" aria-label="Navigation principale">
@@ -7568,6 +7585,64 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
   </script>
 
   <script>
+    // ── PWA : service worker + installation ─────────────────────────────────
+    (function () {
+      if ('serviceWorker' in navigator && window.isSecureContext) {
+        navigator.serviceWorker.register('sw.js').catch((e) => console.warn('[PWA] SW :', e?.message || e));
+      }
+      const bar   = document.getElementById('pwaInstallBar');
+      const text  = document.getElementById('pwaInstallText');
+      const link  = document.getElementById('pwaInstallLink');
+      const btn   = document.getElementById('pwaInstallBtn');
+      const close = document.getElementById('pwaInstallClose');
+      if (!bar) return;
+      const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+      let dismissed = false;
+      try { dismissed = sessionStorage.getItem('pwaBarDismissed') === '1'; } catch (e) {}
+      if (!FA.isMobile || standalone || dismissed) return;
+      const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent) ||
+                    (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      const show = () => { bar.style.display = 'flex'; };
+      close.addEventListener('click', () => {
+        bar.style.display = 'none';
+        try { sessionStorage.setItem('pwaBarDismissed', '1'); } catch (e) {}
+      });
+
+      if (FA.inIframe) {
+        // Depuis fontart.fr : l'installation exige la page seule
+        link.style.display = '';
+        show();
+        return;
+      }
+      if (isIOS) {
+        text.innerHTML = '📲 Pour installer l\'outil : touchez <strong>Partager</strong> puis <strong>« Sur l\'écran d\'accueil »</strong>.';
+        show();
+        return;
+      }
+      // Android : invite native différée jusqu'au clic
+      let deferred = null;
+      window.addEventListener('beforeinstallprompt', (e) => {
+        e.preventDefault();
+        deferred = e;
+        btn.style.display = '';
+        show();
+      });
+      btn.addEventListener('click', async () => {
+        if (!deferred) return;
+        deferred.prompt();
+        const { outcome } = await deferred.userChoice;
+        window.trackEvent?.(outcome === 'accepted' ? 'pwa_installee' : 'pwa_refusee');
+        deferred = null;
+        bar.style.display = 'none';
+      });
+      window.addEventListener('appinstalled', () => { bar.style.display = 'none'; });
+      // Arrivée via « Installer l'application » depuis l'iframe : expliquer en attendant l'invite
+      if (new URLSearchParams(location.search).get('install') === '1') {
+        text.textContent = '📲 Installation : touchez « Installer l\'application » (ou le menu ⋮ du navigateur → « Ajouter à l\'écran d\'accueil »).';
+        show();
+      }
+    })();
+
     // Auto-resize iframe (throttled via rAF to avoid postMessage floods)
     let _heightRAF = 0;
     function sendHeight() {

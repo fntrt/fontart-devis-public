@@ -1,0 +1,19 @@
+{
+  "id": "./quote-page.html",
+  "name": "Font'Art Devis — Dorure de bijoux",
+  "short_name": "Devis Font'Art",
+  "description": "Devis instantané de dorure et argenture de bijoux : photographiez votre pièce à côté d'une règle, le prix est calculé sur sa surface réelle.",
+  "lang": "fr",
+  "start_url": "./quote-page.html?source=pwa",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#ffffff",
+  "theme_color": "#1f1b17",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "categories": ["business", "shopping"]
+}
