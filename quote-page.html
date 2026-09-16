@@ -69,6 +69,7 @@
           return parts.join(' · ') + total;
         }
       };
+      if (isMobile) document.addEventListener('DOMContentLoaded', () => document.body.classList.add('is-mobile'));
       return { inIframe, parentOrigin, isMobile, postToParent, scrollToTop, openOverlay, perf };
     })();
   </script>
@@ -81,6 +82,11 @@
     }
     /* Caméra getUserMedia (desktop en iframe) : boîte bornée, sinon les boutons sont au fond de l'iframe */
     #cameraModal.overlay-top { inset: 0 0 auto 0 !important; height: min(100dvh, 660px); padding-top: 0 !important; }
+    /* Mobile : parcours 100 % automatique — pas de calibration ni de tracé manuels */
+    body.is-mobile #autoScaleManualBtn,
+    body.is-mobile #aiManualCalibBtn,
+    body.is-mobile #aiManualBtn,
+    body.is-mobile #resultsAdjustBtn { display: none !important; }
     #cameraModal.overlay-top .camera-video-wrap { height: calc(100% - 110px) !important; }
 
     :root {
@@ -925,6 +931,24 @@
           <div id="pipelineLoaderBar" style="height:100%; width:0%; background:linear-gradient(90deg,#3b82f6,#22d3ee); transition:width .4s ease;"></div>
         </div>
       </div>
+      <!-- Mobile : impasse (règle non détectée, échelle incertaine, contour absent) →
+           reprendre la photo ou passer sur ordinateur ; jamais de réglage manuel -->
+      <div id="mobileFallback" class="hidden" style="margin-top:12px; padding:16px; background:#fdf3e7; border:1px solid #e8c9a0; border-radius:10px; line-height:1.55;">
+        <div id="mobileFallbackReason" style="font-weight:600; color:#8a5a17; margin-bottom:8px;"></div>
+        <div style="font-size:.92rem; color:#5b4f44;">
+          Sur téléphone, le devis est entièrement automatique. Reprenez la photo en respectant ces points :
+          <ul style="margin:6px 0 10px 18px; padding:0;">
+            <li>règle graduée <strong>entière, nette</strong>, bien à plat ;</li>
+            <li>bijou <strong>à côté</strong> de la règle (pas dessus), vu de dessus ;</li>
+            <li>fond <strong>uni</strong>, lumière homogène, sans ombre portée.</li>
+          </ul>
+          Ou faites votre devis depuis un <strong>ordinateur</strong> sur <span style="white-space:nowrap;">fontart.fr/service-dorure-bijoux</span> : vous pourrez y ajuster l'échelle et le contour à la main.
+        </div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:12px;">
+          <button type="button" id="mobileRetakeBtn" style="white-space:nowrap;">📷 Reprendre la photo</button>
+          <button type="button" id="mobileBackBtn" class="secondary" style="white-space:nowrap;">← Retour au formulaire</button>
+        </div>
+      </div>
       <div id="canvasWrap" class="canvas-wrap" style="margin-top: 8px; position:relative;">
         <canvas id="previewCanvas"></canvas>
         <div class="zoom-controls">
@@ -1011,7 +1035,7 @@
       <div id="resultsContourBlock" style="display:none; gap:14px; align-items:center; flex-wrap:wrap; margin-top:14px; padding:12px; background:#f8f6f2; border:1px solid #e3dcd2; border-radius:10px;">
         <img id="resultsContourThumb" alt="Contour détecté sur la photo" style="width:100%; max-width:520px; height:auto; max-height:60vh; object-fit:contain; border-radius:8px; border:1px solid #e3dcd2; background:#fff;" />
         <div style="flex:1; min-width:180px; font-size:.9rem; color:#5b4f44; line-height:1.5;">
-          Contour détecté automatiquement (en vert). Si la règle est incluse ou qu'une partie du bijou manque, ajustez-le : le prix sera recalculé.
+          <span id="resultsContourText">Contour détecté automatiquement (en vert). Si la règle est incluse ou qu'une partie du bijou manque, ajustez-le : le prix sera recalculé.</span>
           <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;">
             <button type="button" id="resultsAdjustBtn" class="secondary" style="white-space:nowrap;">✏️ Ajuster le contour</button>
             <button type="button" id="resultsRetakeBtn" class="secondary" style="white-space:nowrap;">📷 Nouvelle photo</button>
@@ -2994,6 +3018,11 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       }
     }
     document.getElementById('pipelineSkipBtn')?.addEventListener('click', () => {
+      if (FA.isMobile) {
+        _pipelineAbort++;
+        showMobileFallback('Analyse trop longue sur cet appareil.');
+        return;
+      }
       _pipelineAbort++;
       _autoAcceptContour      = false;
       _pendingAutoPipeline    = false;
@@ -3169,6 +3198,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         if (nouvelArticleCard) nouvelArticleCard.classList.remove('hidden');
       }
       if (workspaceTitle && STAGE_TITLES[stage]) workspaceTitle.textContent = STAGE_TITLES[stage];
+      document.getElementById('mobileFallback')?.classList.add('hidden');
       autoScaleSection.classList.toggle('hidden', stage !== 'auto-scale');
       scaleSection.classList.toggle('hidden', stage !== 'scale');
       aiSection.classList.toggle('hidden',    stage !== 'ai-detect');
@@ -3181,6 +3211,40 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     function setStatus(msg, isError = false) {
       statusMsg.textContent = msg;
       statusMsg.classList.toggle('danger', isError);
+    }
+
+    // Mobile : impasse du parcours automatique → photo affichée (avec le repère si la
+    // règle a été vue), motif, conseils, et deux issues : reprendre la photo / retour.
+    function showMobileFallback(reason) {
+      _autoAcceptContour = false;
+      _pendingAutoPipeline = false;
+      hidePipelineLoader();
+      currentStage = 'auto-scale';
+      workspaceCard.classList.remove('hidden');
+      workspaceCard.classList.add('single');
+      if (workspaceTitle) workspaceTitle.textContent = 'Photo à reprendre';
+      autoScaleSection.classList.add('hidden');
+      scaleSection.classList.add('hidden');
+      aiSection.classList.add('hidden');
+      selectSection.classList.add('hidden');
+      const fb = document.getElementById('mobileFallback');
+      if (fb) {
+        document.getElementById('mobileFallbackReason').textContent = reason;
+        fb.classList.remove('hidden');
+      }
+      setStatus(reason, true);
+      window.trackEvent?.('mobile_impasse');
+      if (sourceImage) renderNormalPreview();
+      FA.scrollToTop();
+    }
+    document.getElementById('mobileRetakeBtn')?.addEventListener('click', () => {
+      resetToIdle();
+      document.getElementById('photoCaptureInput')?.click(); // geste utilisateur → appareil photo natif
+    });
+    document.getElementById('mobileBackBtn')?.addEventListener('click', () => { resetToIdle(); FA.scrollToTop(); });
+    if (FA.isMobile) {
+      const skip = document.getElementById('pipelineSkipBtn');
+      if (skip) skip.textContent = '⏹ Trop long ? Arrêter et reprendre la photo';
     }
 
     function parseWeight() {
@@ -3965,6 +4029,8 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         const thumb = _lastAutoAccepted ? captureFramedImage(720, 0.8) : null;
         contourBlock.style.display = thumb ? 'flex' : 'none';
         if (thumb) document.getElementById('resultsContourThumb').src = thumb;
+        const txt = document.getElementById('resultsContourText');
+        if (txt && FA.isMobile) txt.textContent = 'Contour détecté automatiquement (en vert). Si la règle est incluse ou qu\'une partie du bijou manque, reprenez la photo (règle à côté du bijou, fond uni) ou faites le devis depuis un ordinateur.';
         _lastAutoAccepted = false;
       }
       FA.scrollToTop();
@@ -5683,6 +5749,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
             _recalibratingAfterCrop = false;
             _precomputedAIMask = null; // can't use mask without calibration
           }
+          if (FA.isMobile) { showMobileFallback('Règle non détectée sur la photo.'); return; }
           hidePipelineLoader();
           setStage('auto-scale');
           setStatus(FA.isMobile
@@ -5768,11 +5835,8 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
             hidePipelineLoader();
             setStage('auto-scale');
             if (FA.isMobile) {
-              autoScaleStatus.textContent =
-                `⚠ Échelle à vérifier (confiance ${conf} %). Le repère orange « 10 mm » doit couvrir ` +
-                `exactement 1 cm sur votre règle. Si oui → « Utiliser cette calibration » ; ` +
-                `sinon → « ← Retour » et reprenez la photo (règle entière, à plat, fond uni).`;
-              setStatus('Vérifiez le repère orange « 10 mm » sur la règle, puis validez.', true);
+              showMobileFallback(`Échelle incertaine (confiance ${conf} %, ${majors} graduation(s) cm lisible(s)).`);
+              return;
             } else {
               autoScaleStatus.textContent =
                 `⚠ Échelle à vérifier (confiance ${conf} %, ${majors} graduation(s) cm détectée(s)). ` +
@@ -6534,6 +6598,10 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         aiSliderWrap.style.opacity = '1';
         aiSliderWrap.style.pointerEvents = 'auto';
 
+        if (FA.isMobile && (!aiMetrics || aiMetrics.areaPx === 0)) {
+          showMobileFallback('Contour du bijou non détecté.');
+          return;
+        }
         if (!aiMetrics || aiMetrics.areaPx === 0) {
           aiStatusEl.textContent = '⚠ Aucun contour trouvé. Essayez le curseur vers Silhouette.';
           aiAcceptBtn.disabled = true;
@@ -6580,11 +6648,12 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         setStage('ai-detect');
       } catch (e) {
         _autoAcceptContour = false;
+        console.error(e);
+        if (FA.isMobile) { showMobileFallback('Analyse impossible : ' + (e?.message ?? String(e))); return; }
         aiStatusEl.textContent = 'Erreur IA : ' + (e?.message ?? String(e));
         aiAcceptBtn.disabled = true;
         hidePipelineLoader();
         setStage('ai-detect');
-        console.error(e);
       }
     }
 
