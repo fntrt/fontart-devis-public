@@ -3218,6 +3218,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     function showMobileFallback(reason) {
       _autoAcceptContour = false;
       _pendingAutoPipeline = false;
+      clearResults();
       hidePipelineLoader();
       currentStage = 'auto-scale';
       workspaceCard.classList.remove('hidden');
@@ -4114,7 +4115,18 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       viewOffsetX = 0;
       viewOffsetY = 0;
       if (manualHint) manualHint.style.display = 'none';
+      clearResults();
+    }
+
+    // Résultats précédents : masqués ET vidés, pour qu'aucun ancien prix ne survive
+    // à une nouvelle photo, un retour au formulaire ou une impasse.
+    function clearResults() {
       resultsCard.classList.add('hidden');
+      if (priceTableBody) priceTableBody.innerHTML = '';
+      const blk = document.getElementById('resultsContourBlock');
+      if (blk) blk.style.display = 'none';
+      const warn = document.getElementById('resultsWarning');
+      if (warn) warn.style.display = 'none';
     }
 
     function loadImageFromFile(file) {
@@ -4535,6 +4547,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
 
       if (formStatus) formStatus.style.display = 'none';
       window.trackEvent?.('devis_demarre');
+      clearResults();
       try {
         FA.perf.reset();
         const tPhoto = performance.now();
@@ -6211,6 +6224,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
 
     function resetToIdle() {
       _autoAcceptContour = false;
+      clearResults();
       autoCalibration    = null;
       autoCalibOverlay   = null;
       aiDetectedMask     = null;
