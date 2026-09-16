@@ -5656,7 +5656,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           if (conf >= CALIB_MIN_CONF && majors >= CALIB_MIN_MAJORS) {
             showPipelineLoader('ai-crop', 'Analyse IA & recadrage…',
               'Détection du contour du bijou par modèle de vision' +
-              (FA.isMobile ? ' — sur mobile, cela peut prendre une minute' : ''));
+              (FA.isMobile ? ' — 1re fois : téléchargement du modèle (~15 Mo)' : ''));
             const tok = _pipelineAbort;
             setTimeout(() => { if (tok === _pipelineAbort) calibCropBtn.click(); }, 50);
           } else {
@@ -5746,9 +5746,11 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     let _refineToken = 0;
     function startMaskRefinement() {
       const token = ++_refineToken;
-      // Mobile : une 2e inférence RMBG (1024², wasm) coûte 30 à 60 s de plus pour un
-      // contour un peu plus fin ; le masque pré-calculé suffit, l'utilisateur ajuste.
-      if (FA.isMobile) return;
+      // Mobile avec RMBG-1.4 : une 2e inférence (1024², wasm) coûte 30 à 60 s de plus pour
+      // un contour un peu plus fin ; le masque pré-calculé suffit, l'utilisateur ajuste.
+      // Avec le moteur léger (320 px), ce 2e passage sur le recadrage est au contraire
+      // indispensable : le bijou seul remplit alors les 320 px.
+      if (FA.isMobile && !window._iaLight) return;
       const img = sourceImage;
       const w = img.width, h = img.height;
       const { dataUrl } = rmbgScaledDataUrl(img);
@@ -7290,25 +7292,96 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     sendHeight();
   </script>
 
-  <!-- RMBG-1.4 (briaai) — modèle de suppression de fond éprouvé -->
+  <!-- Détection du bijou (suppression de fond) — deux moteurs, même interface
+       window.runRMBG(dataUrl, onProgress) → { data: Uint8 0-255, width, height } :
+       · PC       : RMBG-1.4 (briaai) via transformers.js — 1024², 44 M params, précis.
+       · Mobile   : U²-Net-p via onnxruntime-web — 320², 1 M params, 4,5 Mo, ~30× moins
+                    de calcul. RMBG-1.4 en wasm mono-thread dépasse 2 min sur un Pixel 8
+                    (mesuré) et le GPU du téléphone ne fait pas mieux : inutilisable.
+       ?ia=light | rmbg | webgpu | wasm force le moteur (tests sur appareil réel). -->
   <script type="module">
-    import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1';
-    env.allowRemoteModels = true;
-    env.allowLocalModels  = false;
+    const iaOverride = new URLSearchParams(location.search).get('ia');
+    const isMobile   = !!window.FA?.isMobile;
+    const lowEndDevice = iaOverride ? !['webgpu', 'rmbg'].includes(iaOverride)
+                       : (isMobile || (navigator.deviceMemory && navigator.deviceMemory <= 4));
+    const useLight   = iaOverride ? iaOverride === 'light' : lowEndDevice;
+    window._iaLight  = useLight;
+    console.log(`[IA] moteur : ${useLight ? 'U²-Net-p (léger)' : 'RMBG-1.4'}${iaOverride ? ` (forcé ?ia=${iaOverride})` : ''}`);
 
-    // Mobile / peu de RAM : 176 Mo en fp32 saturent la mémoire d'un téléphone (onglet tué)
-    // et le téléchargement 4G est interminable → directement wasm q8 (44 Mo).
-    // ?ia=webgpu ou ?ia=wasm force le backend (tests sur appareil réel).
-    const iaOverride  = new URLSearchParams(location.search).get('ia');
-    const lowEndDevice = iaOverride ? iaOverride !== 'webgpu'
-                       : (!!window.FA?.isMobile || (navigator.deviceMemory && navigator.deviceMemory <= 4));
-    // wasm sans multi-thread (pas de COOP/COEP sur GitHub Pages) bloque le thread principal
-    // pendant toute l'inférence : calibration gelée, progression invisible, page « plantée ».
-    // En worker (proxy), l'UI reste vivante et la calibration tourne vraiment en parallèle.
-    if (lowEndDevice) env.backends.onnx.wasm.proxy = true;
+    // ═══════════════════════════════════════════════════════════════════════
+    // Moteur léger : U²-Net-p (Apache 2.0, export ONNX de rembg), servi depuis ce dépôt
+    // ═══════════════════════════════════════════════════════════════════════
+    const ORT_CDN    = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/';
+    const LIGHT_URL  = new URL('models/u2netp.onnx', document.baseURI).href;
+    const LIGHT_SIZE = 320; // taille d'entrée figée dans l'ONNX
 
-    let seg = null;
+    async function fetchWithProgress(url, onProgress) {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error(`HTTP ${res.status} sur ${url}`);
+      const total = +res.headers.get('content-length') || 0;
+      if (!res.body || !total) return new Uint8Array(await res.arrayBuffer());
+      const reader = res.body.getReader();
+      const out = new Uint8Array(total);
+      let got = 0;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        out.set(value, got); got += value.length;
+        onProgress?.({ status: 'progress', progress: got / total * 100 });
+      }
+      return out;
+    }
 
+    async function initLight(onProgress) {
+      onProgress?.({ status: 'initiate' });
+      const ort = await import(ORT_CDN + 'ort.wasm.min.mjs');
+      ort.env.wasm.wasmPaths = ORT_CDN;
+      // Worker : l'inférence ne bloque pas le thread principal (calibration, compteur)
+      ort.env.wasm.proxy = true;
+      const bytes = await fetchWithProgress(LIGHT_URL, onProgress);
+      const session = await ort.InferenceSession.create(bytes, { executionProviders: ['wasm'] });
+      onProgress?.({ status: 'done' });
+      console.log('[IA] U²-Net-p prêt —', session.inputNames, '→', session.outputNames);
+      return { ort, session };
+    }
+
+    function loadImage(src) {
+      return new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = src; });
+    }
+
+    async function runLight(light, dataUrl) {
+      const { ort, session } = light;
+      const img = await loadImage(dataUrl);
+      const S = LIGHT_SIZE;
+      // Écrasé en 320×320 sans respecter le ratio (comme rembg) : le masque de sortie
+      // est ré-étiré vers la taille source par interpolateMaskToSize.
+      const oc = new OffscreenCanvas(S, S);
+      const cx = oc.getContext('2d', { willReadFrequently: true });
+      cx.drawImage(img, 0, 0, S, S);
+      const px = cx.getImageData(0, 0, S, S).data;
+      // Normalisation ImageNet, tenseur NCHW
+      const input = new Float32Array(3 * S * S);
+      const N = S * S;
+      for (let i = 0; i < N; i++) {
+        input[i]         = (px[i * 4]     / 255 - 0.485) / 0.229;
+        input[N + i]     = (px[i * 4 + 1] / 255 - 0.456) / 0.224;
+        input[2 * N + i] = (px[i * 4 + 2] / 255 - 0.406) / 0.225;
+      }
+      const feeds = { [session.inputNames[0]]: new ort.Tensor('float32', input, [1, 3, S, S]) };
+      const out = await session.run(feeds);
+      const pred = out[session.outputNames[0]].data; // d0 : sortie fusionnée, sigmoïde appliquée
+      // Étirement min-max (comme rembg) puis 0-255
+      let mi = Infinity, ma = -Infinity;
+      for (let i = 0; i < N; i++) { if (pred[i] < mi) mi = pred[i]; if (pred[i] > ma) ma = pred[i]; }
+      const range = ma - mi || 1;
+      const data = new Uint8ClampedArray(N);
+      for (let i = 0; i < N; i++) data[i] = (pred[i] - mi) / range * 255;
+      return { data, width: S, height: S };
+    }
+
+    // ═══════════════════════════════════════════════════════════════════════
+    // Moteur complet : RMBG-1.4 via transformers.js (PC)
+    // ═══════════════════════════════════════════════════════════════════════
     // Cascade de backends, du plus rapide au plus sûr. Chaque candidat est validé
     // par une inférence test : un backend peut « charger » mais échouer à l'exécution.
     // NB : q8 sur WebGPU → KO (timeout, ops non supportées sur JSEP). Retiré.
@@ -7319,7 +7392,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       { device: 'wasm', dtype: 'q8' },                                                   // 44 Mo — repli sans WebGPU
     ];
     // Inférence test 1024×1024 en wasm mono-thread sur un téléphone : bien plus de 12 s
-    const VALIDATE_TIMEOUT_MS = (lowEndDevice || window.FA?.isMobile) ? 60000 : 12000;
+    const VALIDATE_TIMEOUT_MS = (lowEndDevice || isMobile) ? 60000 : 12000;
 
     // Petite image test (64×64) pour valider qu'un backend produit un masque réel
     async function makeTestImageURL() {
@@ -7351,7 +7424,14 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       }
     }
 
-    async function initSeg(onProgress) {
+    async function initHeavy(onProgress) {
+      const { pipeline, env } = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.8.1');
+      env.allowRemoteModels = true;
+      env.allowLocalModels  = false;
+      // wasm sans multi-thread (pas de COOP/COEP sur GitHub Pages) bloque le thread principal
+      // pendant toute l'inférence. En worker (proxy), l'UI reste vivante.
+      if (lowEndDevice) env.backends.onnx.wasm.proxy = true;
+
       for (const [i, cfg] of SEG_CONFIGS.entries()) {
         const label = `${cfg.device}/${cfg.dtype}`;
         try {
@@ -7361,11 +7441,11 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
             dtype:  cfg.dtype,
             progress_callback: onProgress,
           });
-          // Sur téléphone, l'inférence test wasm (1024² mono-thread) coûte 20 à 60 s pour
-          // rien quand c'est le dernier backend : aucun repli possible, on l'utilise direct.
+          // Dernier backend sur appareil modeste : aucun repli possible, on l'utilise
+          // direct plutôt que de payer une inférence test de plusieurs dizaines de secondes.
           const isLast = i === SEG_CONFIGS.length - 1;
           if (lowEndDevice && isLast) {
-            console.log(`[RMBG] ✓ Backend retenu sans validation (mobile) : ${label}`);
+            console.log(`[RMBG] ✓ Backend retenu sans validation : ${label}`);
             return s;
           }
           if (await validateSeg(s, label)) {
@@ -7380,31 +7460,37 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       throw new Error('Détection IA indisponible sur ce navigateur. Utilisez Chrome ou Edge récent, ou tracez le contour manuellement.');
     }
 
+    // ═══════════════════════════════════════════════════════════════════════
+    // Interface commune
+    // ═══════════════════════════════════════════════════════════════════════
     // Garde partagé : warmRMBG (pré-chauffage) et runRMBG (inférence réelle)
-    // utilisent la même promesse → le modèle n'est chargé/validé qu'une fois.
-    let segPromise = null;
-    function ensureSeg(onProgress) {
-      if (seg) return Promise.resolve(seg);
-      if (!segPromise) segPromise = initSeg(onProgress).then(s => { seg = s; return s; });
-      return segPromise;
+    // utilisent la même promesse → le moteur n'est chargé qu'une fois.
+    let engine = null, enginePromise = null;
+    function ensureEngine(onProgress) {
+      if (engine) return Promise.resolve(engine);
+      if (!enginePromise) {
+        enginePromise = (useLight ? initLight(onProgress) : initHeavy(onProgress))
+          .then(e => { engine = e; return e; })
+          .catch(e => { enginePromise = null; throw e; }); // réessayable (réseau)
+      }
+      return enginePromise;
     }
 
-    // Pré-chauffe le modèle (téléchargement + compilation des shaders WebGPU) en
-    // arrière-plan. La validation 64×64 d'initSeg compile les shaders, si bien que
-    // la 1re inférence réelle est ensuite rapide. Appelé dès que le formulaire est
-    // prêt, pour masquer le warmup (~6-7 s) pendant que l'utilisateur cadre sa photo.
+    // Pré-chauffe le moteur (téléchargement, compilation) en arrière-plan dès que le
+    // formulaire est prêt, pour masquer ce délai pendant que l'utilisateur cadre sa photo.
     window.warmRMBG = function(onProgress) {
-      ensureSeg(onProgress).catch(e => console.warn('[RMBG] pré-chauffage :', e?.message || e));
+      ensureEngine(onProgress).catch(e => console.warn('[IA] pré-chauffage :', e?.message || e));
     };
 
     window.runRMBG = async function(dataUrl, onProgress) {
-      const s = await ensureSeg(onProgress);
+      const e = await ensureEngine(onProgress);
       const t0 = performance.now();
-      const results = await s(dataUrl, { threshold: 0 });
+      const mask = useLight ? await runLight(e, dataUrl)
+                            : (await e(dataUrl, { threshold: 0 }))[0].mask; // RawImage { data, width, height }
       const ms = Math.round(performance.now() - t0);
-      console.log(`[RMBG] inférence réelle : ${ms} ms`);
+      console.log(`[IA] inférence ${useLight ? 'U²-Net-p' : 'RMBG-1.4'} : ${ms} ms`);
       window._rmbgLastMs = ms;
-      return results[0].mask; // RawImage { data, width, height }
+      return mask;
     };
 
     // ═══════════════════════════════════════════════════════════════════════
