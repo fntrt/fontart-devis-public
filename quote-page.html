@@ -904,6 +904,10 @@
         </div>
         <div id="pipelineLoaderDetail" style="color:#64748b; font-size:.85rem; min-height:1.2em; margin-bottom:6px;"></div>
         <div id="pipelineLoaderElapsed" style="color:#94a3b8; font-size:.78rem; min-height:1.1em; margin-bottom:14px; font-variant-numeric:tabular-nums;"></div>
+        <!-- Porte de sortie : affichée après quelques secondes, l'IA peut être très lente sur téléphone -->
+        <button type="button" id="pipelineSkipBtn" class="secondary" style="display:none; margin:0 auto 14px; font-size:.9rem;">
+          ✏️ Passer l'IA et tracer le contour à la main
+        </button>
         <div style="width:min(420px, 90%); height:6px; margin:0 auto; background:#e2e8f0; border-radius:3px; overflow:hidden;">
           <div id="pipelineLoaderBar" style="height:100%; width:0%; background:linear-gradient(90deg,#3b82f6,#22d3ee); transition:width .4s ease;"></div>
         </div>
@@ -2931,12 +2935,53 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         const total = Math.round((performance.now() - _loaderT0) / 1000);
         const step  = Math.round((performance.now() - _loaderStepT0) / 1000);
         el.textContent = `⏱ ${step} s (total ${total} s)`;
+        updateSkipButton();
       };
       tick();
       clearInterval(_loaderTimer);
       _loaderTimer = setInterval(tick, 1000);
     }
+    // Porte de sortie IA : visible après 20 s sur mobile (45 s desktop), insistante après 3 min.
+    const SKIP_SHOW_MS  = FA.isMobile ? 20000 : 45000;
+    const SKIP_ALERT_MS = 180000;
+    function updateSkipButton() {
+      const btn = document.getElementById('pipelineSkipBtn');
+      if (!btn || !_loaderTimer) return;
+      const total = performance.now() - _loaderT0;
+      btn.style.display = total >= SKIP_SHOW_MS ? 'block' : 'none';
+      if (total >= SKIP_ALERT_MS && !btn.dataset.alerted) {
+        btn.dataset.alerted = '1';
+        btn.classList.remove('secondary');
+        updatePipelineLoaderDetail('L\'analyse IA est trop lente sur cet appareil — tracez le contour à la main.');
+      }
+    }
+    document.getElementById('pipelineSkipBtn')?.addEventListener('click', () => {
+      _pipelineAbort++;
+      _pendingAutoPipeline    = false;
+      _recalibratingAfterCrop = false;
+      _precomputedAIMask      = null;
+      _backgroundRMBGPromise  = null;
+      _backgroundRMBGImage    = null;
+      window.trackEvent?.('ia_passee');
+      hidePipelineLoader();
+      if (autoCalibration?.spacing && !pxPerMm) acceptAutoCalibration();
+      if (!pxPerMm) {
+        // Pas d'échelle : passer par la calibration 2 points
+        setStage('scale');
+        setStatus('Sélectionnez 2 points sur la règle pour calibrer l\'image, puis tracez le contour.');
+      } else {
+        aiDetectedMask = null; aiConnectedMask = null; aiMaskOffscreen = null; aiMetrics = null;
+        hybridMode = false; manualMode = true;
+        setStage('select');
+        if (manualHint) manualHint.style.display = 'block';
+        setStatus('Mode points activé. Touchez le bord du bijou pour placer les points du contour, revenez au 1er point pour fermer.');
+      }
+      renderNormalPreview();
+    });
+
     function stopLoaderClock() {
+      const btn = document.getElementById('pipelineSkipBtn');
+      if (btn) { btn.style.display = 'none'; btn.classList.add('secondary'); delete btn.dataset.alerted; }
       if (_loaderTimer) {
         console.log(`[pipeline] terminé en ${Math.round((performance.now() - _loaderT0) / 1000)} s`);
         clearInterval(_loaderTimer);
@@ -3040,6 +3085,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     let subtractContours = [];    // polygons that are subtracted from the AI mask
     let autoCalibration = null;   // { ruler, ticks, spacing } — detected ruler info
     let _pendingAutoPipeline    = false; // true between photo load and first crop; drives chained auto-pipeline
+    let _pipelineAbort          = 0;     // incrémenté par « Passer l'IA » : les awaits en cours abandonnent
     let _precomputedAIMask      = null;  // if set, runAIDetection will skip RMBG and use this mask
     let _rulerDetected          = false; // true only when auto-calibration successfully finds a ruler
     let _recalibratingAfterCrop = false; // true when runAutoCalibration is re-run on the cropped image
@@ -5485,6 +5531,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     }
 
     async function runAutoCalibration() {
+      const abortAtStart = _pipelineAbort;
       autoCalibration = null;
       autoCalibOverlay = null;
       autoScaleAcceptBtn.disabled = true;
@@ -5520,6 +5567,8 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           ({ best, fineAngle } = await searchRulerAtSensitivity(0.55, mmPerTick, false, 'Essai règle sombre – '));
           if (!best) _calibInvert = false;
         }
+
+        if (abortAtStart !== _pipelineAbort) return; // « Passer l'IA » cliqué pendant la recherche
 
         if (!best) {
           autoScaleStatus.textContent = 'Règle non détectée. Calibrez manuellement ou revenez en arrière.';
@@ -5608,7 +5657,8 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
             showPipelineLoader('ai-crop', 'Analyse IA & recadrage…',
               'Détection du contour du bijou par modèle de vision' +
               (FA.isMobile ? ' — sur mobile, cela peut prendre une minute' : ''));
-            setTimeout(() => calibCropBtn.click(), 50);
+            const tok = _pipelineAbort;
+            setTimeout(() => { if (tok === _pipelineAbort) calibCropBtn.click(); }, 50);
           } else {
             // Détection douteuse → on s'arrête et on demande une vérification humaine
             hidePipelineLoader();
@@ -5734,10 +5784,12 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         // ── 1. Run AI background-removal model to get the object mask ──
         // Prefer the background result that started in parallel with calibration.
         let maskRaw;
+        const abortAtStart = _pipelineAbort;
         if (_backgroundRMBGPromise && _backgroundRMBGImage === sourceImage) {
           autoScaleStatus.textContent = 'Analyse IA en cours…';
           updatePipelineLoaderDetail('Analyse IA en cours…');
           const bg = await _backgroundRMBGPromise;
+          if (abortAtStart !== _pipelineAbort) return; // « Passer l'IA » cliqué pendant l'attente
           _backgroundRMBGPromise = null;
           _backgroundRMBGImage   = null;
           if (bg) {
@@ -5759,6 +5811,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           });
         }
 
+        if (abortAtStart !== _pipelineAbort) return;
         autoScaleStatus.textContent = 'Calcul de la zone à conserver…';
         updatePipelineLoaderDetail('Calcul de la zone à conserver…');
         await yieldUI();
@@ -6261,6 +6314,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           };
 
           let maskRaw = null;
+          const abortAtStart = _pipelineAbort;
           try {
             // L'inférence de fond lancée au chargement de la photo porte sur cette
             // même image : on l'attend plutôt que d'en relancer une.
@@ -6270,7 +6324,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
               _backgroundRMBGPromise = null;
               if (bg?.maskRaw) maskRaw = bg.maskRaw;
             }
-            if (!maskRaw) {
+            if (!maskRaw && abortAtStart === _pipelineAbort) {
               // Downscale to 1024 px max — RMBG resizes internally anyway
               const { dataUrl } = rmbgScaledDataUrl(sourceImage);
               maskRaw = await window.runRMBG(dataUrl, onProgress);
@@ -6278,6 +6332,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           } finally {
             clearInterval(aiTick);
           }
+          if (abortAtStart !== _pipelineAbort) return; // « Passer l'IA » cliqué pendant l'attente
 
           aiDetectedMask = interpolateMaskToSize(maskRaw, w, h);
 
@@ -7264,7 +7319,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       { device: 'wasm', dtype: 'q8' },                                                   // 44 Mo — repli sans WebGPU
     ];
     // Inférence test 1024×1024 en wasm mono-thread sur un téléphone : bien plus de 12 s
-    const VALIDATE_TIMEOUT_MS = lowEndDevice ? 60000 : 12000;
+    const VALIDATE_TIMEOUT_MS = (lowEndDevice || window.FA?.isMobile) ? 60000 : 12000;
 
     // Petite image test (64×64) pour valider qu'un backend produit un masque réel
     async function makeTestImageURL() {
