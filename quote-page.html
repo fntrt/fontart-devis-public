@@ -7318,17 +7318,22 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     async function fetchWithProgress(url, onProgress) {
       const res = await fetch(url);
       if (!res.ok) throw new Error(`HTTP ${res.status} sur ${url}`);
+      // content-length = taille SUR LE RÉSEAU (gzip sur GitHub Pages) alors que le flux
+      // lu est décompressé : ne sert qu'à estimer la progression, jamais à dimensionner.
       const total = +res.headers.get('content-length') || 0;
-      if (!res.body || !total) return new Uint8Array(await res.arrayBuffer());
+      if (!res.body) return new Uint8Array(await res.arrayBuffer());
       const reader = res.body.getReader();
-      const out = new Uint8Array(total);
+      const chunks = [];
       let got = 0;
       for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
-        out.set(value, got); got += value.length;
-        onProgress?.({ status: 'progress', progress: got / total * 100 });
+        chunks.push(value); got += value.length;
+        if (total) onProgress?.({ status: 'progress', progress: Math.min(99, got / total * 100) });
       }
+      const out = new Uint8Array(got);
+      let off = 0;
+      for (const c of chunks) { out.set(c, off); off += c.length; }
       return out;
     }
 
