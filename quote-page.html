@@ -902,7 +902,8 @@
         <div id="pipelineLoaderStep" style="color:#1e293b; font-size:1rem; font-weight:600; margin-bottom:6px;">
           Préparation…
         </div>
-        <div id="pipelineLoaderDetail" style="color:#64748b; font-size:.85rem; min-height:1.2em; margin-bottom:18px;"></div>
+        <div id="pipelineLoaderDetail" style="color:#64748b; font-size:.85rem; min-height:1.2em; margin-bottom:6px;"></div>
+        <div id="pipelineLoaderElapsed" style="color:#94a3b8; font-size:.78rem; min-height:1.1em; margin-bottom:14px; font-variant-numeric:tabular-nums;"></div>
         <div style="width:min(420px, 90%); height:6px; margin:0 auto; background:#e2e8f0; border-radius:3px; overflow:hidden;">
           <div id="pipelineLoaderBar" style="height:100%; width:0%; background:linear-gradient(90deg,#3b82f6,#22d3ee); transition:width .4s ease;"></div>
         </div>
@@ -2915,8 +2916,37 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     const pipelineLoaderBar   = document.getElementById('pipelineLoaderBar');
     const canvasWrapEl        = document.getElementById('canvasWrap');
 
+    // Chronomètre du loader : sur mobile les étapes durent des dizaines de secondes,
+    // un compteur qui avance montre que ça travaille (et donne un chiffre à remonter).
+    let _loaderTimer = null, _loaderT0 = 0, _loaderStepT0 = 0;
+    function startLoaderClock(stepKey) {
+      const el = document.getElementById('pipelineLoaderElapsed');
+      if (!el) return;
+      const now = performance.now();
+      if (!_loaderTimer) _loaderT0 = now;
+      if (_loaderStepT0) console.log(`[pipeline] étape précédente : ${Math.round((now - _loaderStepT0) / 1000)} s`);
+      _loaderStepT0 = now;
+      console.log(`[pipeline] → ${stepKey}`);
+      const tick = () => {
+        const total = Math.round((performance.now() - _loaderT0) / 1000);
+        const step  = Math.round((performance.now() - _loaderStepT0) / 1000);
+        el.textContent = `⏱ ${step} s (total ${total} s)`;
+      };
+      tick();
+      clearInterval(_loaderTimer);
+      _loaderTimer = setInterval(tick, 1000);
+    }
+    function stopLoaderClock() {
+      if (_loaderTimer) {
+        console.log(`[pipeline] terminé en ${Math.round((performance.now() - _loaderT0) / 1000)} s`);
+        clearInterval(_loaderTimer);
+      }
+      _loaderTimer = null; _loaderStepT0 = 0;
+    }
+
     function showPipelineLoader(stepKey, title, detail = '') {
       if (!pipelineLoader) return;
+      startLoaderClock(stepKey);
       pipelineLoader.style.display  = 'block';
       pipelineLoaderStep.textContent   = title;
       pipelineLoaderDetail.textContent = detail;
@@ -2937,6 +2967,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       if (pipelineLoaderDetail) pipelineLoaderDetail.textContent = text;
     }
     function hidePipelineLoader() {
+      stopLoaderClock();
       if (pipelineLoader)   pipelineLoader.style.display = 'none';
       if (canvasWrapEl)     canvasWrapEl.style.display   = '';
       const statusMsg = document.getElementById('statusMsg');
@@ -3889,7 +3920,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     // 300 px et RMBG à 1024 px, donc garder la pleine résolution du téléphone ne
     // fait que ralentir les boucles CPU (interpolation masque, rotation, bbox…).
     // Les mesures en mm sont invariantes d'échelle (pxPerMm s'adapte).
-    async function downscaleSourceImage(img, maxDim = 1600) {
+    async function downscaleSourceImage(img, maxDim = FA.isMobile ? 1200 : 1600) {
       const longest = Math.max(img.width, img.height);
       if (longest <= maxDim) return img;
       const s  = maxDim / longest;
@@ -5445,6 +5476,9 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           best = result;
           fineAngle = angle;
         }
+        // Mobile : le 2e candidat est en général le même angle à 180° ; une
+        // détection pleine image coûte ~10 s sur téléphone → on garde la 1re bonne.
+        if (best && FA.isMobile) break;
       }
       return { best, fineAngle };
     }
@@ -5661,6 +5695,9 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     let _refineToken = 0;
     function startMaskRefinement() {
       const token = ++_refineToken;
+      // Mobile : une 2e inférence RMBG (1024², wasm) coûte 30 à 60 s de plus pour un
+      // contour un peu plus fin ; le masque pré-calculé suffit, l'utilisateur ajuste.
+      if (FA.isMobile) return;
       const img = sourceImage;
       const w = img.width, h = img.height;
       const { dataUrl } = rmbgScaledDataUrl(img);
@@ -7178,6 +7215,17 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     env.allowRemoteModels = true;
     env.allowLocalModels  = false;
 
+    // Mobile / peu de RAM : 176 Mo en fp32 saturent la mémoire d'un téléphone (onglet tué)
+    // et le téléchargement 4G est interminable → directement wasm q8 (44 Mo).
+    // ?ia=webgpu ou ?ia=wasm force le backend (tests sur appareil réel).
+    const iaOverride  = new URLSearchParams(location.search).get('ia');
+    const lowEndDevice = iaOverride ? iaOverride !== 'webgpu'
+                       : (!!window.FA?.isMobile || (navigator.deviceMemory && navigator.deviceMemory <= 4));
+    // wasm sans multi-thread (pas de COOP/COEP sur GitHub Pages) bloque le thread principal
+    // pendant toute l'inférence : calibration gelée, progression invisible, page « plantée ».
+    // En worker (proxy), l'UI reste vivante et la calibration tourne vraiment en parallèle.
+    if (lowEndDevice) env.backends.onnx.wasm.proxy = true;
+
     let seg = null;
 
     // Cascade de backends, du plus rapide au plus sûr. Chaque candidat est validé
@@ -7185,9 +7233,6 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     // NB : q8 sur WebGPU → KO (timeout, ops non supportées sur JSEP). Retiré.
     // NB : RMBG-1.4 a une taille d'entrée ONNX FIGÉE à 1024×1024 (testé : 512 →
     //      « Got 512 Expected 1024 »). Impossible de réduire la résolution.
-    // Mobile / peu de RAM : 176 Mo en fp32 saturent la mémoire d'un téléphone (onglet tué)
-    // et le téléchargement 4G est interminable → directement wasm q8 (44 Mo).
-    const lowEndDevice = !!window.FA?.isMobile || (navigator.deviceMemory && navigator.deviceMemory <= 4);
     const SEG_CONFIGS = [
       ...(navigator.gpu && !lowEndDevice ? [{ device: 'webgpu', dtype: 'fp32' }] : []), // 176 Mo — éprouvé, GPU
       { device: 'wasm', dtype: 'q8' },                                                   // 44 Mo — repli sans WebGPU
@@ -7275,7 +7320,9 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       const s = await ensureSeg(onProgress);
       const t0 = performance.now();
       const results = await s(dataUrl, { threshold: 0 });
-      console.log(`[RMBG] inférence réelle : ${Math.round(performance.now() - t0)} ms`);
+      const ms = Math.round(performance.now() - t0);
+      console.log(`[RMBG] inférence réelle : ${ms} ms`);
+      window._rmbgLastMs = ms;
       return results[0].mask; // RawImage { data, width, height }
     };
 
