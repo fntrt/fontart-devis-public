@@ -5477,8 +5477,9 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           fineAngle = angle;
         }
         // Mobile : le 2e candidat est en général le même angle à 180° ; une
-        // détection pleine image coûte ~10 s sur téléphone → on garde la 1re bonne.
-        if (best && FA.isMobile) break;
+        // détection pleine image coûte ~10 s sur téléphone → on s'arrête dès qu'un
+        // candidat est assez fiable pour l'enchaînement automatique.
+        if (best && FA.isMobile && best.spacing.confidence >= 0.5 && (best.spacing.majorMatchedTicks || 0) >= 3) break;
       }
       return { best, fineAngle };
     }
@@ -6243,15 +6244,40 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           // meilleure : l'objet remplit maintenant le cadre).
           startMaskRefinement();
         } else {
-          // Downscale to 1024 px max — RMBG resizes internally anyway
-          const { dataUrl } = rmbgScaledDataUrl(sourceImage);
-
-          const maskRaw = await window.runRMBG(dataUrl, (p) => {
+          // Compteur visible : l'inférence dure des dizaines de secondes sur mobile et
+          // les callbacks de progression ne couvrent que le téléchargement.
+          const tAI = performance.now();
+          let aiLabel = 'Chargement du modèle IA…';
+          const aiTick = setInterval(() => {
+            aiStatusEl.textContent = `${aiLabel} ⏱ ${Math.round((performance.now() - tAI) / 1000)} s`;
+          }, 1000);
+          const onProgress = (p) => {
             if (p.status === 'progress')
-              aiStatusEl.textContent = `Téléchargement du modèle… ${Math.round(p.progress ?? 0)} %`;
+              aiLabel = `Téléchargement du modèle… ${Math.round(p.progress ?? 0)} %`;
             else if (p.status === 'initiate')
-              aiStatusEl.textContent = 'Téléchargement du modèle…';
-          });
+              aiLabel = 'Téléchargement du modèle…';
+            else if (p.status === 'done' || p.status === 'ready')
+              aiLabel = 'Détection du contour…';
+          };
+
+          let maskRaw = null;
+          try {
+            // L'inférence de fond lancée au chargement de la photo porte sur cette
+            // même image : on l'attend plutôt que d'en relancer une.
+            if (_backgroundRMBGPromise && _backgroundRMBGImage === sourceImage) {
+              aiLabel = 'Détection du contour…';
+              const bg = await _backgroundRMBGPromise;
+              _backgroundRMBGPromise = null;
+              if (bg?.maskRaw) maskRaw = bg.maskRaw;
+            }
+            if (!maskRaw) {
+              // Downscale to 1024 px max — RMBG resizes internally anyway
+              const { dataUrl } = rmbgScaledDataUrl(sourceImage);
+              maskRaw = await window.runRMBG(dataUrl, onProgress);
+            }
+          } finally {
+            clearInterval(aiTick);
+          }
 
           aiDetectedMask = interpolateMaskToSize(maskRaw, w, h);
 
