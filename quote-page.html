@@ -4345,7 +4345,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       }
     }
 
-    let _serialFrames = 0;
+    let _serialFrames = 0, _serialRawChunks = 0;
     function parseScaleLine(line) {
       _serialFrames++;
       if (_serialFrames <= 20) console.log('[balance] trame :', JSON.stringify(line));
@@ -4382,7 +4382,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       _serialSilenceTimer = setTimeout(() => {
         if (serialPort && serialPort.readable && _serialFrames === seen) {
           updateSerialUI(true, 'Balance : connectée, mais aucune donnée reçue en 8 s — appuyez sur PRINT ou activez '
-            + 'l\'envoi continu sur la balance (débit attendu 9600 bauds).', true);
+            + 'l\'envoi continu sur la balance (COU maintenu → C0-OFF, TARE → C5-, COU → C5-0, TARE).', true);
         }
       }, 8000);
     }
@@ -4400,8 +4400,10 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
             const { value, done } = await serialReader.read();
             if (done) break;
             if (value) {
+              if (_serialRawChunks++ < 10) console.log('[balance] brut :', JSON.stringify(value));
               buffer += value;
-              const lines = buffer.split(/\r?\n/);
+              // CRLF, LF ou CR seul (trame USS-DBS : 14 caractères + retour chariot)
+              const lines = buffer.split(/\r\n|\r|\n/);
               buffer = lines.pop(); // Conserve la dernière ligne incomplète
               for (const line of lines) {
                 if (line.trim()) {
