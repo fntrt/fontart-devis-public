@@ -2226,7 +2226,7 @@
         }
         const supplierRef = await window.ensureSupplierReference?.();
         if (!supplierRef) {
-          setStatus('Impossible de générer la référence fournisseur.', true);
+          showCartError('Impossible de générer la référence fournisseur (profil incomplet ?).');
           return;
         }
         item.referenceSupplier = supplierRef;
@@ -2256,18 +2256,29 @@
         if (supplierRefInput) supplierRefInput.value = '';
         currentSupplierRef = '';
         window.currentSupplierRef = '';
-        sourceImage = null;
-        ctx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
         const knownDistanceInput = document.getElementById('knownDistanceMm');
         if (knownDistanceInput) knownDistanceInput.value = '';
-        resultsCard.classList.add('hidden');
-        setStage('idle');
-        setStatus('Chargez une image pour démarrer.');
+        // resetToIdle : image, masques, calibration, résultats (masqués ET vidés), stage idle
+        if (typeof resetToIdle === 'function') resetToIdle();
+        else { sourceImage = null; resultsCard.classList.add('hidden'); setStage('idle'); }
+        setFormStatus('✅ Ajouté au panier. Vous pouvez saisir un nouvel article.', false);
+        // Remonter en haut : sans ça, dans l'iframe ou en PWA, on reste sur le bas de la page
+        FA.scrollToTop();
       } catch (err) {
-        setStatus(err?.message || 'Impossible d\'ajouter au panier. Vérifiez les règles Firestore.', true);
+        console.error('[panier]', err);
+        showCartError(err?.message || 'Impossible d\'ajouter au panier. Vérifiez les règles Firestore.');
       }
     }
     window.addToCart = addToCart;
+
+    // Erreur d'ajout au panier : les résultats sont à l'écran et l'atelier masqué →
+    // afficher dans la carte des résultats (sinon l'utilisateur ne voit rien).
+    function showCartError(msg) {
+      setStatus(msg, true);
+      const warn = document.getElementById('resultsWarning');
+      if (warn) { warn.textContent = '⚠ ' + msg; warn.style.display = 'block'; }
+      FA.scrollToTop();
+    }
 
     // Navigation entre sections
     const navSections = ['nouvelArticleCard', 'quotesCard', 'cartCard', 'accountCard', 'aideCard', 'adminCard'];
