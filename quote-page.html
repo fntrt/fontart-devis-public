@@ -172,6 +172,9 @@
 
     textarea { min-height: 82px; resize: vertical; }
 
+    #authCompany, #accountCompany { text-transform: uppercase; }
+    #authCompany::placeholder, #accountCompany::placeholder { text-transform: none; }
+
     .inline {
       display: flex;
       align-items: center;
@@ -1668,6 +1671,10 @@
       }
     }
 
+    function formatCompany(company) {
+      return (company || '').trim().toLocaleUpperCase('fr-FR');
+    }
+
     function normalizeCompanyLetters(company) {
       const raw = (company || '').toUpperCase();
       const letters = raw.replace(/[^A-Z]/g, '');
@@ -1876,7 +1883,7 @@
     signUpBtn?.addEventListener('click', async () => {
       const email = getRegEmail();
       const password = getRegPassword();
-      const company = authCompany?.value.trim() || '';
+      const company = formatCompany(authCompany?.value);
       const lastName = authLastName?.value.trim() || '';
       const firstName = authFirstName?.value.trim() || '';
       const phone = authPhone?.value.trim() || '';
@@ -2235,7 +2242,7 @@
           if (snap.exists()) {
             const data = snap.data() || {};
             item.clientCode = data.clientCode || '';
-            item.company = data.company || '';
+            item.company = formatCompany(data.company);
           }
         } catch (err) {
           // ignore profile enrichment
@@ -2363,7 +2370,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         const items = snap.docs.map(d => {
           const data = d.data() || {};
           return {
-            company:           data.company           || '',
+            company:           formatCompany(data.company),
             clientCode:        data.clientCode        || '',
             referenceClient:   data.referenceClient   || '',
             reference:         data.reference         || '',
@@ -2718,6 +2725,13 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           await setDoc(doc(db, 'users', user.uid), { clientCode: newCode }, { merge: true });
           data.clientCode = newCode;
         }
+        // Comptes créés avant la mise en majuscules : corrigés à la connexion.
+        const upperCompany = formatCompany(data.company);
+        if (data.company && data.company !== upperCompany) {
+          data.company = upperCompany;
+          setDoc(doc(db, 'users', user.uid), { company: upperCompany }, { merge: true })
+            .catch(err => console.warn('[Compte] Mise en majuscules raison sociale :', err?.message || err));
+        }
         currentClientCode = data.clientCode || '';
         currentSupplierRef = '';
         if (supplierRefInput) supplierRefInput.value = '';
@@ -2766,7 +2780,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       if (!user) return;
       const payload = {
         email: user.email || '',
-        company: (accountCompany?.value || '').trim(),
+        company: formatCompany(accountCompany?.value),
         lastName: (accountLastName?.value || '').trim(),
         firstName: (accountFirstName?.value || '').trim(),
         phone: (accountPhone?.value || '').trim(),
