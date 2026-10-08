@@ -101,6 +101,17 @@ service cloud.firestore {
       allow write: if request.auth != null;
     }
 
+    // ── Tarifs spécifiques par client (ex. A.M.O. GAS : pricingClients/411GAS1) ──
+    // Lisible seulement par le compte dont le code client est l'identifiant du
+    // document, et par l'admin. Écrit uniquement par le script admin
+    // import-erp/init-tarif-client.js (Admin SDK, contourne les règles).
+    match /pricingClients/{code} {
+      allow read: if request.auth != null
+                  && (request.auth.token.email == 'guillaume@fontart.fr'
+                      || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.clientCode.upper() == code);
+      allow write: if false;
+    }
+
     // ── Statistiques funnel (compteurs journaliers anonymes) ──
     // Écriture publique (les invités font partie du funnel), mais limitée :
     // uniquement des compteurs connus, un seul incrément par requête.

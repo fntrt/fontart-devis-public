@@ -3739,6 +3739,75 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       _resolvePricing();
     };
 
+    // ════════════════════════════════════════════════════════════════════════
+    // TARIF SPÉCIFIQUE CLIENT (ex. A.M.O. GAS) — document pricingClients/{codeClient},
+    // lisible uniquement par le compte de ce client et par l'admin (règles Firestore).
+    // modele 'ods' : prix calculé comme le classeur CalculSurface V3.9 (onglet Nouveau)
+    // avec les réglages du document (params) ; une prestation additionne ses étapes
+    // (ex. FAV = FLASH + VERNIS). Seules les prestations du document sont proposées.
+    // ════════════════════════════════════════════════════════════════════════
+    let CLIENT_PRICING = null;
+    let _clientPricingUid;                    // compte pour lequel CLIENT_PRICING a été chargé
+    async function chargerTarifClient() {
+      const fb = window._fb;
+      const uid = fb?.auth?.currentUser?.uid || null;
+      if (uid === _clientPricingUid) return CLIENT_PRICING;
+      _clientPricingUid = uid;
+      CLIENT_PRICING = null;
+      if (!uid) return null;
+      try {
+        const u = await fb.getDoc(fb.doc(fb.db, 'users', uid));
+        const code = String((u.exists() && u.data().clientCode) || '').trim().toUpperCase();
+        if (!code) return null;
+        const snap = await fb.getDoc(fb.doc(fb.db, 'pricingClients', code));
+        if (snap.exists()) CLIENT_PRICING = snap.data();
+      } catch (e) { /* lecture refusée = pas de tarif spécifique pour ce compte */ }
+      return CLIENT_PRICING;
+    }
+
+    // Modèle « CalculSurface V3.9 » (onglet Nouveau) — réglages fournis en paramètre (P), aucun chiffre ici.
+    function prixEtapeODS(etape, S, P) {
+      const nbRack = Math.max(1, Math.round(P.chargementRackDm2 * 10000 / S));               // Z7
+      const accroche = (P.tempsAccrocheMin / 60 * P.tauxHoraire) / nbRack * P.facteurAccroche; // Z9
+      const transfert = (P.tempsTransfertMin / 60 * P.tauxHoraire) / (P.vernisMargeSecurite ? nbRack / 2 : nbRack); // Z10
+      const moJour = P.moMensuel * 12 / P.joursTravailles * P.coefMo;                          // Z30
+      const mo = S * (moJour / (P.racksParJour * P.chargementRackDm2 * 10000));                // Z11
+      const chimie = (P.coutPmf / P.racksParAn * P.coefChimie) / nbRack;                       // Z29 / Z7
+      const coutAuro = P.coursOrBase * (1 + P.fraisAurocyanure);                               // Z28
+      const flashRack = P.regleFlashUnites * P.rechargeG / P.regleRechargeUnites;              // AD28
+      const auroPiece = etape === 'MET' ? (S / 10000) * flashRack / P.regleFlashUnites         // Z14 (AD30/Z7)
+                                        : flashRack / nbRack;
+      const auro = auroPiece * coutAuro / 1000;                                                // Z15
+      const vernisRack = P.coutCataParG * P.ajoutCataG / (P.partRackCata * P.racksParJour);    // Z35
+      const vernis = P.vernisMargeSecurite ? vernisRack / (nbRack / 2) : vernisRack / nbRack;  // Z20
+      const gainMm2 = P.gainAnnuel / (P.chargementRackDm2 * P.racksParJour * 10000 * P.joursTravailles); // Z32
+      const marge = Math.min(gainMm2 * S, P.margeMaxPiece) * P.coefMarge;                      // Z37
+      if (etape === 'VERNIS') return transfert + vernis;                                       // Z24
+      if (etape === 'VERNIS SEUL') return accroche + mo + marge + vernis;                      // Z25
+      if (etape === 0 || etape === '0') return accroche + mo + chimie;                         // Z26 (BZ ou CU)
+      if (etape === 'MET' || etape === 'FLASH') return accroche + mo + chimie + auro + marge;  // Z21
+      const ep = Number(etape);                                                                // épaisseur en µm
+      if (!(ep > 0)) return NaN;
+      const or = S * ep / 1000 * P.masseVolumique / 1000 * coutAuro / 1000 * (P.carats / 24);  // Z17
+      return accroche + mo + chimie + auro + or + marge;                                       // Z22
+    }
+
+    // Lignes de prix au tarif spécifique du client (null = barème normal)
+    function prixTarifClient(tc, stotale) {
+      if (!tc || tc.modele !== 'ods' || !tc.params || !Array.isArray(tc.prestations)) return null;
+      const fr = n => n.toFixed(4).replace('.', ',');
+      const nomEtape = e => (typeof e === 'number' ? (e === 0 ? 'BZ/CU' : `${fr(e).replace(/,?0+$/, '')} µm`) : e);
+      const rows = tc.prestations.map(p => {
+        const det = (p.etapes || []).map(e => ({ e, v: prixEtapeODS(e, stotale, tc.params) }));
+        return {
+          label: p.label, code: p.code, coloris: p.coloris,
+          formula: `${tc.nom || 'Tarif client'} — calculateur V3.9, S = ${stotale.toFixed(2)} mm² : ` + det.map(x => `${nomEtape(x.e)} ${fr(x.v)}`).join(' + '),
+          price: det.reduce((a, x) => a + x.v, 0)
+        };
+      }).filter(r => r.code && Number.isFinite(r.price) && r.price > 0);
+      return rows.length ? rows : null;
+    }
+
     // ── Admin : chargement / sauvegarde du barème ──
     function _adminOrRow(p) {
       const tr = document.createElement('tr');
@@ -3993,7 +4062,8 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         price:   stotale * (PRICING.base + p.agCoef * silverRate / PRICING.diviseurArgent)
       }));
 
-      const prices = [...pricesOr, ...pricesArgent];
+      // Client à tarif spécifique (ex. GAS) : ses prestations seulement, à son tarif
+      const prices = prixTarifClient(await chargerTarifClient(), stotale) || [...pricesOr, ...pricesArgent];
 
       lastQuoteContext = {
         referenceClient: referenceInput.value.trim(),
@@ -7537,7 +7607,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           formula: buildSilverFormula(p, stotale, silverRate),
           price: stotale * (PRICING.base + p.agCoef * silverRate / PRICING.diviseurArgent)
         }));
-        const prices = [...pricesOr, ...pricesArgent];
+        const prices = prixTarifClient(await chargerTarifClient(), stotale) || [...pricesOr, ...pricesArgent];
 
         lastQuoteContext = {
           referenceClient: referenceInput.value.trim(),
