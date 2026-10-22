@@ -58,6 +58,7 @@
       // Remonte la page ET le site parent en haut de l'iframe (le parent écoute 'scrollToIframe')
       function scrollToTop() {
         window.scrollTo({ top: 0, behavior: 'smooth' });
+        document.querySelectorAll('#appContainer > .card').forEach(c => { c.scrollTop = 0; });
         postToParent({ type: 'scrollToIframe' });
       }
       // Ouvre une modale plein écran : en iframe, on la cale en haut et on remonte le parent
@@ -293,8 +294,8 @@
       #cartCard .inline button { width: 100%; }
 
       /* Pagination controls */
-      #quotesCard > div:nth-child(3) { flex-direction: column; align-items: stretch; }
-      #quotesCard > div:nth-child(3) label { margin-left: 0; }
+      #articlesPager { flex-direction: column; align-items: stretch; }
+      #articlesPager label { margin-left: 0; }
 
       /* Guest banner */
       #guestResultBanner { flex-direction: column; text-align: center; }
@@ -487,12 +488,189 @@
     html.fa-tabbar #appNav .nav-ico { display: block; font-size: 1.25rem; line-height: 1.2; }
     html.fa-tabbar #appNav .nav-short { display: block; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
     html.fa-tabbar #appNav .nav-badge { position: absolute; top: 2px; left: 55%; margin: 0; }
-    html.fa-tabbar body { padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px)); }
     /* Clavier ouvert : la barre remonterait au-dessus et cacherait le champ */
     html.fa-tabbar.fa-kbd #appNav { display: none; }
     /* « Se déconnecter » déplacé dans « Mon compte » (cf. script de nav) */
     html.fa-tabbar #authBar { margin: 0 0 14px !important; }
     html.fa-tabbar #authUser { color: var(--muted) !important; }
+
+    /* Libellés longs (ordinateur) / courts (téléphone) */
+    .lbl-short, #photoGalleryBtn { display: none; }
+
+    /* ═══ Téléphone hors iframe : appli plein écran, la page ne défile jamais ═══
+       Chaque onglet occupe l'écran au-dessus de la barre du bas ; le parcours devis
+       (formulaire, analyse, résultats) y tient sans défilement, les listes et formulaires
+       longs (articles, compte, aide) défilent dans leur propre zone. */
+    html.fa-tabbar { --tabbar-h: calc(60px + env(safe-area-inset-bottom, 0px)); height: 100%; overflow: hidden; }
+    html.fa-tabbar body { height: 100%; overflow: hidden; padding: 0 !important; background: var(--soft); line-height: 1.45; }
+    html.fa-tabbar #appContainer {
+      height: calc(100vh - var(--tabbar-h));
+      height: calc(100dvh - var(--tabbar-h));
+      max-width: none; display: flex; flex-direction: column; gap: 8px; padding: 10px 10px 8px;
+    }
+    html.fa-tabbar.fa-kbd #appContainer { height: 100dvh; }
+    html.fa-tabbar #backToSiteLink { display: none !important; }
+    html.fa-tabbar #pwaInstallBar { flex: none; flex-wrap: nowrap !important; padding: 6px 8px 6px 12px !important; font-size: .8rem !important; gap: 8px !important; }
+    html.fa-tabbar #pwaInstallBar a, html.fa-tabbar #pwaInstallBar button { padding: 6px 10px !important; font-size: .8rem; }
+    html.fa-tabbar #appContainer > .card {
+      flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain;
+      display: flex; flex-direction: column;
+      margin: 0; padding: 14px 14px 10px; border: none; border-radius: 16px;
+      box-shadow: 0 1px 6px rgba(0,0,0,.06);
+    }
+    html.fa-tabbar #appContainer > .card.hidden { display: none; }
+    html.fa-tabbar .card h2 { font-size: 1.4rem; margin: 0 0 12px; }
+    html.fa-tabbar label { font-size: .88rem; margin-bottom: 3px; }
+    html.fa-tabbar input, html.fa-tabbar textarea, html.fa-tabbar select { font-size: 16px; padding: 10px 12px; border-radius: 10px; }
+    html.fa-tabbar button { border-radius: 10px; }
+    html.fa-tabbar .lbl-long { display: none; }
+    html.fa-tabbar .lbl-short { display: inline; }
+    html.fa-tabbar .lbl-short small { font-weight: 400; color: var(--muted); }
+
+    /* Nouvel article : description, poids + réf., puis la photo en bas, à portée de pouce */
+    html.fa-tabbar #nouvelArticleCard > * { order: 5; }
+    html.fa-tabbar #nouvelArticleCard > h2,
+    html.fa-tabbar #draftBanner { order: 0; }
+    html.fa-tabbar #descriptionRow { order: 1; margin-top: 0 !important; }
+    html.fa-tabbar #refWeightRow { order: 2; grid-template-columns: 1fr; gap: 10px; margin-top: 10px; }
+    html.fa-tabbar #refWeightRow > div:has(#reference) { display: none; } /* réf. client : ordinateur seulement */
+    html.fa-tabbar #weightRow { order: -1; }
+    html.fa-tabbar #photoGrid { order: 3; display: block; margin-top: auto !important; padding-top: 12px; }
+    html.fa-tabbar #formStatus { order: 4; margin: 8px 0 0; font-size: .85rem; }
+    html.fa-tabbar #inputModeToggle, html.fa-tabbar #hintPhoto, html.fa-tabbar #hint3d, html.fa-tabbar #videoTuto,
+    html.fa-tabbar #serialConnectBtn, html.fa-tabbar #serialStatus, html.fa-tabbar .rate-field,
+    html.fa-tabbar #photoRow > label { display: none !important; }
+    html.fa-tabbar #draftBanner { margin-bottom: 12px !important; padding: 10px 12px !important; font-size: .85rem !important; }
+    html.fa-tabbar #description { min-height: 0; height: 70px; resize: none; }
+    html.fa-tabbar #photoGuide { margin: 0 0 12px !important; padding: 8px 10px !important; gap: 10px !important; }
+    html.fa-tabbar #photoGuide svg { width: 84px; height: 56px; }
+    html.fa-tabbar #photoGuide ul { font-size: .8rem !important; line-height: 1.4 !important; }
+    html.fa-tabbar #photoRow > div:has(#cameraBtn) { flex-direction: column; align-items: stretch !important; gap: 8px !important; }
+    html.fa-tabbar #photoInput { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+    html.fa-tabbar #cameraBtn {
+      order: 1; width: 100%; padding: 16px; font-size: 1.08rem; font-weight: 600;
+      background: var(--accent); border-radius: 14px;
+    }
+    html.fa-tabbar #photoGalleryBtn {
+      order: 2; display: block; margin: 0; padding: 11px; text-align: center; cursor: pointer;
+      background: #fff; border: 1px solid var(--line); border-radius: 14px; font-weight: 600; font-size: .92rem; color: var(--ink);
+    }
+    html.fa-tabbar #photoInput:disabled ~ #photoGalleryBtn { opacity: .45; pointer-events: none; }
+    html.fa-tabbar #photoHint { text-align: center; font-size: .8rem; margin: 8px 0 0 !important; }
+
+    /* Analyse : photo réduite, progression centrée */
+    html.fa-tabbar #workspaceCard h2 { margin-bottom: 8px; }
+    html.fa-tabbar #workspaceCard > * { order: 5; }
+    html.fa-tabbar #workspaceCard > h2 { order: 0; }
+    html.fa-tabbar #canvasWrap { order: 1; padding: 4px; border-radius: 12px; margin-top: 0 !important; }
+    html.fa-tabbar #previewCanvas { width: auto; max-width: 100%; height: auto; max-height: 34dvh; margin: 0 auto; }
+    html.fa-tabbar #workspaceCard:has(#mobileFallback:not(.hidden)) #previewCanvas { max-height: 22dvh; }
+    html.fa-tabbar #workspaceCard:has(#mobileFallback:not(.hidden)) #statusMsg { display: none; }
+    html.fa-tabbar #canvasWrap .zoom-controls { display: none; }
+    html.fa-tabbar #pipelineLoader { order: 2; margin: auto 0 !important; padding: 20px 8px !important; }
+    html.fa-tabbar #statusMsg { order: 6; font-size: .82rem; margin: 6px 0 0 !important; }
+    html.fa-tabbar #autoScaleSection, html.fa-tabbar #aiSection { order: 3; }
+    /* Impasse : motif, conseils et deux issues sous la photo */
+    html.fa-tabbar #mobileFallback { order: 2; margin-top: 8px !important; padding: 12px !important; font-size: .85rem; line-height: 1.4 !important; }
+    html.fa-tabbar #mobileFallback ul { margin: 4px 0 6px 16px !important; }
+    html.fa-tabbar #mobileFallbackReason { margin-bottom: 2px !important; }
+    html.fa-tabbar #mobileFallbackTip { display: block; color: #5b4f44; }
+    html.fa-tabbar #mobileFallback > div:has(#mobileRetakeBtn) { margin-top: 10px !important; flex-wrap: nowrap !important; }
+    html.fa-tabbar #mobileFallback > div:has(#mobileRetakeBtn) button { flex: 1; padding: 11px 8px; font-size: .9rem; }
+    html.fa-tabbar #mobileRetakeBtn { flex: 1.6 !important; }
+    html.fa-tabbar #photoRequestBox { margin-top: 10px !important; padding-top: 10px !important; }
+    html.fa-tabbar #photoRequestBox > div:nth-child(2) { font-size: .82rem !important; margin: 2px 0 6px !important; }
+    html.fa-tabbar #photoRequestBox > label { display: none; }
+    html.fa-tabbar #photoRequestNote { height: 44px; min-height: 0; resize: none; margin-top: 0 !important; font-size: 16px; }
+    html.fa-tabbar #photoRequestBtn { width: 100%; padding: 11px; }
+
+    /* Résultats : contour en vignette, une ligne par traitement */
+    html.fa-tabbar #resultsCard > * { order: 5; }
+    html.fa-tabbar #resultsCard > h2 { order: 0; }
+    html.fa-tabbar #resultsWarning, html.fa-tabbar #adminRequestBanner, html.fa-tabbar #guestResultBanner { order: 1; margin-bottom: 8px !important; padding: 8px 10px !important; font-size: .82rem !important; }
+    html.fa-tabbar #guestResultBanner { flex-direction: row !important; flex-wrap: nowrap !important; text-align: left !important; gap: 6px !important; align-items: center !important; }
+    html.fa-tabbar #guestResultBanner > span { min-width: 0 !important; font-size: .8rem !important; line-height: 1.25; }
+    html.fa-tabbar #guestResultBanner button { padding: 7px 9px; font-size: .78rem; }
+    html.fa-tabbar #resultsContourBlock { order: 2; flex-wrap: nowrap !important; gap: 10px !important; margin: 0 0 10px !important; padding: 8px !important; align-items: center !important; }
+    html.fa-tabbar #resultsContourThumb { width: 76px !important; height: 76px !important; max-height: none !important; object-fit: cover; flex-shrink: 0; }
+    html.fa-tabbar #resultsContourBlock > div { min-width: 0 !important; font-size: .8rem !important; line-height: 1.35 !important; }
+    html.fa-tabbar #resultsContourBlock button { padding: 6px 10px; font-size: .8rem; }
+    html.fa-tabbar #resultsContourBlock > div > div { margin-top: 6px !important; }
+    html.fa-tabbar #resultsCard table { order: 3; width: 100%; }
+    html.fa-tabbar #resultsCard table thead { display: none; }
+    html.fa-tabbar #resultsCard table tbody tr {
+      display: grid !important; grid-template-columns: 1fr auto auto; align-items: center; gap: 10px;
+      padding: 4px 5px 4px 12px !important; margin: 0 0 5px !important; border-radius: 12px !important;
+      background: #faf8f5 !important; border: 1px solid var(--line) !important;
+    }
+    html.fa-tabbar #resultsCard table tbody td { display: block !important; padding: 0 !important; border: none !important; }
+    html.fa-tabbar #resultsCard table tbody td::before { content: none !important; }
+    html.fa-tabbar #resultsCard td[data-label="Couleur"] { font-size: .88rem; line-height: 1.25; }
+    html.fa-tabbar #resultsCard td[data-label="Prix"] { font-weight: 700; white-space: nowrap; }
+    html.fa-tabbar #resultsCard td button { padding: 5px 12px; font-size: .85rem; background: var(--accent); }
+    html.fa-tabbar #resultsCard > h2 { margin-bottom: 8px; }
+    html.fa-tabbar #resultsCard > p { order: 4; margin: 4px 0 0 !important; padding-top: 6px !important; font-size: .72rem !important; line-height: 1.35 !important; }
+    html.fa-tabbar #resultsCard > details { display: none; }
+
+    /* Autres onglets : en-têtes resserrés, contenu qui défile dans l'écran */
+    html.fa-tabbar #quotesCard > .hint, html.fa-tabbar #cartCard > .hint { display: none; }
+    html.fa-tabbar #accountCard .hint { font-size: .82rem; margin: 0 0 8px; }
+    html.fa-tabbar #accountCard .grid { gap: 8px; }
+    html.fa-tabbar .tuto-wrap .subtitle { margin-bottom: 16px; }
+    /* Grands écrans (≥ 760 px de haut) : le schéma de prise de vue occupe l'espace libre */
+    @media (min-height: 760px) {
+      html.fa-tabbar #description { height: 84px; }
+      html.fa-tabbar #photoGuide { flex-direction: column; padding: 14px 12px !important; gap: 10px !important; }
+      html.fa-tabbar #photoGuide svg { width: 180px; height: 120px; }
+      html.fa-tabbar #photoGuide ul { font-size: .88rem !important; }
+    }
+    /* Petits écrans (≤ 700 px de haut, ex. Android 360×640) : tout un cran plus serré */
+    @media (max-height: 700px) {
+      html.fa-tabbar #appContainer { padding-top: 8px; }
+      html.fa-tabbar .card h2 { font-size: 1.25rem; margin-bottom: 8px; }
+      html.fa-tabbar #description { height: 54px; }
+      html.fa-tabbar #refWeightRow { margin-top: 8px; }
+      html.fa-tabbar #photoGrid { padding-top: 8px; }
+      html.fa-tabbar #photoGuide { margin-bottom: 8px !important; padding: 6px 8px !important; }
+      html.fa-tabbar #photoGuide svg { width: 66px; height: 44px; }
+      html.fa-tabbar #photoGuide ul { font-size: .76rem !important; line-height: 1.35 !important; }
+      html.fa-tabbar #cameraBtn { padding: 13px; }
+      html.fa-tabbar #photoGalleryBtn { padding: 9px; }
+      html.fa-tabbar #photoHint { margin-top: 6px !important; }
+      html.fa-tabbar #resultsContourThumb { width: 64px !important; height: 64px !important; }
+      html.fa-tabbar #resultsContourBlock { margin-bottom: 8px !important; }
+      html.fa-tabbar #resultsCard table tbody tr { margin-bottom: 4px !important; padding-top: 3px !important; padding-bottom: 3px !important; }
+      html.fa-tabbar #resultsCard td[data-label="Couleur"] { font-size: .84rem; }
+      html.fa-tabbar #resultsCard td button { padding: 4px 11px; }
+    }
+    html.fa-tabbar #articlesPager { flex-direction: row !important; flex-wrap: nowrap !important; gap: 8px !important; }
+    html.fa-tabbar #articlesPager button { padding: 6px 10px !important; font-size: .82rem; }
+    html.fa-tabbar #articlesPager label { display: none !important; }
+    /* Listes : seule la liste défile ; en-tête de l'écran et pied du panier restent visibles */
+    html.fa-tabbar #quotesCard > div:has(> table), html.fa-tabbar #cartCard > div:has(> table) { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+    html.fa-tabbar #quotesCard table tbody tr, html.fa-tabbar #cartCard table tbody tr {
+      display: grid !important; grid-template-columns: 56px 1fr auto; column-gap: 10px; row-gap: 1px; align-items: center;
+      padding: 8px !important; margin: 0 0 6px !important; border-radius: 12px !important; background: #faf8f5 !important;
+    }
+    html.fa-tabbar #quotesCard table tbody td, html.fa-tabbar #cartCard table tbody td { display: block !important; padding: 0 !important; min-width: 0; }
+    html.fa-tabbar #quotesCard table tbody td::before, html.fa-tabbar #cartCard table tbody td::before { content: none !important; }
+    html.fa-tabbar #quotesCard td[data-label="Photo"], html.fa-tabbar #cartCard td[data-label="Photo"] { grid-column: 1; grid-row: 1 / span 3; }
+    html.fa-tabbar #quotesCard td[data-label="Photo"] img, html.fa-tabbar #cartCard td[data-label="Photo"] img { width: 56px !important; height: 56px !important; object-fit: cover; }
+    html.fa-tabbar #quotesCard td[data-label="Description"], html.fa-tabbar #cartCard td[data-label="Description"] { grid-column: 2; grid-row: 1; font-weight: 600; font-size: .86rem; line-height: 1.25; }
+    html.fa-tabbar #quotesCard td[data-label="Référence"], html.fa-tabbar #cartCard td[data-label="Référence"] { grid-column: 2; grid-row: 2; font-size: .76rem; color: var(--muted); }
+    html.fa-tabbar #quotesCard td[data-label="Réf. client"], html.fa-tabbar #cartCard td[data-label="Réf. client"] { grid-column: 2; grid-row: 3; font-size: .76rem; color: var(--muted); }
+    html.fa-tabbar #quotesCard td[data-label=""] { grid-column: 3; grid-row: 1 / span 3; }
+    html.fa-tabbar #quotesCard td[data-label=""] button { width: 84px; padding: 7px 6px; font-size: .76rem; line-height: 1.15; white-space: normal !important; background: var(--accent); }
+    /* Panier : total de la ligne, quantité et suppression à droite ; prix unitaire masqué */
+    html.fa-tabbar #cartCard td[data-label="Prix"] { display: none !important; }
+    html.fa-tabbar #cartCard td[data-label="Total"] { grid-column: 3; grid-row: 1; font-weight: 700; text-align: right; white-space: nowrap; }
+    html.fa-tabbar #cartCard td[data-label="Qté"] { grid-column: 3; grid-row: 2; justify-self: end; }
+    html.fa-tabbar #cartCard td[data-label="Qté"] input { width: 56px !important; padding: 4px 6px; text-align: center; }
+    html.fa-tabbar #cartCard td[data-label=""] { grid-column: 3; grid-row: 3; justify-self: end; }
+    html.fa-tabbar #cartCard td[data-label=""] button { padding: 3px 6px; font-size: .72rem; background: transparent; color: var(--danger); text-decoration: underline; }
+    html.fa-tabbar #cartCard > .inline { display: grid !important; grid-template-columns: 1fr 1.4fr; gap: 8px !important; margin-top: 8px !important; }
+    html.fa-tabbar #cartCard > .inline strong { grid-column: 1 / -1; text-align: right; font-size: 1.05rem; }
+    html.fa-tabbar #cartCard > .inline button { width: 100%; padding: 12px 8px; }
 
     /* Pastille de nav : demandes photo chiffrées (client) ou à chiffrer (admin) */
     #appNav .nav-badge {
@@ -885,9 +1063,9 @@
         </div>
       </details>
 
-      <div class="grid">
+      <div class="grid" id="refWeightRow">
         <div>
-          <label for="reference">Référence client (renseignement non obligatoire)</label>
+          <label for="reference"><span class="lbl-long">Référence client (renseignement non obligatoire)</span><span class="lbl-short">Réf. client <small>(facultatif)</small></span></label>
           <input id="reference" type="text" placeholder="Ex: FA-00231" />
         </div>
         <div id="weightRow">
@@ -903,19 +1081,19 @@
         </div>
       </div>
       <input id="supplierRef" type="hidden" />
-      <div style="margin-top: 12px;">
+      <div id="descriptionRow" style="margin-top: 12px;">
         <label for="description">Description*</label>
         <textarea id="description" required placeholder="Description de la pièce"></textarea>
       </div>
 
-      <div class="grid" style="margin-top: 10px;">        <div>
+      <div class="grid" id="photoGrid" style="margin-top: 10px;">        <div class="rate-field">
           <label for="goldRate">Cours de l'or (EUR/kg)</label>
           <div class="inline" style="margin-top: 6px;">
             <input id="goldRate" type="number" readonly step="0.01" min="0" value="0" />
           </div>
           <p class="hint" id="goldStatus" style="display:none;"></p>
         </div>
-        <div>
+        <div class="rate-field">
           <label for="silverRate">Cours de l'argent (EUR/kg)</label>
           <div class="inline" style="margin-top: 6px;">
             <input id="silverRate" type="number" readonly step="0.01" min="0" value="0" />
@@ -946,7 +1124,9 @@
           </div>
           <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
             <input id="photoInput" type="file" required accept="image/*" style="flex:1; min-width:0;" />
-            <button id="cameraBtn" type="button" class="secondary" style="white-space:nowrap; flex-shrink:0;" title="Prendre une photo avec la caméra">📷 Caméra</button>
+            <!-- Téléphone : le champ fichier natif est masqué, ce libellé le remplace -->
+            <label for="photoInput" id="photoGalleryBtn">🖼️ Choisir une photo existante</label>
+            <button id="cameraBtn" type="button" class="secondary" style="white-space:nowrap; flex-shrink:0;" title="Prendre une photo avec la caméra"><span class="lbl-long">📷 Caméra</span><span class="lbl-short">📷 Prendre la photo</span></button>
             <!-- Mobile : ouvre directement l'appareil photo natif (pas de getUserMedia dans l'iframe) -->
             <input id="photoCaptureInput" type="file" accept="image/*" capture="environment" style="display:none;" aria-hidden="true" tabindex="-1" />
           </div>
@@ -1027,7 +1207,8 @@
            reprendre la photo ou passer sur ordinateur ; jamais de réglage manuel -->
       <div id="mobileFallback" class="hidden" style="margin-top:12px; padding:16px; background:#fdf3e7; border:1px solid #e8c9a0; border-radius:10px; line-height:1.55;">
         <div id="mobileFallbackReason" style="font-weight:600; color:#8a5a17; margin-bottom:8px;"></div>
-        <div style="font-size:.92rem; color:#5b4f44;">
+        <div class="lbl-short" id="mobileFallbackTip">Règle entière et à plat, bijou à côté, photo de dessus sur fond uni.</div>
+        <div class="lbl-long" style="font-size:.92rem; color:#5b4f44;">
           Sur téléphone, le devis est entièrement automatique. Reprenez la photo en respectant ces points :
           <ul style="margin:6px 0 10px 18px; padding:0;">
             <li>règle graduée <strong>entière, nette</strong>, bien à plat ;</li>
@@ -1037,17 +1218,18 @@
         </div>
         <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:12px;">
           <button type="button" id="mobileRetakeBtn" style="white-space:nowrap;">📷 Reprendre la photo</button>
-          <button type="button" id="mobileBackBtn" class="secondary" style="white-space:nowrap;">← Retour au formulaire</button>
+          <button type="button" id="mobileBackBtn" class="secondary" style="white-space:nowrap;"><span class="lbl-long">← Retour au formulaire</span><span class="lbl-short">← Retour</span></button>
         </div>
         <!-- Plutôt qu'un abandon : la photo part chez Fontart, qui trace le contour ; le client
              retrouve la demande chiffrée dans « Mes articles » -->
         <div id="photoRequestBox" style="margin-top:14px; padding-top:12px; border-top:1px solid #e8c9a0;">
           <div style="font-weight:600; color:#5b4f44;">Ou laissez-nous faire</div>
           <div style="font-size:.9rem; color:#5b4f44; margin:4px 0 8px;">
-            Envoyez cette photo à Fontart : nous traçons le contour pour vous, puis vous retrouvez le prix dans <strong>« Mes articles »</strong>, prêt à ajouter au panier.
+            <span class="lbl-long">Envoyez cette photo à Fontart : nous traçons le contour pour vous, puis vous retrouvez le prix dans <strong>« Mes articles »</strong>, prêt à ajouter au panier.</span>
+            <span class="lbl-short">Nous traçons le contour ; le prix arrive dans « Mes articles ».</span>
           </div>
           <label for="photoRequestNote" style="font-size:.85rem;">Précisions (facultatif)</label>
-          <textarea id="photoRequestNote" rows="2" maxlength="500" placeholder="Traitement souhaité, quantité, pièce particulière…" style="width:100%; box-sizing:border-box; margin-top:4px;"></textarea>
+          <textarea id="photoRequestNote" rows="2" maxlength="500" placeholder="Traitement, quantité… (facultatif)" style="width:100%; box-sizing:border-box; margin-top:4px;"></textarea>
           <button type="button" id="photoRequestBtn" style="margin-top:8px; white-space:nowrap;">📤 Envoyer la photo à Fontart</button>
           <div id="photoRequestStatus" style="display:none; margin-top:8px; font-size:.9rem;"></div>
         </div>
@@ -1125,7 +1307,8 @@
       <!-- Bannière visible uniquement pour les invités après calcul du prix -->
       <div id="guestResultBanner" style="display:none; background:#f2ece3; border:1px solid #e3dcd2; border-radius:8px; padding:14px 16px; margin-bottom:14px; gap:12px; flex-wrap:wrap; align-items:center;">
         <span style="flex:1; min-width:200px; font-size:0.92rem; color:#5b4f44;">
-          💾 <strong>Prix calculé !</strong> Créez un compte gratuit pour sauvegarder ce devis et passer commande.
+          <span class="lbl-long">💾 <strong>Prix calculé !</strong> Créez un compte gratuit pour sauvegarder ce devis et passer commande.</span>
+          <span class="lbl-short">Pour commander :</span>
         </span>
         <button type="button" onclick="openAuthModal('save-quote')" style="white-space:nowrap;">Créer un compte</button>
         <button type="button" class="secondary" onclick="openAuthModal('login')" style="white-space:nowrap;">Se connecter</button>
@@ -1174,7 +1357,7 @@
         <input type="search" id="articlesFilter" placeholder="Rechercher par référence ou description…"
           style="width:100%;max-width:420px;padding:8px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:0.95rem;" />
       </div>
-      <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap;">
+      <div id="articlesPager" style="display:flex;align-items:center;gap:12px;margin-bottom:12px;flex-wrap:wrap;">
         <button id="articlesPrev" type="button" class="secondary" disabled style="padding:6px 16px;">← Précédent</button>
         <span id="articlesPageInfo" style="font-size:0.9rem;color:#6b7280;min-width:50px;text-align:center;"></span>
         <button id="articlesNext" type="button" class="secondary" disabled style="padding:6px 16px;">Suivant →</button>
@@ -3739,7 +3922,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     const OZ_PER_KG = 32.1507465686;
 
     const workspaceTitle = workspaceCard.querySelector('h2');
-    const STAGE_TITLES = {
+    const STAGE_TITLES = FA.isMobile ? { 'auto-scale': 'Analyse de la photo', 'ai-detect': 'Analyse de la photo' } : {
       'auto-scale': 'Calibration automatique de la règle',
       scale:        'Calibration & points règle',
       'ai-detect':  'Détection automatique des contours',
@@ -4746,7 +4929,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         contourBlock.style.display = thumb ? 'flex' : 'none';
         if (thumb) document.getElementById('resultsContourThumb').src = thumb;
         const txt = document.getElementById('resultsContourText');
-        if (txt && FA.isMobile) txt.textContent = 'Contour détecté automatiquement (en vert). Si la règle est incluse ou qu\'une partie du bijou manque, reprenez la photo (règle à côté du bijou, fond uni) ou faites le devis depuis un ordinateur.';
+        if (txt && FA.isMobile) txt.textContent = 'Contour retenu en vert. S\'il ne suit pas le bijou, reprenez la photo.';
         _lastAutoAccepted = false;
       }
       FA.scrollToTop();
