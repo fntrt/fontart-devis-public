@@ -1374,7 +1374,7 @@
 
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/12.10.0/firebase-app.js";
-    import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, updateProfile, sendEmailVerification, sendPasswordResetEmail, confirmPasswordReset, reload, applyActionCode, setPersistence, browserSessionPersistence, inMemoryPersistence } from "https://www.gstatic.com/firebasejs/12.10.0/firebase-auth.js";
+    import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, updateProfile, sendEmailVerification, sendPasswordResetEmail, confirmPasswordReset, reload, applyActionCode, setPersistence, indexedDBLocalPersistence, browserLocalPersistence, browserSessionPersistence, inMemoryPersistence } from "https://www.gstatic.com/firebasejs/12.10.0/firebase-auth.js";
     import { getFirestore, doc, setDoc, getDoc, collection, query, where, getDocs, addDoc, serverTimestamp, orderBy, limit, startAfter, updateDoc, deleteDoc, runTransaction, increment } from "https://www.gstatic.com/firebasejs/12.10.0/firebase-firestore.js";
 
     const firebaseConfig = {
@@ -1442,20 +1442,24 @@
       }
     };
 
-    // Dans un iframe tiers, localStorage est bloqué/partitionné par le navigateur.
-    // On utilise sessionStorage en priorité, sinon mémoire pure.
+    // Connexion gardée durablement (jusqu'au clic sur « Se déconnecter »), y compris dans l'appli installée.
+    // La page (devis.fontart.fr) est sur le même site que fontart.fr : le stockage n'est pas bloqué dans l'iframe.
+    // Repli : session de l'onglet, puis mémoire seule si le navigateur interdit tout stockage.
     (async () => {
-      try {
-        await setPersistence(auth, browserSessionPersistence);
-        console.log('[Auth] Persistance : sessionStorage');
-      } catch {
+      const modes = [
+        [indexedDBLocalPersistence, 'indexedDB'],
+        [browserLocalPersistence, 'localStorage'],
+        [browserSessionPersistence, 'sessionStorage'],
+        [inMemoryPersistence, 'inMemory'],
+      ];
+      for (const [mode, nom] of modes) {
         try {
-          await setPersistence(auth, inMemoryPersistence);
-          console.log('[Auth] Persistance : inMemory (localStorage et sessionStorage bloqués)');
-        } catch {
-          console.warn('[Auth] setPersistence échoué, persistance par défaut.');
-        }
+          await setPersistence(auth, mode);
+          console.log('[Auth] Persistance : ' + nom);
+          return;
+        } catch {}
       }
+      console.warn('[Auth] setPersistence échoué, persistance par défaut.');
     })();
 
     const authGate    = document.getElementById('authGate');
