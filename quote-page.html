@@ -763,12 +763,14 @@
 
 
   <div class="container" id="appContainer">
-    <!-- Installation PWA (mobile) : lien vers la page seule depuis l'iframe Squarespace,
-         bouton d'installation (Android) ou consigne (iPhone) sur la page seule ;
+    <!-- Page ouverte seule (hors iframe fontart.fr, hors appli installée) : retour au site -->
+    <a id="backToSiteLink" href="https://www.fontart.fr/service-dorure-bijoux" style="display:none; margin:0 0 8px 2px; font-size:.88rem; color:#5b4f44; text-decoration:none;">← fontart.fr</a>
+    <!-- Mobile : depuis l'iframe Squarespace, lien pour ouvrir l'outil en plein écran ;
+         sur la page seule, bouton d'installation (Android) ou consigne (iPhone) ;
          masqué une fois installée -->
     <div id="pwaInstallBar" style="display:none; align-items:center; gap:10px; flex-wrap:wrap; background:#f2ece3; border:1px solid #e3dcd2; border-radius:12px; padding:10px 14px; font-size:.9rem; color:#5b4f44;">
       <span id="pwaInstallText" style="flex:1; min-width:180px;">📲 Ajoutez l'outil de devis à votre écran d'accueil.</span>
-      <a id="pwaInstallLink" href="quote-page.html?install=1" target="_top" style="display:none; white-space:nowrap; background:#1f1b17; color:#fff; text-decoration:none; border-radius:8px; padding:8px 14px; font-weight:600;">Installer l'application</a>
+      <a id="pwaInstallLink" href="quote-page.html" target="_top" style="display:none; white-space:nowrap; background:#1f1b17; color:#fff; text-decoration:none; border-radius:8px; padding:8px 14px; font-weight:600;">Ouvrir en plein écran</a>
       <button type="button" id="pwaInstallBtn" style="display:none; white-space:nowrap;">Installer l'application</button>
       <button type="button" id="pwaInstallClose" class="secondary" aria-label="Fermer" style="padding:6px 10px;">✕</button>
     </div>
@@ -8222,6 +8224,10 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       const close = document.getElementById('pwaInstallClose');
       if (!bar) return;
       const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+      if (!FA.inIframe && !standalone) {
+        const back = document.getElementById('backToSiteLink');
+        if (back) back.style.display = 'inline-block';
+      }
       let dismissed = false;
       try { dismissed = sessionStorage.getItem('pwaBarDismissed') === '1'; } catch (e) {}
       if (!FA.isMobile || standalone || dismissed) return;
@@ -8234,7 +8240,9 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       });
 
       if (FA.inIframe) {
-        // Depuis fontart.fr : l'installation exige la page seule
+        // Depuis fontart.fr (ancien bloc Squarespace sans redirection mobile) : dans le cadre,
+        // modales et appareil photo sont à l'étroit, et l'installation exige la page seule.
+        text.textContent = '📱 L\'outil est plus confortable en plein écran (et s\'installe ensuite sur votre écran d\'accueil).';
         link.style.display = '';
         show();
         return;
