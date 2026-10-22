@@ -46,8 +46,11 @@
       const inIframe = window !== window.top;
       let parentOrigin = 'https://www.fontart.fr';
       try { if (inIframe && document.referrer) parentOrigin = new URL(document.referrer).origin; } catch (e) {}
-      const isMobile = matchMedia('(pointer: coarse)').matches && navigator.maxTouchPoints > 0
-                    && Math.min(screen.width, screen.height) < 900;
+      // ?mobile=1 | 0 force le parcours téléphone ou ordinateur (tests sur PC, comme ?ia=…)
+      const forceMobile = new URLSearchParams(location.search).get('mobile');
+      const isMobile = forceMobile ? forceMobile === '1'
+                     : matchMedia('(pointer: coarse)').matches && navigator.maxTouchPoints > 0
+                       && Math.min(screen.width, screen.height) < 900;
       function postToParent(msg) {
         if (!inIframe) return;
         try { window.parent.postMessage(msg, parentOrigin); } catch (e) {}
@@ -78,7 +81,11 @@
         }
       };
       if (isMobile) document.addEventListener('DOMContentLoaded', () => document.body.classList.add('is-mobile'));
-      return { inIframe, parentOrigin, isMobile, postToParent, scrollToTop, openOverlay, perf };
+      // Téléphone hors iframe (page seule ou appli installée) : onglets en bas, à portée de pouce.
+      // Pas dans l'iframe fontart.fr : position:fixed y serait relatif au cadre.
+      const tabbar = isMobile && !inIframe;
+      if (tabbar) document.documentElement.classList.add('fa-tabbar');
+      return { inIframe, parentOrigin, isMobile, tabbar, postToParent, scrollToTop, openOverlay, perf };
     })();
   </script>
   <style>
@@ -458,6 +465,35 @@
       font-weight: 600;
     }
 
+    /* Libellés de nav : version longue par défaut, icône + libellé court dans la barre du bas */
+    #appNav .nav-ico, #appNav .nav-short { display: none; }
+
+    /* ── Téléphone hors iframe : barre d'onglets fixée en bas (html.fa-tabbar, cf. FA) ── */
+    html.fa-tabbar #appNav {
+      position: fixed; top: auto; bottom: 0; left: 0; right: 0; z-index: 900;
+      margin: 0; border-radius: 0; flex-wrap: nowrap; gap: 0;
+      padding: 4px 4px calc(4px + env(safe-area-inset-bottom, 0px));
+      box-shadow: 0 -2px 12px rgba(0,0,0,0.18);
+    }
+    html.fa-tabbar #appNav button {
+      flex: 1 1 0; min-width: 0; position: relative;
+      display: flex; flex-direction: column; align-items: center; gap: 2px;
+      margin: 0 !important; padding: 6px 2px !important; border: none !important;
+      border-radius: 8px !important; background: transparent !important;
+      font-size: 0.68rem !important; line-height: 1.1;
+    }
+    html.fa-tabbar #appNav button.nav-active { background: rgba(255,255,255,0.16) !important; }
+    html.fa-tabbar #appNav .nav-lbl { display: none; }
+    html.fa-tabbar #appNav .nav-ico { display: block; font-size: 1.25rem; line-height: 1.2; }
+    html.fa-tabbar #appNav .nav-short { display: block; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+    html.fa-tabbar #appNav .nav-badge { position: absolute; top: 2px; left: 55%; margin: 0; }
+    html.fa-tabbar body { padding-bottom: calc(72px + env(safe-area-inset-bottom, 0px)); }
+    /* Clavier ouvert : la barre remonterait au-dessus et cacherait le champ */
+    html.fa-tabbar.fa-kbd #appNav { display: none; }
+    /* « Se déconnecter » déplacé dans « Mon compte » (cf. script de nav) */
+    html.fa-tabbar #authBar { margin: 0 0 14px !important; }
+    html.fa-tabbar #authUser { color: var(--muted) !important; }
+
     /* Pastille de nav : demandes photo chiffrées (client) ou à chiffrer (admin) */
     #appNav .nav-badge {
       display: inline-block; min-width: 18px; margin-left: 6px; padding: 0 5px;
@@ -777,13 +813,14 @@
 
     <!-- Barre de navigation -->
     <nav id="appNav" aria-label="Navigation principale">
-      <button onclick="navTo('nouvelArticleCard')" id="nav-nouvelArticleCard" class="nav-active">Nouvel article</button>
-      <button onclick="navTo('quotesCard')" id="nav-quotesCard">Mes articles</button>
-      <button onclick="navTo('cartCard')" id="nav-cartCard">Ma commande</button>
-      <button onclick="navTo('accountCard')" id="nav-accountCard">Mon compte</button>
-      <button onclick="navTo('aideCard')" id="nav-aideCard">Aide</button>
-      <button onclick="navTo('adminCard')" id="nav-adminCard" style="display:none;">Admin</button>
-      <button id="nav-loginBtn" onclick="openAuthModal()" style="margin-left:auto; background:rgba(255,255,255,0.15); color:#fff; border:1px solid rgba(255,255,255,0.3); border-radius:6px; padding:8px 16px; font-size:0.85rem; white-space:nowrap;">Se connecter</button>
+      <!-- nav-lbl : libellé normal ; nav-ico + nav-short : barre d'onglets du bas (téléphone) -->
+      <button onclick="navTo('nouvelArticleCard')" id="nav-nouvelArticleCard" class="nav-active"><span class="nav-ico" aria-hidden="true">📷</span><span class="nav-lbl">Nouvel article</span><span class="nav-short">Nouveau</span></button>
+      <button onclick="navTo('quotesCard')" id="nav-quotesCard"><span class="nav-ico" aria-hidden="true">🗂️</span><span class="nav-lbl">Mes articles</span><span class="nav-short">Articles</span></button>
+      <button onclick="navTo('cartCard')" id="nav-cartCard"><span class="nav-ico" aria-hidden="true">🛒</span><span class="nav-lbl">Ma commande</span><span class="nav-short">Commande</span></button>
+      <button onclick="navTo('accountCard')" id="nav-accountCard"><span class="nav-ico" aria-hidden="true">👤</span><span class="nav-lbl">Mon compte</span><span class="nav-short">Compte</span></button>
+      <button onclick="navTo('aideCard')" id="nav-aideCard"><span class="nav-ico" aria-hidden="true">❔</span><span class="nav-lbl">Aide</span><span class="nav-short">Aide</span></button>
+      <button onclick="navTo('adminCard')" id="nav-adminCard" style="display:none;"><span class="nav-ico" aria-hidden="true">⚙️</span><span class="nav-lbl">Admin</span><span class="nav-short">Admin</span></button>
+      <button id="nav-loginBtn" onclick="openAuthModal()" style="margin-left:auto; background:rgba(255,255,255,0.15); color:#fff; border:1px solid rgba(255,255,255,0.3); border-radius:6px; padding:8px 16px; font-size:0.85rem; white-space:nowrap;"><span class="nav-ico" aria-hidden="true">🔑</span><span class="nav-lbl">Se connecter</span><span class="nav-short">Connexion</span></button>
       <div id="authBar" style="margin-left:auto; display:none; align-items:center; gap:10px;">
         <span id="authUser" style="color:rgba(255,255,255,0.75); font-size:0.85rem;"></span>
 <button id="authSignOutBtn" class="secondary" type="button" style="padding:6px 14px; font-size:0.82rem;">Se déconnecter</button>
@@ -818,6 +855,12 @@
 
     <div class="card" id="nouvelArticleCard">
       <h2>Nouvel article</h2>
+      <!-- Brouillon retrouvé (navigateur fermé pendant la photo, retour de l'e-mail d'inscription…) -->
+      <div id="draftBanner" style="display:none; gap:10px; flex-wrap:wrap; align-items:center; margin:0 0 14px; padding:12px 14px; background:#eef6ee; border:1px solid #b9d8b9; border-radius:10px; font-size:.92rem; line-height:1.5;">
+        <span id="draftBannerText" style="flex:1; min-width:200px;"></span>
+        <button type="button" id="draftResumeBtn" style="white-space:nowrap;">Reprendre l'analyse</button>
+        <button type="button" id="draftClearBtn" class="secondary" style="white-space:nowrap;">Effacer</button>
+      </div>
 
       <!-- ── Sélecteur de mode : Photo ou Fichier 3D ── -->
       <div id="inputModeToggle" style="display:flex; gap:0; margin-bottom:14px; border:1px solid var(--line); border-radius:8px; overflow:hidden; width:fit-content;">
@@ -881,6 +924,26 @@
         </div>
         <div id="photoRow">
           <label for="photoInput">Photo de l'article*</label>
+          <!-- Guide de prise de vue, visible AVANT la photo (la modale de confirmation arrivait
+               après coup et se validait sans être lue) -->
+          <div id="photoGuide" style="display:flex; gap:12px; align-items:center; margin:6px 0 10px; padding:10px 12px; background:#f8f6f2; border:1px solid #e3dcd2; border-radius:10px;">
+            <svg viewBox="0 0 120 80" width="110" height="73" role="img" aria-label="Schéma : bijou posé à côté d'une règle graduée, sur fond uni, photographié de dessus" style="flex-shrink:0;">
+              <rect x="1" y="1" width="118" height="78" rx="8" fill="#fff" stroke="#e3dcd2"/>
+              <g stroke="#1f1b17" stroke-width="1.6" fill="none">
+                <path d="M60 6 v8 M56 10 l4 4 l4 -4"/>
+              </g>
+              <circle cx="60" cy="34" r="12" fill="none" stroke="#c9a24a" stroke-width="5"/>
+              <rect x="10" y="56" width="100" height="16" rx="2" fill="#f2ece3" stroke="#8a7a6a"/>
+              <g stroke="#1f1b17" stroke-width="1">
+                <path d="M15 56 v7 M25 56 v4 M35 56 v7 M45 56 v4 M55 56 v7 M65 56 v4 M75 56 v7 M85 56 v4 M95 56 v7 M105 56 v4"/>
+              </g>
+            </svg>
+            <ul style="margin:0; padding-left:18px; font-size:.86rem; line-height:1.5; color:#5b4f44;">
+              <li>règle graduée <strong>entière</strong>, à plat ;</li>
+              <li>bijou <strong>à côté</strong> de la règle, pas dessus ;</li>
+              <li>photo <strong>de dessus</strong>, fond <strong>uni</strong>, sans ombre.</li>
+            </ul>
+          </div>
           <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
             <input id="photoInput" type="file" required accept="image/*" style="flex:1; min-width:0;" />
             <button id="cameraBtn" type="button" class="secondary" style="white-space:nowrap; flex-shrink:0;" title="Prendre une photo avec la caméra">📷 Caméra</button>
@@ -1615,6 +1678,18 @@
         const guestBanner = document.getElementById('guestResultBanner');
         if (guestBanner) guestBanner.style.display = 'none';
       }
+    }
+
+    // Barre d'onglets du bas : l'e-mail et « Se déconnecter » passent en tête de « Mon compte »
+    if (FA.tabbar) {
+      const bar = document.getElementById('authBar');
+      const accountHint = document.querySelector('#accountCard > .hint');
+      if (bar) accountHint?.after(bar);
+    }
+    if (FA.tabbar) {
+      const champ = el => el && el.matches('input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=button]), textarea, select');
+      document.addEventListener('focusin', e => { if (champ(e.target)) document.documentElement.classList.add('fa-kbd'); });
+      document.addEventListener('focusout', e => { if (champ(e.target)) document.documentElement.classList.remove('fa-kbd'); });
     }
 
     document.getElementById('authModalCloseBtn')?.addEventListener('click', closeAuthModal);
@@ -3772,6 +3847,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         const note = document.getElementById('photoRequestNote');
         if (note) note.value = '';
         updateStartAvailability();
+        majBrouillon(null);
       } catch (err) {
         console.error('[photo à Fontart]', err);
         btn.disabled = false;
@@ -4885,6 +4961,104 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     referenceInput.addEventListener('input', updateStartAvailability);
     descriptionInput.addEventListener('input', updateStartAvailability);
     weightInput.addEventListener('input', updateStartAvailability);
+
+    // ── Brouillon de l'article en cours (IndexedDB, sur l'appareil uniquement) ──
+    // Sur téléphone, le système ferme souvent le navigateur pendant que l'appareil photo
+    // est ouvert, ou quand le client va valider son e-mail d'inscription : référence,
+    // poids, description et photo sont gardés et proposés au retour.
+    // Effacé quand l'article part au panier ou chez Fontart (formulaire vidé).
+    const Brouillon = (() => {
+      const DB = 'fontart-devis', STORE = 'brouillon', KEY = 'courant';
+      function ouvrir() {
+        return new Promise((res, rej) => {
+          const r = indexedDB.open(DB, 1);
+          r.onupgradeneeded = () => r.result.createObjectStore(STORE);
+          r.onsuccess = () => res(r.result);
+          r.onerror = () => rej(r.error);
+        });
+      }
+      async function tx(mode, fn) {
+        const db = await ouvrir();
+        return new Promise((res, rej) => {
+          const t = db.transaction(STORE, mode);
+          const req = fn(t.objectStore(STORE));
+          t.oncomplete = () => { db.close(); res(req?.result); };
+          t.onerror = () => { db.close(); rej(t.error); };
+        });
+      }
+      const fail = e => { console.warn('[Brouillon]', e?.message || e); return null; };
+      return {
+        lire:    () => tx('readonly',  st => st.get(KEY)).catch(fail),
+        ecrire:  d  => tx('readwrite', st => st.put(d, KEY)).catch(fail),
+        effacer: () => tx('readwrite', st => st.delete(KEY)).catch(fail),
+      };
+    })();
+    const BROUILLON_MAX_AGE_MS = 7 * 24 * 3600 * 1000;
+    let _brouillonPhoto = null;   // photo de l'analyse en cours (null : formulaire seul)
+    let _brouillonTimer = 0;
+    // photo : File pour l'enregistrer, null pour l'oublier, undefined pour la garder
+    function majBrouillon(photo) {
+      if (photo !== undefined) _brouillonPhoto = photo;
+      if (window._demandePhotoEnCours || window._demandePhotoAChiffrer) return; // chiffrage admin
+      if (!('indexedDB' in window)) return;
+      clearTimeout(_brouillonTimer);
+      _brouillonTimer = setTimeout(() => {
+        const d = {
+          reference: referenceInput.value,
+          description: descriptionInput.value,
+          weight: weightInput.value,
+          photo: _brouillonPhoto,
+          savedAt: Date.now()
+        };
+        if (!d.reference.trim() && !d.description.trim() && !d.weight.trim() && !d.photo) Brouillon.effacer();
+        else Brouillon.ecrire(d);
+      }, 400);
+    }
+    window.majBrouillon = majBrouillon;
+    [referenceInput, descriptionInput, weightInput].forEach(el => el.addEventListener('input', () => majBrouillon()));
+
+    (async function restaurerBrouillon() {
+      if (!('indexedDB' in window)) return;
+      const d = await Brouillon.lire();
+      if (!d) return;
+      if (!(Date.now() - d.savedAt < BROUILLON_MAX_AGE_MS)) { Brouillon.effacer(); return; }
+      // Ne rien écraser si le client a déjà commencé à saisir
+      if (referenceInput.value || descriptionInput.value || weightInput.value) return;
+      referenceInput.value = d.reference || '';
+      descriptionInput.value = d.description || '';
+      weightInput.value = d.weight || '';
+      _brouillonPhoto = d.photo || null;
+      updateStartAvailability();
+      const banner = document.getElementById('draftBanner');
+      const text = document.getElementById('draftBannerText');
+      const resume = document.getElementById('draftResumeBtn');
+      const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+      const quoi = esc(d.description || d.reference || 'article') + (d.weight ? ` · ${esc(d.weight)} g` : '');
+      const heure = new Date(d.savedAt).toLocaleString('fr-FR', { weekday: 'long', hour: '2-digit', minute: '2-digit' });
+      if (d.photo) {
+        text.innerHTML = `📝 Article en cours retrouvé : <strong>${quoi}</strong>, photo prise ${esc(heure)}.`;
+        resume.style.display = '';
+      } else {
+        text.innerHTML = `📝 Votre saisie a été conservée (<strong>${quoi}</strong>) : il ne reste qu'à prendre la photo.`;
+        resume.style.display = 'none';
+      }
+      banner.style.display = 'flex';
+      const fermer = () => { banner.style.display = 'none'; };
+      resume.addEventListener('click', async () => {
+        fermer();
+        const p = _brouillonPhoto;
+        if (!p) return;
+        const file = p instanceof File ? p : new File([p], 'photo.jpg', { type: p.type || 'image/jpeg' });
+        await startPhotoPipeline(file, 'Photo retrouvée. Calibration automatique…');
+      }, { once: true });
+      document.getElementById('draftClearBtn').addEventListener('click', () => {
+        fermer();
+        referenceInput.value = descriptionInput.value = weightInput.value = '';
+        _brouillonPhoto = null;
+        Brouillon.effacer();
+        updateStartAvailability();
+      }, { once: true });
+    })();
     weightInput.addEventListener('change', () => parseWeight());
 
     // Signal d'intention le plus précoce : dès que l'utilisateur place le curseur
@@ -5137,6 +5311,9 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     // ── Popup confirmation : présence de règle ────────────────────────
     function askRulerConfirmation() {
       return new Promise((resolve) => {
+        // Mobile : le guide affiché au-dessus du bouton photo remplace cette modale, et
+        // la recherche de la règle abandonne vite si elle n'est pas sur la photo.
+        if (FA.isMobile) { resolve(true); return; }
         // « Ne plus me demander » : choix mémorisé, on saute la confirmation
         let skipStored = false;
         try { skipStored = localStorage.getItem('skipRulerConfirm') === '1'; } catch (e) {}
@@ -5190,6 +5367,9 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       // Chiffrage d'une demande photo (onglet Admin) : seulement pour la photo lancée depuis l'Admin
       window._demandePhotoEnCours = window._demandePhotoAChiffrer || null;
       window._demandePhotoAChiffrer = null;
+      majBrouillon(file);
+      const draftBanner = document.getElementById('draftBanner');
+      if (draftBanner) draftBanner.style.display = 'none';
       clearResults();
       try {
         FA.perf.reset();
@@ -6316,7 +6496,10 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     // grossière des 8 angles → affinage du top 2 → détection pleine image.
     // fastPath (post-recadrage : règle horizontale par construction) : on
     // affine seulement autour de 0°. Renvoie { best, fineAngle }.
-    async function searchRulerAtSensitivity(sensitivity, mmPerTick, fastPath, statusPrefix = '') {
+    // skipIfFlat : passes de secours sur mobile — si la recherche grossière (image 300 px,
+    // peu coûteuse) ne voit aucune graduation sous aucun angle, on ne lance pas la détection
+    // pleine image (~10 s par candidat sur téléphone).
+    async function searchRulerAtSensitivity(sensitivity, mmPerTick, fastPath, statusPrefix = '', skipIfFlat = false) {
       const candidates = [];
       if (fastPath) {
         autoScaleStatus.textContent = statusPrefix + 'Détection des graduations…';
@@ -6330,6 +6513,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         const scored = coarseAngles
           .map(a => ({ angle: a, score: scoreAngleCalib(a, sensitivity) }))
           .sort((a, b) => b.score - a.score);
+        if (skipIfFlat && !(scored[0].score > 0)) return { best: null, fineAngle: 0 };
 
         // Phase 2: refine top 2 candidates (guards against false-positive periodic patterns)
         autoScaleStatus.textContent = statusPrefix + '2/3 – Affinage de l\'angle…';
@@ -6371,6 +6555,13 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
 
       try {
         const mmPerTick = 1;
+        // Mobile : sans règle sur la photo, toutes les passes de secours échouent l'une
+        // après l'autre (jusqu'à ~1 min). Au-delà de ce budget, on abandonne : le client
+        // reprend sa photo ou l'envoie à Fontart, plutôt que d'attendre.
+        const tCalib = performance.now();
+        const CALIB_BUDGET_MS = 20000;
+        const budgetLeft = () => !FA.isMobile || performance.now() - tCalib < CALIB_BUDGET_MS;
+        const flatSkip = FA.isMobile;
 
         // Tentative principale. pxPerMm est inchangé par le recadrage
         // (rotation + crop sans redimensionnement).
@@ -6386,15 +6577,17 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         // puis luminance inversée (règle sombre à graduations claires).
         if (!best) {
           for (const sensitivity of [0.35, 0.75]) {
-            ({ best, fineAngle } = await searchRulerAtSensitivity(sensitivity, mmPerTick, false, 'Nouvel essai – '));
+            if (!budgetLeft()) break;
+            ({ best, fineAngle } = await searchRulerAtSensitivity(sensitivity, mmPerTick, false, 'Nouvel essai – ', flatSkip));
             if (best) break;
           }
         }
-        if (!best) {
+        if (!best && budgetLeft()) {
           _calibInvert = true;
-          ({ best, fineAngle } = await searchRulerAtSensitivity(0.55, mmPerTick, false, 'Essai règle sombre – '));
+          ({ best, fineAngle } = await searchRulerAtSensitivity(0.55, mmPerTick, false, 'Essai règle sombre – ', flatSkip));
           if (!best) _calibInvert = false;
         }
+        if (!best) console.log(`[calib] règle non trouvée en ${Math.round(performance.now() - tCalib)} ms`);
 
         if (abortAtStart !== _pipelineAbort) return; // « Passer l'IA » cliqué pendant la recherche
 
@@ -6882,6 +7075,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       sourceImage        = null;
       ctx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
       photoInput.value   = '';
+      window.majBrouillon?.(null); // formulaire gardé, photo oubliée (vidé après un ajout au panier)
       setStage('idle');
       setStatus('Chargez une image pour démarrer.');
     }
@@ -8499,6 +8693,24 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     window.warmRMBG = function(onProgress) {
       ensureEngine(onProgress).catch(e => console.warn('[IA] pré-chauffage :', e?.message || e));
     };
+
+    // Moteur léger (téléphone) : préchargé dès l'ouverture de la page, quand le navigateur
+    // est inactif, si c'est gratuit pour le client — en Wi-Fi, ou modèle déjà en cache.
+    // Jamais en données mobiles ni en mode économie de données : là, le pré-chauffage
+    // attend le premier champ du formulaire, comme avant.
+    (async () => {
+      if (!useLight) return; // RMBG-1.4 (PC) : 44 à 176 Mo, pré-chauffé au premier champ
+      const c = navigator.connection;
+      if (c?.saveData) return;
+      let gratuit = c?.type === 'wifi' || c?.type === 'ethernet';
+      if (!gratuit) {
+        try { gratuit = !!(await (await caches.open('fontart-ia-v1')).match(LIGHT_URL)); } catch (e) {}
+      }
+      if (!gratuit) return;
+      const go = () => { console.log('[IA] préchargement à l\'ouverture'); window.warmRMBG(); };
+      if ('requestIdleCallback' in window) requestIdleCallback(go, { timeout: 5000 });
+      else setTimeout(go, 2000);
+    })();
 
     window.runRMBG = async function(dataUrl, onProgress) {
       const e = await ensureEngine(onProgress);
