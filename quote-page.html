@@ -458,6 +458,13 @@
       font-weight: 600;
     }
 
+    /* Pastille de nav : demandes photo chiffrées (client) ou à chiffrer (admin) */
+    #appNav .nav-badge {
+      display: inline-block; min-width: 18px; margin-left: 6px; padding: 0 5px;
+      border-radius: 9px; background: #d97706; color: #fff;
+      font-size: 0.72rem; font-weight: 700; line-height: 18px; text-align: center;
+    }
+
     /* Tutoriel */
     .tuto-wrap { max-width: 720px; margin: 0 auto; }
     .tuto-wrap h2 { font-size: 1.5rem; font-weight: 300; text-align: center; margin-bottom: 6px; color: var(--ink); letter-spacing: 0px; }
@@ -962,11 +969,22 @@
             <li>bijou <strong>à côté</strong> de la règle (pas dessus), vu de dessus ;</li>
             <li>fond <strong>uni</strong>, lumière homogène, sans ombre portée.</li>
           </ul>
-          Ou faites votre devis depuis un <strong>ordinateur</strong> sur <span style="white-space:nowrap;">fontart.fr/service-dorure-bijoux</span> : vous pourrez y ajuster l'échelle et le contour à la main.
         </div>
         <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:12px;">
           <button type="button" id="mobileRetakeBtn" style="white-space:nowrap;">📷 Reprendre la photo</button>
           <button type="button" id="mobileBackBtn" class="secondary" style="white-space:nowrap;">← Retour au formulaire</button>
+        </div>
+        <!-- Plutôt qu'un abandon : la photo part chez Fontart, qui trace le contour ; le client
+             retrouve la demande chiffrée dans « Mes articles » -->
+        <div id="photoRequestBox" style="margin-top:14px; padding-top:12px; border-top:1px solid #e8c9a0;">
+          <div style="font-weight:600; color:#5b4f44;">Ou laissez-nous faire</div>
+          <div style="font-size:.9rem; color:#5b4f44; margin:4px 0 8px;">
+            Envoyez cette photo à Fontart : nous traçons le contour pour vous, puis vous retrouvez le prix dans <strong>« Mes articles »</strong>, prêt à ajouter au panier.
+          </div>
+          <label for="photoRequestNote" style="font-size:.85rem;">Précisions (facultatif)</label>
+          <textarea id="photoRequestNote" rows="2" maxlength="500" placeholder="Traitement souhaité, quantité, pièce particulière…" style="width:100%; box-sizing:border-box; margin-top:4px;"></textarea>
+          <button type="button" id="photoRequestBtn" style="margin-top:8px; white-space:nowrap;">📤 Envoyer la photo à Fontart</button>
+          <div id="photoRequestStatus" style="display:none; margin-top:8px; font-size:.9rem;"></div>
         </div>
       </div>
       <div id="canvasWrap" class="canvas-wrap" style="margin-top: 8px; position:relative;">
@@ -1030,6 +1048,15 @@
       <h2>Résultats</h2>
       <!-- Alerte de vraisemblance (hauteur calculée hors plage plausible) -->
       <div id="resultsWarning" style="display:none; background:#fdf3e7; border:1px solid #e8c9a0; color:#8a5a17; border-radius:8px; padding:12px 14px; margin-bottom:12px; font-size:0.92rem; line-height:1.5;"></div>
+      <!-- Admin : chiffrage d'une demande photo (lancé depuis l'onglet Admin) -->
+      <div id="adminRequestBanner" style="display:none; background:#eef6ee; border:1px solid #b9d8b9; border-radius:8px; padding:12px 14px; margin-bottom:12px; gap:10px; flex-wrap:wrap; align-items:center;">
+        <span style="flex:1; min-width:200px; font-size:0.92rem;">
+          Demande photo de <strong id="adminRequestClient"></strong> : vérifiez le contour, puis envoyez la surface au client (il verra les prix à son tarif).
+        </span>
+        <button type="button" id="adminRequestSendBtn" style="white-space:nowrap;">Envoyer ce chiffrage au client</button>
+        <button type="button" id="adminRequestCancelBtn" class="secondary" style="white-space:nowrap;">Abandonner</button>
+        <span id="adminRequestStatus" style="width:100%; font-size:0.88rem; display:none;"></span>
+      </div>
       <!-- Bannière visible uniquement pour les invités après calcul du prix -->
       <div id="guestResultBanner" style="display:none; background:#f2ece3; border:1px solid #e3dcd2; border-radius:8px; padding:14px 16px; margin-bottom:14px; gap:12px; flex-wrap:wrap; align-items:center;">
         <span style="flex:1; min-width:200px; font-size:0.92rem; color:#5b4f44;">
@@ -1071,6 +1098,12 @@
 
     <div class="card hidden" id="quotesCard">
       <h2>Mes articles</h2>
+      <!-- Demandes « Envoyer la photo à Fontart » : en cours, ou chiffrées et prêtes à ajouter -->
+      <div id="photoRequestsBlock" class="hidden" style="margin-bottom:18px;">
+        <h3 style="margin:8px 0 4px;">Photos envoyées à Fontart</h3>
+        <p class="hint">Nous traçons le contour de vos photos ; dès qu'une photo est chiffrée, choisissez le traitement et ajoutez-la au panier.</p>
+        <div id="photoRequestsList" style="display:flex; flex-direction:column; gap:10px; margin-top:8px;"></div>
+      </div>
       <p class="hint">Articles enregistrés (coloris choisis).</p>
       <div style="margin-bottom:8px;">
         <input type="search" id="articlesFilter" placeholder="Rechercher par référence ou description…"
@@ -1219,6 +1252,10 @@
 
     <!-- ── Admin : édition du barème tarifaire ── -->
     <div class="card hidden" id="adminCard">
+      <h2>Demandes photo à chiffrer</h2>
+      <p class="hint">Photos envoyées depuis un téléphone quand le devis automatique a échoué. « Chiffrer » ouvre la photo dans l'outil : calibrez, tracez le contour, puis cliquez sur « Envoyer ce chiffrage au client » dans les résultats. Le client voit alors les prix à son tarif dans « Mes articles ».</p>
+      <div id="adminPhotoRequests" style="overflow-x:auto; margin:10px 0 28px;"></div>
+
       <h2>Barème tarifaire</h2>
       <p class="hint">Modifiez les coefficients du barème. Les changements sont enregistrés dans Firestore et pris en compte immédiatement.</p>
 
@@ -1267,7 +1304,15 @@
       <p class="status" id="adminStatus" style="display:none;"></p>
 
       <h3 style="margin:28px 0 8px;">Statistiques du funnel — 14 derniers jours</h3>
-      <p class="hint">Compteurs anonymes par jour : où les visiteurs progressent et où ils abandonnent.</p>
+      <p class="hint">Compteurs anonymes par jour : où les visiteurs progressent et où ils abandonnent. Chaque étape n'est comptée qu'une fois par visite.</p>
+      <label style="display:inline-flex; align-items:center; gap:8px; margin-top:8px; font-size:0.9rem;">
+        Appareil :
+        <select id="funnelDevice" style="padding:4px 8px; border:1px solid #d1d5db; border-radius:6px;">
+          <option value="tous">Tous</option>
+          <option value="mobile">Téléphone et tablette</option>
+          <option value="ordinateur">Ordinateur</option>
+        </select>
+      </label>
       <div style="overflow-x:auto; margin-top:10px;">
         <table style="width:100%; border-collapse:collapse; font-size:0.88rem;">
           <thead>
@@ -1276,6 +1321,8 @@
               <th style="padding:6px 8px;">Visites</th>
               <th style="padding:6px 8px;">Devis démarrés</th>
               <th style="padding:6px 8px;">Prix affichés</th>
+              <th style="padding:6px 8px;">Impasses (tél.)</th>
+              <th style="padding:6px 8px;">Photos envoyées</th>
               <th style="padding:6px 8px;">Comptes créés</th>
               <th style="padding:6px 8px;">Ajouts panier</th>
               <th style="padding:6px 8px;">Commandes</th>
@@ -1284,6 +1331,7 @@
           <tbody id="funnelStatsBody"></tbody>
         </table>
       </div>
+      <p class="hint" id="funnelStatsSummary" style="margin-top:8px;"></p>
     </div>
 
     <div class="card hidden" id="aideCard">
@@ -1375,7 +1423,7 @@
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/12.10.0/firebase-app.js";
     import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, updateProfile, sendEmailVerification, sendPasswordResetEmail, confirmPasswordReset, reload, applyActionCode, setPersistence, indexedDBLocalPersistence, browserLocalPersistence, browserSessionPersistence, inMemoryPersistence } from "https://www.gstatic.com/firebasejs/12.10.0/firebase-auth.js";
-    import { getFirestore, doc, setDoc, getDoc, collection, query, where, getDocs, addDoc, serverTimestamp, orderBy, limit, startAfter, updateDoc, deleteDoc, runTransaction, increment } from "https://www.gstatic.com/firebasejs/12.10.0/firebase-firestore.js";
+    import { getFirestore, doc, setDoc, getDoc, collection, query, where, getDocs, addDoc, serverTimestamp, orderBy, limit, startAfter, updateDoc, deleteDoc, runTransaction, increment, writeBatch } from "https://www.gstatic.com/firebasejs/12.10.0/firebase-firestore.js";
 
     const firebaseConfig = {
       apiKey: "AIzaSyDRLgbcZXP0ezEDPgq_ZYdgrTppWCxYt98",
@@ -1402,45 +1450,81 @@
     // Chaque événement n'est compté qu'une fois par chargement de page pour
     // mesurer la progression dans le funnel, pas le volume d'actions.
     const FUNNEL_EVENTS = ['visite_outil', 'devis_demarre', 'prix_affiche', 'compte_cree', 'ajout_panier', 'commande_validee'];
+    // Hors funnel principal : impasses du parcours mobile (total + motif), photo envoyée
+    // à Fontart, IA passée à la main (ordinateur), invite d'installation de l'appli.
+    const EXTRA_EVENTS = ['mobile_impasse', 'impasse_regle', 'impasse_lente', 'impasse_contour', 'impasse_erreur',
+                          'photo_envoyee', 'ia_passee', 'pwa_installee', 'pwa_refusee'];
+    const STAT_EVENTS = [...FUNNEL_EVENTS, ...EXTRA_EVENTS];
     const _trackedEvents = new Set();
     window.trackEvent = function trackEvent(name) {
-      if (!FUNNEL_EVENTS.includes(name) || _trackedEvents.has(name)) return;
+      if (!STAT_EVENTS.includes(name) || _trackedEvents.has(name)) return;
       _trackedEvents.add(name);
       const day = new Date().toISOString().slice(0, 10);
       // Une écriture par événement (les règles Firestore n'acceptent qu'un
       // compteur modifié à la fois). Échec silencieux : ne jamais gêner l'UX.
-      setDoc(doc(db, 'funnelStats', day), { [name]: increment(1) }, { merge: true })
-        .catch(err => console.warn('[Stats]', err?.message || err));
+      // Sur téléphone, compté en plus dans funnelStats/{jour}_mobile (ordinateur = total − téléphone).
+      const docIds = window.FA?.isMobile ? [day, day + '_mobile'] : [day];
+      docIds.forEach(id => setDoc(doc(db, 'funnelStats', id), { [name]: increment(1) }, { merge: true })
+        .catch(err => console.warn('[Stats]', err?.message || err)));
     };
     window.trackEvent('visite_outil');
 
     // ── Lecture des stats funnel (onglet Admin) ──
+    // Colonnes du tableau (ordre du parcours) ; le détail des impasses et l'IA passée
+    // sont résumés sous le tableau.
+    const FUNNEL_COLUMNS = ['visite_outil', 'devis_demarre', 'prix_affiche', 'mobile_impasse', 'photo_envoyee',
+                            'compte_cree', 'ajout_panier', 'commande_validee'];
+    const _funnelCell = 'style="text-align:right; padding:4px 8px;"';
     window.loadFunnelStats = async function loadFunnelStats() {
       const body = document.getElementById('funnelStatsBody');
+      const summary = document.getElementById('funnelStatsSummary');
       if (!body) return;
-      body.innerHTML = '<tr><td colspan="7" style="text-align:center; color:#888;">Chargement…</td></tr>';
+      const device = document.getElementById('funnelDevice')?.value || 'tous';
+      const nCols = FUNNEL_COLUMNS.length + 1;
+      body.innerHTML = `<tr><td colspan="${nCols}" style="text-align:center; color:#888;">Chargement…</td></tr>`;
+      if (summary) summary.textContent = '';
       try {
         const days = Array.from({ length: 14 }, (_, i) => {
           const d = new Date(); d.setDate(d.getDate() - i);
           return d.toISOString().slice(0, 10);
         });
-        const snaps = await Promise.all(days.map(day => getDoc(doc(db, 'funnelStats', day))));
+        const read = id => getDoc(doc(db, 'funnelStats', id)).then(s => (s.exists() ? s.data() || {} : null));
+        const [all, mobile] = await Promise.all([
+          Promise.all(days.map(day => read(day))),
+          Promise.all(days.map(day => read(day + '_mobile')))
+        ]);
+        // Le détail téléphone n'existe que depuis l'ajout de funnelStats/{jour}_mobile :
+        // avant, tout est compté côté « ordinateur ».
+        const pick = (i, e) => {
+          const a = all[i]?.[e] || 0, m = mobile[i]?.[e] || 0;
+          return device === 'mobile' ? m : device === 'ordinateur' ? Math.max(0, a - m) : a;
+        };
         const rows = [];
-        const totals = Object.fromEntries(FUNNEL_EVENTS.map(e => [e, 0]));
-        snaps.forEach((snap, i) => {
-          if (!snap.exists()) return;
-          const d = snap.data() || {};
-          FUNNEL_EVENTS.forEach(e => { totals[e] += d[e] || 0; });
-          rows.push(`<tr><td>${days[i]}</td>${FUNNEL_EVENTS.map(e => `<td style="text-align:right;">${d[e] || 0}</td>`).join('')}</tr>`);
+        const totals = Object.fromEntries(STAT_EVENTS.map(e => [e, 0]));
+        days.forEach((day, i) => {
+          if (!all[i]) return;
+          STAT_EVENTS.forEach(e => { totals[e] += pick(i, e); });
+          rows.push(`<tr><td>${day}</td>${FUNNEL_COLUMNS.map(e => `<td ${_funnelCell}>${pick(i, e)}</td>`).join('')}</tr>`);
         });
-        const totalRow = `<tr style="font-weight:600; border-top:2px solid var(--line);"><td>Total 14 j</td>${FUNNEL_EVENTS.map(e => `<td style="text-align:right;">${totals[e]}</td>`).join('')}</tr>`;
+        const visites = totals.visite_outil;
+        const pct = n => (visites ? `${Math.round(n / visites * 100)} %` : '–');
+        const totalRow = `<tr style="font-weight:600; border-top:2px solid var(--line);"><td>Total 14 j</td>${FUNNEL_COLUMNS.map(e => `<td ${_funnelCell}>${totals[e]}</td>`).join('')}</tr>`;
+        const pctRow = `<tr style="color:#6b7280;"><td>% des visites</td>${FUNNEL_COLUMNS.map(e => `<td ${_funnelCell}>${pct(totals[e])}</td>`).join('')}</tr>`;
         body.innerHTML = rows.length
-          ? rows.join('') + totalRow
-          : '<tr><td colspan="7" style="text-align:center; color:#888;">Aucune donnée pour le moment.</td></tr>';
+          ? rows.join('') + totalRow + pctRow
+          : `<tr><td colspan="${nCols}" style="text-align:center; color:#888;">Aucune donnée pour le moment.</td></tr>`;
+        if (summary && rows.length) {
+          summary.textContent =
+            `Impasses par motif (14 j) : règle ${totals.impasse_regle} · trop long ${totals.impasse_lente} · ` +
+            `contour ${totals.impasse_contour} · erreur ${totals.impasse_erreur}. ` +
+            `IA passée à la main (ordinateur) : ${totals.ia_passee}. ` +
+            `Appli : ${totals.pwa_installee} installation(s), ${totals.pwa_refusee} refus.`;
+        }
       } catch (err) {
-        body.innerHTML = `<tr><td colspan="7" style="text-align:center; color:var(--danger);">Erreur : ${err?.message || err}</td></tr>`;
+        body.innerHTML = `<tr><td colspan="${nCols}" style="text-align:center; color:var(--danger);">Erreur : ${escapeHtml(err?.message || err)}</td></tr>`;
       }
     };
+    document.getElementById('funnelDevice')?.addEventListener('change', () => window.loadFunnelStats());
 
     // Connexion gardée durablement (jusqu'au clic sur « Se déconnecter »), y compris dans l'appli installée.
     // La page (devis.fontart.fr) est sur le même site que fontart.fr : le stockage n'est pas bloqué dans l'iframe.
@@ -1519,6 +1603,12 @@
       if (authBar) authBar.style.display = loggedIn ? 'flex' : 'none';
       const adminBtn = document.getElementById('nav-adminCard');
       if (adminBtn) adminBtn.style.display = (loggedIn && currentUser?.email === ADMIN_EMAIL) ? '' : 'none';
+      if (loggedIn) {
+        window.loadPhotoRequests?.();
+        if (currentUser?.email === ADMIN_EMAIL) window.loadAdminPhotoRequests?.();
+      } else {
+        document.querySelectorAll('#appNav .nav-badge').forEach(b => b.remove());
+      }
       if (loggedIn) {
         const guestBanner = document.getElementById('guestResultBanner');
         if (guestBanner) guestBanner.style.display = 'none';
@@ -2155,6 +2245,336 @@
 
     window.saveQuoteToFirestore = saveQuoteToFirestore;
 
+    // ════════════════════════════════════════════════════════════════════════
+    // DEMANDES PHOTO (« Envoyer la photo à Fontart ») — photoRequests/{id}
+    // Quand le devis automatique échoue sur téléphone, le client envoie sa photo. Fontart
+    // la chiffre depuis l'onglet Admin (contour tracé dans l'outil) : la demande reçoit la
+    // surface totale, et le client voit les prix à SON tarif dans « Mes articles ».
+    // Photo complète dans photoRequests/{id}/fichiers/photo (lue seulement au chiffrage),
+    // vignette dans la demande pour garder les listes légères.
+    // Statuts : nouveau → chiffre → ajoute (ajoutée au panier par le client).
+    // ════════════════════════════════════════════════════════════════════════
+
+    // JPEG d'au plus maxDim px, réduit (qualité puis taille) jusqu'à tenir en maxChars
+    function _imageToJpeg(img, maxDim, maxChars) {
+      let dim = maxDim, quality = 0.85, dataUrl = '', w = 0, h = 0;
+      for (let i = 0; i < 12; i++) {
+        const scale = Math.min(1, dim / Math.max(img.width, img.height));
+        w = Math.round(img.width * scale);
+        h = Math.round(img.height * scale);
+        const c = document.createElement('canvas');
+        c.width = w; c.height = h;
+        c.getContext('2d').drawImage(img, 0, 0, w, h);
+        dataUrl = c.toDataURL('image/jpeg', quality);
+        if (dataUrl.length <= maxChars) break;
+        if (quality > 0.6) quality -= 0.1; else dim = Math.round(dim * 0.8);
+      }
+      return { dataUrl, width: w, height: h };
+    }
+
+    window.sendPhotoRequest = async function sendPhotoRequest({ file, description, weightG, referenceClient, note, reason }) {
+      const user = auth.currentUser;
+      if (!user) throw new Error('connexion requise');
+      const url = URL.createObjectURL(file);
+      let full, thumb;
+      try {
+        const img = new Image();
+        img.src = url;
+        await img.decode();
+        full  = _imageToJpeg(img, 2000, 900000); // un document Firestore est limité à 1 Mo
+        thumb = _imageToJpeg(img, 400, 80000);
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+      let clientCode = '', company = '';
+      try {
+        const snap = await getDoc(doc(db, 'users', user.uid));
+        if (snap.exists()) {
+          clientCode = snap.data().clientCode || '';
+          company = formatCompany(snap.data().company);
+        }
+      } catch (e) { /* profil facultatif ici : l'e-mail suffit pour retrouver le client */ }
+      const ref = doc(collection(db, 'photoRequests'));
+      const batch = writeBatch(db);
+      batch.set(ref, {
+        userId: user.uid,
+        email: user.email || '',
+        clientCode,
+        company,
+        description: String(description || '').slice(0, 300),
+        weightG: Number(weightG) || null,
+        referenceClient: String(referenceClient || '').slice(0, 100),
+        note: String(note || '').slice(0, 500),
+        reason: String(reason || '').slice(0, 200),
+        thumbDataUrl: thumb.dataUrl,
+        device: window.FA?.isMobile ? 'mobile' : 'ordinateur',
+        status: 'nouveau',
+        createdAt: serverTimestamp()
+      });
+      batch.set(doc(db, 'photoRequests', ref.id, 'fichiers', 'photo'), {
+        userId: user.uid,
+        dataUrl: full.dataUrl,
+        width: full.width,
+        height: full.height
+      });
+      await batch.commit();
+      window.trackEvent?.('photo_envoyee');
+      window.loadPhotoRequests?.();
+    };
+
+    function _setNavBadge(navId, n) {
+      const btn = document.getElementById(navId);
+      if (!btn) return;
+      let badge = btn.querySelector('.nav-badge');
+      if (!n) { badge?.remove(); return; }
+      if (!badge) {
+        badge = document.createElement('span');
+        badge.className = 'nav-badge';
+        btn.appendChild(badge);
+      }
+      badge.textContent = n;
+    }
+
+    const _byNewest = (a, b) => (b.data().createdAt?.toMillis?.() || 0) - (a.data().createdAt?.toMillis?.() || 0);
+    const _fmtPrix = n => n.toFixed(2).replace('.', ',') + ' €';
+
+    // Supprime la demande et sa photo (client : annulation ; admin : demande inutile)
+    async function _supprimerDemande(id) {
+      const batch = writeBatch(db);
+      batch.delete(doc(db, 'photoRequests', id, 'fichiers', 'photo'));
+      batch.delete(doc(db, 'photoRequests', id));
+      await batch.commit();
+    }
+
+    // ── Client : « Mes articles » → Photos envoyées à Fontart ──
+    window.loadPhotoRequests = async function loadPhotoRequests() {
+      const user = auth.currentUser;
+      const block = document.getElementById('photoRequestsBlock');
+      const list = document.getElementById('photoRequestsList');
+      if (!user || !block || !list) return;
+      try {
+        const snap = await getDocs(query(collection(db, 'photoRequests'),
+          where('userId', '==', user.uid), where('status', 'in', ['nouveau', 'chiffre'])));
+        const docs = snap.docs.sort(_byNewest);
+        _setNavBadge('nav-quotesCard', docs.filter(d => d.data().status === 'chiffre').length);
+        block.classList.toggle('hidden', docs.length === 0);
+        list.innerHTML = '';
+        for (const d of docs) list.appendChild(await _carteDemandeClient(d.id, d.data()));
+      } catch (err) {
+        console.warn('[Demandes photo]', err?.message || err);
+      }
+    };
+
+    async function _carteDemandeClient(id, data) {
+      const card = document.createElement('div');
+      card.style.cssText = 'display:flex; gap:12px; flex-wrap:wrap; align-items:flex-start; padding:12px; border:1px solid #e3dcd2; border-radius:10px; background:#faf8f5;';
+      const src = safePhotoSrc(data.status === 'chiffre' ? (data.contourDataUrl || data.thumbDataUrl) : data.thumbDataUrl);
+      const quand = formatDate(data.createdAt);
+      card.innerHTML = `
+        ${src ? `<img src="${src}" alt="photo" style="width:120px; height:auto; border-radius:6px; border:1px solid #e2e8f0; background:#fff;" />` : ''}
+        <div style="flex:1; min-width:200px; font-size:0.92rem; line-height:1.5;">
+          <div style="font-weight:600;">${escapeHtml(data.description || 'Article')}${data.weightG ? ` · ${escapeHtml(String(data.weightG).replace('.', ','))} g` : ''}</div>
+          ${data.referenceClient ? `<div style="color:#6b7280;">Réf. ${escapeHtml(data.referenceClient)}</div>` : ''}
+          <div data-zone style="margin-top:6px;"></div>
+        </div>`;
+      const zone = card.querySelector('[data-zone]');
+      if (data.status !== 'chiffre') {
+        zone.innerHTML = `<div style="color:#8a5a17;">⏳ Envoyée le ${escapeHtml(quand)} — Fontart trace le contour.</div>
+          <button type="button" class="secondary" data-annuler style="margin-top:8px; padding:4px 12px; font-size:0.85rem;">Annuler la demande</button>`;
+        zone.querySelector('[data-annuler]').addEventListener('click', async (e) => {
+          if (!confirm('Annuler cette demande ? La photo envoyée sera supprimée.')) return;
+          e.target.disabled = true;
+          try { await _supprimerDemande(id); } catch (err) { alert('Annulation impossible : ' + (err?.message || err)); }
+          window.loadPhotoRequests();
+        });
+        return card;
+      }
+      // Chiffrée : prix calculés ici, au tarif du client et aux cours du jour
+      if (!PRICING || !(data.surfaceTotalMm2 > 0)) {
+        zone.innerHTML = '<div style="color:#6b7280;">Prix en cours de chargement… rouvrez « Mes articles » dans un instant.</div>';
+        return card;
+      }
+      const prices = await window.prixPourStotale(data.surfaceTotalMm2);
+      zone.innerHTML = `<div style="color:#2f6b3a; font-weight:600;">✅ Chiffrée par Fontart</div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:6px;">
+          <select data-prix style="padding:6px 8px; border:1px solid #d1d5db; border-radius:6px; max-width:100%;">
+            ${prices.map((p, i) => `<option value="${i}">${escapeHtml(p.label)} — ${_fmtPrix(p.price)}</option>`).join('')}
+          </select>
+          <button type="button" data-ajouter style="white-space:nowrap;">Ajouter au panier</button>
+        </div>
+        <div data-msg style="display:none; margin-top:6px; font-size:0.88rem;"></div>`;
+      const btn = zone.querySelector('[data-ajouter]');
+      const msg = zone.querySelector('[data-msg]');
+      btn.addEventListener('click', async () => {
+        if (btn.disabled) return;
+        const row = prices[Number(zone.querySelector('[data-prix]').value)];
+        if (!row) return;
+        btn.disabled = true;
+        btn.textContent = 'Ajout…';
+        try {
+          await addToCart({
+            source: 'photo-fontart',
+            reference: '',
+            referenceCode: row.code || '',
+            referenceClient: data.referenceClient || '',
+            referenceSupplier: '',
+            description: `${row.coloris || ''} sur ${data.description || ''}`.trim(),
+            unitPrice: row.price,
+            surfaceTotalMm2: data.surfaceTotalMm2,
+            quantity: 1,
+            photoDataUrl: data.contourThumbDataUrl || data.thumbDataUrl || '',
+            photoRequestId: id
+          }, { garderSaisie: true });
+          await updateDoc(doc(db, 'photoRequests', id), { status: 'ajoute', ajouteAt: serverTimestamp() });
+          window.loadPhotoRequests();
+        } catch (err) {
+          btn.disabled = false;
+          btn.textContent = 'Ajouter au panier';
+          msg.textContent = 'Ajout impossible : ' + (err?.message || err);
+          msg.style.color = 'var(--danger)';
+          msg.style.display = 'block';
+        }
+      });
+      return card;
+    }
+
+    // ── Admin : liste des demandes et chiffrage dans l'outil ──
+    window.loadAdminPhotoRequests = async function loadAdminPhotoRequests() {
+      if (auth.currentUser?.email !== ADMIN_EMAIL) return;
+      const box = document.getElementById('adminPhotoRequests');
+      try {
+        const snap = await getDocs(query(collection(db, 'photoRequests'), where('status', 'in', ['nouveau', 'chiffre'])));
+        // À chiffrer d'abord, puis les plus récentes
+        const docs = snap.docs.sort((a, b) =>
+          (a.data().status === 'nouveau' ? 0 : 1) - (b.data().status === 'nouveau' ? 0 : 1) || _byNewest(a, b));
+        _setNavBadge('nav-adminCard', docs.filter(d => d.data().status === 'nouveau').length);
+        if (!box) return;
+        if (!docs.length) { box.innerHTML = '<p class="hint">Aucune demande en cours.</p>'; return; }
+        const th = 'style="text-align:left; padding:6px 8px;"';
+        box.innerHTML = `<table style="width:100%; border-collapse:collapse; font-size:0.88rem;">
+          <thead><tr style="border-bottom:2px solid var(--line);">
+            <th ${th}>Photo</th><th ${th}>Reçue le</th><th ${th}>Client</th><th ${th}>Article</th><th ${th}>Précisions</th><th ${th}>Statut</th><th ${th}></th>
+          </tr></thead><tbody></tbody></table>`;
+        const tbody = box.querySelector('tbody');
+        docs.forEach(d => {
+          const r = d.data();
+          const tr = document.createElement('tr');
+          tr.style.borderBottom = '1px solid var(--line)';
+          const src = safePhotoSrc(r.thumbDataUrl);
+          const td = 'style="padding:6px 8px; vertical-align:top;"';
+          tr.innerHTML = `
+            <td ${td}>${src ? `<img src="${src}" alt="photo" style="width:80px; height:auto; border-radius:4px;" />` : '-'}</td>
+            <td ${td}>${escapeHtml(formatDate(r.createdAt))}</td>
+            <td ${td}>${escapeHtml(r.company || '-')}<br><span style="color:#6b7280;">${escapeHtml(r.clientCode || '')} ${escapeHtml(r.email || '')}</span></td>
+            <td ${td}>${escapeHtml(r.description || '-')}<br><span style="color:#6b7280;">${r.weightG ? escapeHtml(String(r.weightG)) + ' g' : 'poids ?'}${r.referenceClient ? ' · réf. ' + escapeHtml(r.referenceClient) : ''}</span></td>
+            <td ${td}>${escapeHtml(r.note || '')}${r.reason ? `<br><span style="color:#8a5a17;">${escapeHtml(r.reason)}</span>` : ''}</td>
+            <td ${td}>${r.status === 'chiffre'
+              ? `Chiffrée (${Number(r.surfaceTotalMm2 || 0).toFixed(0)} mm²), en attente du client`
+              : '<strong>À chiffrer</strong>'}</td>
+            <td ${td}><div style="display:flex; flex-direction:column; gap:4px;">
+              <button type="button" data-chiffrer style="white-space:nowrap; padding:4px 10px;">${r.status === 'chiffre' ? 'Rechiffrer' : 'Chiffrer'}</button>
+              <button type="button" class="secondary" data-photo style="white-space:nowrap; padding:4px 10px;">Télécharger</button>
+              <button type="button" class="secondary" data-suppr style="white-space:nowrap; padding:4px 10px;">Supprimer</button>
+            </div></td>`;
+          tr.querySelector('[data-chiffrer]').addEventListener('click', e => _chiffrerDemande(d.id, r, e.target));
+          tr.querySelector('[data-photo]').addEventListener('click', async e => {
+            try {
+              const file = await _photoDemande(d.id);
+              const a = document.createElement('a');
+              a.href = URL.createObjectURL(file);
+              a.download = file.name;
+              a.click();
+              setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+            } catch (err) { alert(err?.message || err); }
+          });
+          tr.querySelector('[data-suppr]').addEventListener('click', async e => {
+            if (!confirm('Supprimer cette demande et sa photo ? Le client ne la verra plus.')) return;
+            e.target.disabled = true;
+            try { await _supprimerDemande(d.id); } catch (err) { alert('Suppression impossible : ' + (err?.message || err)); }
+            window.loadAdminPhotoRequests();
+          });
+          tbody.appendChild(tr);
+        });
+      } catch (err) {
+        if (box) box.innerHTML = `<p style="color:var(--danger);">Impossible de charger les demandes : ${escapeHtml(err?.message || err)}</p>`;
+      }
+    };
+
+    async function _photoDemande(id) {
+      const snap = await getDoc(doc(db, 'photoRequests', id, 'fichiers', 'photo'));
+      if (!snap.exists()) throw new Error('Photo introuvable pour cette demande.');
+      const blob = await (await fetch(snap.data().dataUrl)).blob();
+      return new File([blob], `demande-${id}.jpg`, { type: 'image/jpeg' });
+    }
+
+    // Ouvre la photo dans « Nouvel article » avec la description et le poids du client ;
+    // les résultats affichent ensuite le bandeau « Envoyer ce chiffrage au client ».
+    async function _chiffrerDemande(id, r, btn) {
+      btn.disabled = true;
+      try {
+        const file = await _photoDemande(id);
+        descriptionInput.value = r.description || 'Article';
+        weightInput.value = r.weightG ? String(r.weightG) : '';
+        referenceInput.value = r.referenceClient || '';
+        updateStartAvailability();
+        window._demandePhotoAChiffrer = { id, client: r.company || r.email || r.clientCode || 'client' };
+        navTo('nouvelArticleCard');
+        const ok = await startPhotoPipeline(file, `Demande de ${window._demandePhotoAChiffrer.client} chargée. Calibration automatique…`);
+        if (!ok) window._demandePhotoAChiffrer = null;
+      } catch (err) {
+        window._demandePhotoAChiffrer = null;
+        alert('Ouverture impossible : ' + (err?.message || err));
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    let _stotaleDemande = 0;
+    window.afficherBandeauDemande = function afficherBandeauDemande(stotale) {
+      const banner = document.getElementById('adminRequestBanner');
+      if (!banner) return;
+      const d = stotale > 0 ? window._demandePhotoEnCours : null;
+      banner.style.display = d ? 'flex' : 'none';
+      if (!d) return;
+      _stotaleDemande = stotale;
+      document.getElementById('adminRequestClient').textContent = d.client;
+      document.getElementById('adminRequestSendBtn').disabled = false;
+      document.getElementById('adminRequestStatus').style.display = 'none';
+    };
+    function _fermerBandeauDemande() {
+      window._demandePhotoEnCours = null;
+      const banner = document.getElementById('adminRequestBanner');
+      if (banner) banner.style.display = 'none';
+    }
+    document.getElementById('adminRequestCancelBtn')?.addEventListener('click', _fermerBandeauDemande);
+    document.getElementById('adminRequestSendBtn')?.addEventListener('click', async (e) => {
+      const d = window._demandePhotoEnCours;
+      if (!d || !(_stotaleDemande > 0)) return;
+      const status = document.getElementById('adminRequestStatus');
+      e.target.disabled = true;
+      try {
+        await updateDoc(doc(db, 'photoRequests', d.id), {
+          status: 'chiffre',
+          surfaceTotalMm2: _stotaleDemande,
+          contourDataUrl: captureAnnotatedImage(720, 0.75) || '',
+          contourThumbDataUrl: captureAnnotatedImage() || '',
+          chiffreAt: serverTimestamp()
+        });
+        _fermerBandeauDemande();
+        resetToIdle();
+        descriptionInput.value = '';
+        weightInput.value = '';
+        referenceInput.value = '';
+        updateStartAvailability();
+        navTo('adminCard');
+      } catch (err) {
+        e.target.disabled = false;
+        status.textContent = 'Envoi impossible : ' + (err?.message || err);
+        status.style.color = 'var(--danger)';
+        status.style.display = 'block';
+      }
+    });
+
     function formatDate(ts) {
       if (!ts) return '-';
       try {
@@ -2225,7 +2645,9 @@
       });
     }
 
-    async function addToCart(item) {
+    // garderSaisie : ajout depuis « Mes articles » (demande photo chiffrée) → ne pas
+    // effacer un article en cours de saisie dans « Nouvel article ».
+    async function addToCart(item, { garderSaisie = false } = {}) {
       try {
         const user = auth.currentUser;
         if (!user) {
@@ -2237,8 +2659,10 @@
         }
         const supplierRef = await window.ensureSupplierReference?.();
         if (!supplierRef) {
-          showCartError('Impossible de générer la référence fournisseur (profil incomplet ?).');
-          return;
+          const msg = 'Impossible de générer la référence fournisseur (profil incomplet ?).';
+          if (garderSaisie) throw new Error(msg);
+          showCartError(msg);
+          return false;
         }
         item.referenceSupplier = supplierRef;
         try {
@@ -2259,6 +2683,7 @@
         _invalidateArticlesCache();
         await loadArticles(0, true);
         await loadCartItems();
+        if (garderSaisie) return true;
         // Reset workflow back to start
         referenceInput.value = '';
         descriptionInput.value = '';
@@ -2275,9 +2700,12 @@
         setFormStatus('✅ Ajouté au panier. Vous pouvez saisir un nouvel article.', false);
         // Remonter en haut : sans ça, dans l'iframe ou en PWA, on reste sur le bas de la page
         FA.scrollToTop();
+        return true;
       } catch (err) {
         console.error('[panier]', err);
+        if (garderSaisie) throw err;
         showCartError(err?.message || 'Impossible d\'ajouter au panier. Vérifiez les règles Firestore.');
+        return false;
       }
     }
     window.addToCart = addToCart;
@@ -2335,10 +2763,10 @@
       }
 
       // Charger les données si nécessaire
-      if (sectionId === 'quotesCard')  loadArticles();
+      if (sectionId === 'quotesCard')  { loadArticles(); window.loadPhotoRequests?.(); }
       if (sectionId === 'cartCard')    loadCartItems();
       if (sectionId === 'accountCard') loadAccount();
-      if (sectionId === 'adminCard') { loadAdminPricing(); window.loadFunnelStats?.(); }
+      if (sectionId === 'adminCard') { loadAdminPricing(); window.loadFunnelStats?.(); window.loadAdminPhotoRequests?.(); }
 
       FA.scrollToTop();
     };
@@ -2961,6 +3389,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
               pendingCartItem = null;
               setTimeout(() => addToCart(item), 200);
             }
+            if (window._pendingPhotoRequest) setTimeout(() => window.envoyerPhotoAFontart?.(), 200);
             return;
           }
 
@@ -2992,6 +3421,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
                 pendingCartItem = null;
                 setTimeout(() => addToCart(item), 200);
               }
+              if (window._pendingPhotoRequest) setTimeout(() => window.envoyerPhotoAFontart?.(), 200);
               return;
             }
           }
@@ -3066,7 +3496,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     document.getElementById('pipelineSkipBtn')?.addEventListener('click', () => {
       if (FA.isMobile) {
         _pipelineAbort++;
-        showMobileFallback('Analyse trop longue sur cet appareil.');
+        showMobileFallback('Analyse trop longue sur cet appareil.', 'lente');
         return;
       }
       _pipelineAbort++;
@@ -3261,7 +3691,9 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
 
     // Mobile : impasse du parcours automatique → photo affichée (avec le repère si la
     // règle a été vue), motif, conseils, et deux issues : reprendre la photo / retour.
-    function showMobileFallback(reason) {
+    // kind : regle | lente | contour | erreur (compté dans les statistiques du funnel).
+    let _mobileFallbackReason = '';
+    function showMobileFallback(reason, kind) {
       _autoAcceptContour = false;
       _pendingAutoPipeline = false;
       clearResults();
@@ -3280,7 +3712,13 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         fb.classList.remove('hidden');
       }
       setStatus(reason, true);
+      _mobileFallbackReason = reason;
+      const reqBtn = document.getElementById('photoRequestBtn');
+      if (reqBtn) { reqBtn.disabled = false; reqBtn.style.display = ''; }
+      const reqStatus = document.getElementById('photoRequestStatus');
+      if (reqStatus) reqStatus.style.display = 'none';
       window.trackEvent?.('mobile_impasse');
+      if (kind) window.trackEvent?.('impasse_' + kind);
       if (sourceImage) renderNormalPreview();
       FA.scrollToTop();
     }
@@ -3289,6 +3727,57 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       document.getElementById('photoCaptureInput')?.click(); // geste utilisateur → appareil photo natif
     });
     document.getElementById('mobileBackBtn')?.addEventListener('click', () => { resetToIdle(); FA.scrollToTop(); });
+
+    // « Envoyer la photo à Fontart » : la photo d'origine (pas l'image réduite pour l'analyse),
+    // la description, le poids et la note partent dans photoRequests ; Fontart trace le contour
+    // et le client retrouve le prix dans « Mes articles ». Invité : connexion d'abord, l'envoi
+    // reprend juste après (reprise dans le module Firebase, comme pendingCartItem).
+    async function envoyerPhotoAFontart() {
+      const btn = document.getElementById('photoRequestBtn');
+      const status = document.getElementById('photoRequestStatus');
+      const show = (msg, isError) => {
+        status.textContent = msg;
+        status.style.color = isError ? 'var(--danger)' : '#2f6b3a';
+        status.style.display = 'block';
+      };
+      if (!_lastPhotoFile) { show('Photo introuvable : reprenez la photo.', true); return; }
+      if (!window._fb?.auth?.currentUser) {
+        window._pendingPhotoRequest = true;
+        show('Connectez-vous ou créez un compte : l’envoi partira juste après.', false);
+        window.openAuthModal?.('save-quote');
+        FA.scrollToTop();
+        return;
+      }
+      window._pendingPhotoRequest = false;
+      btn.disabled = true;
+      show('Envoi de la photo…', false);
+      try {
+        await window.sendPhotoRequest({
+          file: _lastPhotoFile,
+          description: descriptionInput.value.trim(),
+          weightG: parseWeight(),
+          referenceClient: referenceInput.value.trim(),
+          note: (document.getElementById('photoRequestNote')?.value || '').trim(),
+          reason: _mobileFallbackReason
+        });
+        btn.style.display = 'none';
+        show('✅ Photo envoyée. Nous traçons le contour et vous retrouverez le prix dans « Mes articles ». Vous pouvez saisir un autre article.', false);
+        // Article suivant : formulaire vierge
+        _lastPhotoFile = null;
+        descriptionInput.value = '';
+        weightInput.value = '';
+        referenceInput.value = '';
+        const note = document.getElementById('photoRequestNote');
+        if (note) note.value = '';
+        updateStartAvailability();
+      } catch (err) {
+        console.error('[photo à Fontart]', err);
+        btn.disabled = false;
+        show('Envoi impossible : ' + (err?.message || err) + '. Réessayez.', true);
+      }
+    }
+    window.envoyerPhotoAFontart = envoyerPhotoAFontart;
+    document.getElementById('photoRequestBtn')?.addEventListener('click', envoyerPhotoAFontart);
     if (FA.isMobile) {
       const skip = document.getElementById('pipelineSkipBtn');
       if (skip) skip.textContent = '⏹ Trop long ? Arrêter et reprendre la photo';
@@ -3812,6 +4301,31 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       return rows.length ? rows : null;
     }
 
+    // Lignes de prix pour une surface totale (mm²) : barème PRICING (or puis argent) aux
+    // cours affichés, ou tarif spécifique du client connecté (ex. GAS : ses prestations seulement).
+    // Sert aux résultats et aux demandes photo chiffrées par Fontart (« Mes articles »).
+    async function prixPourStotale(stotale) {
+      const goldRate = Number(goldRateInput.value) || 0;
+      const goldFactor = goldRate / PRICING.diviseurOr;
+      const silverRate = Number(silverRateInput?.value) || 0;
+      const pricesOr = PRICING.prestations.map(p => ({
+        label:   p.label,
+        code:    p.code,
+        coloris: p.coloris,
+        formula: buildPriceFormula(p, stotale, goldRate),
+        price:   stotale * (PRICING.base + p.fixe + (PRICING.coefOr + p.orSupp) * goldFactor)
+      }));
+      const pricesArgent = PRICING.prestationsArgent.map(p => ({
+        label:   p.label,
+        code:    p.code,
+        coloris: p.coloris,
+        formula: buildSilverFormula(p, stotale, silverRate),
+        price:   stotale * (PRICING.base + p.agCoef * silverRate / PRICING.diviseurArgent)
+      }));
+      return prixTarifClient(await chargerTarifClient(), stotale) || [...pricesOr, ...pricesArgent];
+    }
+    window.prixPourStotale = prixPourStotale;
+
     // ── Admin : chargement / sauvegarde du barème ──
     function _adminOrRow(p) {
       const tr = document.createElement('tr');
@@ -4039,35 +4553,13 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           `le contour sélectionné et le poids saisi (${weight} g).`
         : '';
       const stotale = surfaceMm2 * PRICING.facteurSurface + (h * perimeterMm);
-      const goldRate = Number(goldRateInput.value) || 0;
-      const goldFactor = goldRate / PRICING.diviseurOr;
-      const silverRate = Number(silverRateInput?.value) || 0;
 
       if (surfaceOut) surfaceOut.textContent = surfaceMm2.toFixed(2);
       if (perimeterOut) perimeterOut.textContent = perimeterMm.toFixed(2);
       if (heightOut) heightOut.textContent = h.toFixed(4);
       if (stotalOut) stotalOut.textContent = stotale.toFixed(2);
 
-      // Prix dorure (or) — calculés depuis le barème PRICING (cf. plus haut)
-      const pricesOr = PRICING.prestations.map(p => ({
-        label:   p.label,
-        code:    p.code,
-        coloris: p.coloris,
-        formula: buildPriceFormula(p, stotale, goldRate),
-        price:   stotale * (PRICING.base + p.fixe + (PRICING.coefOr + p.orSupp) * goldFactor)
-      }));
-
-      // Prix argenture — même Stotale, cours de l'argent
-      const pricesArgent = PRICING.prestationsArgent.map(p => ({
-        label:   p.label,
-        code:    p.code,
-        coloris: p.coloris,
-        formula: buildSilverFormula(p, stotale, silverRate),
-        price:   stotale * (PRICING.base + p.agCoef * silverRate / PRICING.diviseurArgent)
-      }));
-
-      // Client à tarif spécifique (ex. GAS) : ses prestations seulement, à son tarif
-      const prices = prixTarifClient(await chargerTarifClient(), stotale) || [...pricesOr, ...pricesArgent];
+      const prices = await prixPourStotale(stotale);
 
       lastQuoteContext = {
         referenceClient: referenceInput.value.trim(),
@@ -4135,6 +4627,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       resultsCard.classList.remove('hidden');
       workspaceCard.classList.add('hidden');
       window.trackEvent?.('prix_affiche');
+      window.afficherBandeauDemande?.(stotale); // Admin : chiffrage d'une demande photo
       const perfEl = document.getElementById('resultsPerf');
       if (perfEl) {
         perfEl.textContent = `${FA.perf.summary()} · ${window._iaLight ? 'U²-Net-p' : 'RMBG-1.4'} · ${sourceImage ? sourceImage.width + '×' + sourceImage.height : ''} · ${navigator.hardwareConcurrency || '?'} cœurs`;
@@ -4166,8 +4659,8 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         referenceSupplier: (window.supplierRefInput?.value || '').trim() || null,
         description: descriptionInput.value.trim(),
         weight,
-        goldRate,
-        silverRate,
+        goldRate: Number(goldRateInput.value) || 0,
+        silverRate: Number(silverRateInput?.value) || 0,
         surfaceMm2,
         perimeterMm,
         heightMm: h,
@@ -4674,6 +5167,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
 
     // Pipeline commun à toutes les sources de photo : fichier choisi, appareil photo
     // natif (mobile) ou capture getUserMedia (desktop). Retourne false si abandon.
+    let _lastPhotoFile = null; // photo d'origine, pour « Envoyer la photo à Fontart »
     async function startPhotoPipeline(file, loadedMsg) {
       const { ok, missing } = hasRequiredInputs();
       if (!ok) {
@@ -4690,6 +5184,10 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
 
       if (formStatus) formStatus.style.display = 'none';
       window.trackEvent?.('devis_demarre');
+      _lastPhotoFile = file;
+      // Chiffrage d'une demande photo (onglet Admin) : seulement pour la photo lancée depuis l'Admin
+      window._demandePhotoEnCours = window._demandePhotoAChiffrer || null;
+      window._demandePhotoAChiffrer = null;
       clearResults();
       try {
         FA.perf.reset();
@@ -5905,7 +6403,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
             _recalibratingAfterCrop = false;
             _precomputedAIMask = null; // can't use mask without calibration
           }
-          if (FA.isMobile) { showMobileFallback('Règle non détectée sur la photo.'); return; }
+          if (FA.isMobile) { showMobileFallback('Règle non détectée sur la photo.', 'regle'); return; }
           hidePipelineLoader();
           setStage('auto-scale');
           setStatus(FA.isMobile
@@ -5991,7 +6489,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
             hidePipelineLoader();
             setStage('auto-scale');
             if (FA.isMobile) {
-              showMobileFallback(`Échelle incertaine (confiance ${conf} %, ${majors} graduation(s) cm lisible(s)).`);
+              showMobileFallback(`Échelle incertaine (confiance ${conf} %, ${majors} graduation(s) cm lisible(s)).`, 'regle');
               return;
             } else {
               autoScaleStatus.textContent =
@@ -6756,7 +7254,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         aiSliderWrap.style.pointerEvents = 'auto';
 
         if (FA.isMobile && (!aiMetrics || aiMetrics.areaPx === 0)) {
-          showMobileFallback('Contour du bijou non détecté.');
+          showMobileFallback('Contour du bijou non détecté.', 'contour');
           return;
         }
         if (!aiMetrics || aiMetrics.areaPx === 0) {
@@ -6806,7 +7304,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       } catch (e) {
         _autoAcceptContour = false;
         console.error(e);
-        if (FA.isMobile) { showMobileFallback('Analyse impossible : ' + (e?.message ?? String(e))); return; }
+        if (FA.isMobile) { showMobileFallback('Analyse impossible : ' + (e?.message ?? String(e)), 'erreur'); return; }
         aiStatusEl.textContent = 'Erreur IA : ' + (e?.message ?? String(e));
         aiAcceptBtn.disabled = true;
         hidePipelineLoader();
@@ -7662,6 +8160,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         resultsCard.classList.remove('hidden');
         workspaceCard.classList.add('hidden');
         window.trackEvent?.('prix_affiche');
+        window.afficherBandeauDemande?.(0); // pas de chiffrage de demande photo en 3D
         const resultsWarning = document.getElementById('resultsWarning');
         const H_MIN_MM = 0.1, H_MAX_MM = 50;
         const heightWarning = (!Number.isFinite(h) || h < H_MIN_MM || h > H_MAX_MM)

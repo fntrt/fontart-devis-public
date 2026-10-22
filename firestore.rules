@@ -93,12 +93,33 @@ service cloud.firestore {
     }
 
     // ── Configuration publique (cours des métaux, barème) ──
-    // Lecture publique (invités et connectés). Écriture authentifiée
-    // (les cours sont mis à jour par le premier client de la journée ;
-    //  le barème est écrit via le script admin init-pricing-firestore).
+    // Lecture publique (invités et connectés).
+    // Écriture :
+    //  - admin : tout (barème depuis l'onglet Admin) ;
+    //  - client connecté : seulement les cours dans config/metalRates (le premier
+    //    client de la journée les rafraîchit), champs connus uniquement, et un cours
+    //    ne peut pas varier de plus de -20 % / +25 % d'un coup (évite qu'un compte
+    //    malveillant fausse les prix de tout le monde).
+    function estAdmin() {
+      return request.auth != null && request.auth.token.email == 'guillaume@fontart.fr';
+    }
+    function coursPlausible(m) {
+      let n = request.resource.data;
+      return !(m in n)
+          || (n[m] is number && n[m] > 0
+              && (resource == null || !(m in resource.data)
+                  || (n[m] >= resource.data[m] * 0.8 && n[m] <= resource.data[m] * 1.25)));
+    }
     match /config/{docId} {
       allow read: if true;
-      allow write: if request.auth != null;
+      allow write: if estAdmin();
+      allow create, update: if docId == 'metalRates'
+                            && request.auth != null
+                            && request.resource.data.keys().hasOnly(
+                                 ['gold', 'goldDate', 'goldUpdatedAt',
+                                  'silver', 'silverDate', 'silverUpdatedAt'])
+                            && coursPlausible('gold')
+                            && coursPlausible('silver');
     }
 
     // ── Tarifs spécifiques par client (ex. A.M.O. GAS : pricingClients/411GAS1) ──
@@ -112,21 +133,51 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // ── Demandes photo (« Envoyer la photo à Fontart ») ──
+    // Le client crée sa demande (statut « nouveau ») avec la photo complète dans
+    // fichiers/photo ; l'admin la chiffre (surface, contour → « chiffre ») ; le
+    // client la passe à « ajoute » quand il l'a mise au panier (seul le statut
+    // change). Le client peut annuler (supprimer) sa demande.
+    match /photoRequests/{reqId} {
+      allow read: if estAdmin()
+                  || (request.auth != null && resource.data.userId == request.auth.uid);
+      allow create: if request.auth != null
+                    && request.resource.data.userId == request.auth.uid
+                    && request.resource.data.status == 'nouveau';
+      allow update: if estAdmin()
+                    || (request.auth != null
+                        && resource.data.userId == request.auth.uid
+                        && resource.data.status == 'chiffre'
+                        && request.resource.data.status == 'ajoute'
+                        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'ajouteAt']));
+      allow delete: if estAdmin()
+                    || (request.auth != null && resource.data.userId == request.auth.uid);
+
+      match /fichiers/{fichierId} {
+        allow read, delete: if estAdmin()
+                            || (request.auth != null && resource.data.userId == request.auth.uid);
+        allow create: if request.auth != null
+                      && request.resource.data.userId == request.auth.uid;
+      }
+    }
+
     // ── Statistiques funnel (compteurs journaliers anonymes) ──
     // Écriture publique (les invités font partie du funnel), mais limitée :
     // uniquement des compteurs connus, un seul incrément par requête.
     // Aucune donnée personnelle. Au pire, un abus fausse des compteurs
     // non critiques. Lecture réservée à l'admin (onglet Admin de l'outil).
+    // Documents {jour} (tous appareils) et {jour}_mobile (téléphones et tablettes).
+    function compteursFunnel() {
+      return ['visite_outil', 'devis_demarre', 'prix_affiche',
+              'compte_cree', 'ajout_panier', 'commande_validee',
+              'mobile_impasse', 'impasse_regle', 'impasse_lente', 'impasse_contour', 'impasse_erreur',
+              'photo_envoyee', 'ia_passee', 'pwa_installee', 'pwa_refusee'];
+    }
     match /funnelStats/{day} {
-      allow read: if request.auth != null
-                  && request.auth.token.email == 'guillaume@fontart.fr';
-      allow create: if request.resource.data.keys().hasOnly(
-                       ['visite_outil', 'devis_demarre', 'prix_affiche',
-                        'compte_cree', 'ajout_panier', 'commande_validee'])
+      allow read: if estAdmin();
+      allow create: if request.resource.data.keys().hasOnly(compteursFunnel())
                     && request.resource.data.size() == 1;
-      allow update: if request.resource.data.keys().hasOnly(
-                       ['visite_outil', 'devis_demarre', 'prix_affiche',
-                        'compte_cree', 'ajout_panier', 'commande_validee'])
+      allow update: if request.resource.data.keys().hasOnly(compteursFunnel())
                     && request.resource.data.diff(resource.data).affectedKeys().size() == 1;
     }
 
