@@ -2472,6 +2472,10 @@
         return card;
       }
       const prices = await window.prixPourStotale(data.surfaceTotalMm2);
+      if (!prices.length) {
+        zone.innerHTML = '<div style="color:var(--danger);">✅ Chiffrée, mais le cours de l\'or est indisponible pour le moment : rouvrez « Mes articles » dans quelques minutes pour voir le prix.</div>';
+        return card;
+      }
       zone.innerHTML = `<div style="color:#2f6b3a; font-weight:600;">✅ Chiffrée par Fontart</div>
         <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:6px;">
           <select data-prix style="padding:6px 8px; border:1px solid #d1d5db; border-radius:6px; max-width:100%;">
@@ -4382,7 +4386,13 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     // Lignes de prix pour une surface totale (mm²) : barème PRICING (or puis argent) aux
     // cours affichés, ou tarif spécifique du client connecté (ex. GAS : ses prestations seulement).
     // Sert aux résultats et aux demandes photo chiffrées par Fontart (« Mes articles »).
+    // Sans cours (0), les lignes or ou argent sont retirées : jamais de prix faux. La liste
+    // porte coursManquants (['or', 'argent']) pour l'expliquer au client.
     async function prixPourStotale(stotale) {
+      // Cours encore en chargement (page tout juste ouverte) : les attendre, 10 s au plus
+      if (window._coursPromise) {
+        await Promise.race([window._coursPromise.catch(() => {}), new Promise(r => setTimeout(r, 10000))]);
+      }
       const goldRate = Number(goldRateInput.value) || 0;
       const goldFactor = goldRate / PRICING.diviseurOr;
       const silverRate = Number(silverRateInput?.value) || 0;
@@ -4400,9 +4410,26 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         formula: buildSilverFormula(p, stotale, silverRate),
         price:   stotale * (PRICING.base + p.agCoef * silverRate / PRICING.diviseurArgent)
       }));
-      return prixTarifClient(await chargerTarifClient(), stotale) || [...pricesOr, ...pricesArgent];
+      // Tarif spécifique (modèle ODS) : son propre cours de référence, pas le cours du jour
+      const tarifClient = prixTarifClient(await chargerTarifClient(), stotale);
+      if (tarifClient) return Object.assign(tarifClient, { coursManquants: [] });
+      const coursManquants = [];
+      if (!(goldRate > 0)) coursManquants.push('or');
+      if (!(silverRate > 0)) coursManquants.push('argent');
+      return Object.assign([...(goldRate > 0 ? pricesOr : []), ...(silverRate > 0 ? pricesArgent : [])], { coursManquants });
     }
     window.prixPourStotale = prixPourStotale;
+
+    // Ligne d'explication sous le tableau des prix quand un cours manque
+    function signalerCoursManquants(prices) {
+      const manque = prices?.coursManquants || [];
+      if (!manque.length) return;
+      const tr = document.createElement('tr');
+      const quoi = manque.length === 2 ? 'de l\'or et de l\'argent' : manque[0] === 'or' ? 'de l\'or' : 'de l\'argent';
+      const lignes = manque.length === 2 ? 'Les prix' : manque[0] === 'or' ? 'Les prix de dorure' : 'Les prix d\'argenture';
+      tr.innerHTML = `<td colspan="3" style="color:var(--danger); font-size:.9rem;">⚠ Cours ${quoi} indisponible pour le moment. ${lignes} ne sont pas affichés pour éviter un tarif faux : réessayez dans quelques minutes.</td>`;
+      priceTableBody.appendChild(tr);
+    }
 
     // ── Admin : chargement / sauvegarde du barème ──
     function _adminOrRow(p) {
@@ -4665,6 +4692,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         `;
         priceTableBody.appendChild(tr);
       });
+      signalerCoursManquants(prices);
       priceTableBody.querySelectorAll('button[data-code]').forEach(btn => {
         btn.addEventListener('click', async (e) => {
           e.preventDefault();
@@ -4893,59 +4921,95 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       return best;
     }
 
-    async function _fetchAndCacheLbma(metal, lbmaUrl, cacheKey, cacheTsKey, inputEl) {
-      const data = await fetchJson(lbmaUrl);
-      const row = selectLbmaFixing(data);
-      if (!row) throw new Error('No fixing');
-      const eurPerOz = Number(row.v[2]);
-      if (!Number.isFinite(eurPerOz)) throw new Error('Bad value');
-      const eurPerKg = eurPerOz * OZ_PER_KG;
-      inputEl.value = eurPerKg.toFixed(2);
-      localStorage.setItem(cacheKey, eurPerKg.toFixed(2));
-      localStorage.setItem(cacheTsKey, row.d);
-      const fb = window._fb;
-      if (fb) {
-        try {
-          await fb.setDoc(fb.doc(fb.db, 'config', 'metalRates'), {
-            [metal]: eurPerKg,
-            [`${metal}Date`]: row.d,
-            [`${metal}UpdatedAt`]: fb.serverTimestamp()
-          }, { merge: true });
-        } catch (_) {}
-      }
+    // Cours en €/kg, du plus rapide au dernier recours :
+    //  1. cache partagé Firestore config/metalRates s'il a moins de 36 h ;
+    //  2. gold-api.com : cours au comptant en euros (gratuit, sans clé, CORS ouvert) ;
+    //  3. LBMA (fixing du matin) : bloquée par Cloudflare depuis fin septembre 2026
+    //     (403, relais compris), gardée au cas où elle rouvrirait ;
+    //  4. dernier cours connu, même ancien (Firestore ou cet appareil), date affichée.
+    // Jamais 0 en silence : sans aucun cours, les prix or / argent sont bloqués (prixPourStotale).
+    const COURS_PLAGE = { gold: [20000, 500000], silver: [200, 10000] }; // €/kg plausibles
+    const GOLD_API_SYMBOLE = { gold: 'XAU', silver: 'XAG' };
+    const coursPlausible = (metal, v) => Number.isFinite(v) && v >= COURS_PLAGE[metal][0] && v <= COURS_PLAGE[metal][1];
+
+    async function _coursGoldApi(metal) {
+      const res = await fetch(`https://api.gold-api.com/price/${GOLD_API_SYMBOLE[metal]}/EUR`, { cache: 'no-store' });
+      if (!res.ok) throw new Error('gold-api HTTP ' + res.status);
+      const j = await res.json();
+      if (j.currency !== 'EUR') throw new Error('gold-api : devise ' + j.currency);
+      return { eurPerKg: Number(j.price) * OZ_PER_KG, date: String(j.updatedAt || '').slice(0, 10) || new Date().toISOString().slice(0, 10) };
+    }
+
+    async function _coursLbma(lbmaUrl) {
+      const row = selectLbmaFixing(await fetchJson(lbmaUrl));
+      if (!row) throw new Error('LBMA : pas de fixing');
+      return { eurPerKg: Number(row.v[2]) * OZ_PER_KG, date: row.d };
+    }
+
+    function _afficherCours(metal, inputEl, cours, ancien) {
+      const v = cours?.eurPerKg > 0 ? cours.eurPerKg : 0;
+      inputEl.value = v.toFixed(2);
+      const st = document.getElementById(metal === 'gold' ? 'goldStatus' : 'silverStatus');
+      if (!st) return;
+      const nom = metal === 'gold' ? 'de l\'or' : 'de l\'argent';
+      const jour = cours?.date ? new Date(cours.date + 'T12:00:00Z').toLocaleDateString('fr-FR') : '';
+      st.classList.toggle('danger', !v);
+      st.textContent = !v ? `⚠ Cours ${nom} indisponible : les prix correspondants ne sont pas affichés. Réessayez dans quelques minutes.`
+                     : ancien ? `Dernier cours connu${jour ? `, du ${jour}` : ''} (source du jour injoignable).`
+                     : '';
+      st.style.display = st.textContent ? '' : 'none';
     }
 
     async function _updateRate(metal, lbmaUrl, cacheKey, cacheTsKey, inputEl) {
       const fb = window._fb;
-      // 1. Try Firestore shared cache (fast, no CORS proxy needed)
+      let stocke = null;
       try {
-        if (!fb) throw new Error('no fb');
-        const snap = await fb.getDoc(fb.doc(fb.db, 'config', 'metalRates'));
-        if (snap.exists()) {
-          const d = snap.data();
-          const rate = d[metal];
-          const rateDate = d[`${metal}Date`];
-          if (rate && rateDate) {
-            const ageMs = Date.now() - new Date(rateDate + 'T12:00:00Z').getTime();
-            if (ageMs < 36 * 3600 * 1000) {
-              inputEl.value = Number(rate).toFixed(2);
-              localStorage.setItem(cacheKey, Number(rate).toFixed(2));
-              localStorage.setItem(cacheTsKey, rateDate);
-              return;
-            }
-          }
+        if (fb) {
+          const snap = await fb.getDoc(fb.doc(fb.db, 'config', 'metalRates'));
+          const d = snap.exists() ? snap.data() : {};
+          if (coursPlausible(metal, Number(d[metal])) && d[`${metal}Date`]) stocke = { eurPerKg: Number(d[metal]), date: d[`${metal}Date`] };
         }
-      } catch (_) { /* Firestore read failed — try LBMA */ }
+      } catch (_) { /* lecture Firestore impossible : on interroge les sources */ }
+      const garderSurAppareil = c => {
+        try { localStorage.setItem(cacheKey, c.eurPerKg.toFixed(2)); localStorage.setItem(cacheTsKey, c.date); } catch (_) {}
+      };
 
-      // 2. Firestore stale or missing → fetch LBMA, write back to Firestore
-      try {
-        await _fetchAndCacheLbma(metal, lbmaUrl, cacheKey, cacheTsKey, inputEl);
+      if (stocke && Date.now() - new Date(stocke.date + 'T12:00:00Z').getTime() < 36 * 3600 * 1000) {
+        _afficherCours(metal, inputEl, stocke, false);
+        garderSurAppareil(stocke);
         return;
-      } catch (_) {}
+      }
 
-      // 3. Fallback: localStorage
-      const cached = localStorage.getItem(cacheKey);
-      if (cached) inputEl.value = cached;
+      for (const source of [() => _coursGoldApi(metal), () => _coursLbma(lbmaUrl)]) {
+        try {
+          const c = await source();
+          if (!coursPlausible(metal, c.eurPerKg)) throw new Error(`cours hors plage : ${c.eurPerKg}`);
+          _afficherCours(metal, inputEl, c, false);
+          garderSurAppareil(c);
+          // Partage pour les visiteurs suivants (règles : client connecté, variation bornée)
+          if (fb) {
+            try {
+              await fb.setDoc(fb.doc(fb.db, 'config', 'metalRates'), {
+                [metal]: c.eurPerKg,
+                [`${metal}Date`]: c.date,
+                [`${metal}UpdatedAt`]: fb.serverTimestamp()
+              }, { merge: true });
+            } catch (_) {}
+          }
+          return;
+        } catch (e) {
+          console.warn(`[Cours ${metal}]`, e?.message || e);
+        }
+      }
+
+      // Aucune source : le plus récent des derniers cours connus
+      let local = null;
+      try {
+        const v = Number(localStorage.getItem(cacheKey));
+        if (coursPlausible(metal, v)) local = { eurPerKg: v, date: localStorage.getItem(cacheTsKey) || '' };
+      } catch (_) {}
+      const dernier = [stocke, local].filter(Boolean).sort((a, b) => String(b.date).localeCompare(String(a.date)))[0] || null;
+      _afficherCours(metal, inputEl, dernier, true);
     }
 
     async function updateGoldRate() {
@@ -7943,10 +8007,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       resetZoom();
     });
 
-    updateGoldBtn?.addEventListener('click', () => {
-      updateGoldRate();
-      updateSilverRate();
-    });
+    updateGoldBtn?.addEventListener('click', () => chargerCours());
 
     updateStartAvailability();
     setStage('idle');
@@ -7957,8 +8018,17 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       const frame = document.getElementById('videoTutoFrame');
       if (videoTuto.open && frame && !frame.src) frame.src = frame.dataset.src;
     });
-    updateGoldRate();
-    updateSilverRate();
+    // Le module Firebase est déféré : l'attendre (au plus 4 s) pour lire le cache partagé
+    // avant d'interroger les sources. Les calculs de prix attendent cette promesse.
+    function chargerCours() {
+      const attendreFb = new Promise(res => {
+        const t0 = Date.now();
+        (function guetter() { if (window._fb || Date.now() - t0 > 4000) res(); else setTimeout(guetter, 50); })();
+      });
+      window._coursPromise = attendreFb.then(() => Promise.all([updateGoldRate(), updateSilverRate()]));
+      return window._coursPromise;
+    }
+    chargerCours();
 
     // Aperçu photo au survol
     const photoPreview = document.getElementById('photoPreview');
@@ -8286,26 +8356,12 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         const h = weightG / (PRICING.constanteHauteur * surfaceMm2);
         const stotale = surfaceMm2;
 
-        const goldRate = Number(goldRateInput.value) || 0;
-        const goldFactor = goldRate / PRICING.diviseurOr;
-        const silverRate = Number(silverRateInput?.value) || 0;
-
         if (surfaceOut) surfaceOut.textContent = surfaceMm2.toFixed(2);
         if (perimeterOut) perimeterOut.textContent = '—';
         if (heightOut) heightOut.textContent = h.toFixed(4);
         if (stotalOut) stotalOut.textContent = stotale.toFixed(2);
 
-        const pricesOr = PRICING.prestations.map(p => ({
-          label: p.label, code: p.code, coloris: p.coloris,
-          formula: buildPriceFormula(p, stotale, goldRate),
-          price: stotale * (PRICING.base + p.fixe + (PRICING.coefOr + p.orSupp) * goldFactor)
-        }));
-        const pricesArgent = PRICING.prestationsArgent.map(p => ({
-          label: p.label, code: p.code, coloris: p.coloris,
-          formula: buildSilverFormula(p, stotale, silverRate),
-          price: stotale * (PRICING.base + p.agCoef * silverRate / PRICING.diviseurArgent)
-        }));
-        const prices = prixTarifClient(await chargerTarifClient(), stotale) || [...pricesOr, ...pricesArgent];
+        const prices = await prixPourStotale(stotale);
 
         lastQuoteContext = {
           referenceClient: referenceInput.value.trim(),
@@ -8323,6 +8379,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           `;
           priceTableBody.appendChild(tr);
         });
+        signalerCoursManquants(prices);
 
         priceTableBody.querySelectorAll('button[data-code]').forEach(btn => {
           btn.addEventListener('click', async (e) => {
@@ -8375,8 +8432,8 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           referenceSupplier: (window.supplierRefInput?.value || '').trim() || null,
           description: descriptionInput.value.trim(),
           weight: weightG,
-          goldRate,
-          silverRate,
+          goldRate: Number(goldRateInput.value) || 0,
+          silverRate: Number(silverRateInput?.value) || 0,
           surfaceMm2,
           perimeterMm: null,
           heightMm: h,
