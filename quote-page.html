@@ -3890,6 +3890,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     let aiMaskOffscreen = null;   // HTMLCanvasElement — cached green overlay
     let aiMaskBBox      = null;   // { x0, y0, x1, y1 } du masque affiché (cadrage des aperçus)
     let aiMetrics       = null;   // { areaPx, perimeterPx } from AI mask
+    let aiEdgeFraction  = 0;      // part du pourtour de l'image touchée par le contour IA
     let hybridMode      = false;  // AI + manual complement mode (add zones)
     let eraseMode       = false;  // AI + manual subtract mode (remove zones)
     let subtractContours = [];    // polygons that are subtracted from the AI mask
@@ -6231,14 +6232,14 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           const center = weight > 0 ? weightedX / weight : (start + end) / 2;
           const topDark = maxAround(topPresence, Math.round(center), 2);
           if (groupWidth <= maxGroupWidth && (topDark > 0 || maxScore > threshold * 1.25)) {
-            ticks.push({
-              x: center, y0, y1, width: groupWidth, score: maxScore, topDark,
-              length: estimateTickLength(imageData, center, y0, y1, darkLimit)
-            });
+            ticks.push({ x: center, y0, y1, width: groupWidth, score: maxScore, topDark });
           }
         } else { x++; }
       }
-      return mergeCloseTicks(ticks, 2.6);
+      // Longueurs mesurées plus tard (measureTickLengths), seulement sur les bandes retenues
+      const merged = mergeCloseTicks(ticks, 2.6);
+      merged.band = { y0, y1, minContrast: Math.max(10, (brightBase - darkBase) * 0.12) };
+      return merged;
     }
 
     function detectTicksFromEdge(imageData, ruler, sensitivity, edge) {
@@ -6273,20 +6274,59 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       return detectTicksInBand(imageData, ruler, sensitivity, y0, y1);
     }
 
-    function estimateTickLength(imageData, center, y0, y1, darkLimit) {
-      const { data, width } = imageData;
+    // Longueur d'un trait = plus long segment vertical continu où la colonne (±1 px)
+    // est nettement plus sombre que ses deux voisines à ±halfGap (mi-chemin des
+    // traits adjacents). Ce critère « trait fin » ignore le fond et le bijou (sombres
+    // mais uniformes), marche que les traits partent du bord haut ou bas, et sépare
+    // les chiffres (blocs détachés du trait). Le segment doit croiser la bande, puis
+    // il est suivi au-delà jusqu'à son extrémité réelle : la longueur ne dépend pas
+    // de la position de la bande sur la règle.
+    function estimateTickLength(imageData, center, y0, y1, halfGap, minContrast) {
+      const { data, width, height } = imageData;
       const cx = Math.round(center);
-      let bottomMost = 0;
-      for (let y = y0; y <= y1; y += 1) {
-        let dark = false;
-        for (let dx = -1; dx <= 1; dx += 1) {
-          const x = clamp(cx + dx, 0, width - 1);
-          const i = (y * width + x) * 4;
-          if (luma(data[i], data[i + 1], data[i + 2]) < darkLimit) { dark = true; break; }
+      const d = Math.max(2, Math.round(halfGap));
+      const xl = clamp(cx - d, 0, width - 1), xr = clamp(cx + d, 0, width - 1);
+      const maxExt = 3 * (y1 - y0 + 1);
+      const yMin = Math.max(0, y0 - maxExt), yMax = Math.min(height - 1, y1 + maxExt);
+      const lumAt = (x, y) => { const i = (y * width + x) * 4; return luma(data[i], data[i + 1], data[i + 2]); };
+      const isLine = y => {
+        let lumC = 255;
+        for (let dx = -1; dx <= 1; dx += 1) lumC = Math.min(lumC, lumAt(clamp(cx + dx, 0, width - 1), y));
+        return Math.min(lumAt(xl, y), lumAt(xr, y)) - lumC >= minContrast;
+      };
+      // Une ligne claire isolée est tolérée dans un segment (anticrénelage).
+      let best = { length: 0, top: y0, bottom: y0 }, y = y0;
+      while (y <= y1) {
+        if (!isLine(y)) { y += 1; continue; }
+        let top = y, bottom = y, gap = 0;
+        for (let yy = y - 1; yy >= yMin; yy -= 1) {
+          if (isLine(yy)) { top = yy; gap = 0; } else if (++gap > 1) break;
         }
-        if (dark) bottomMost = y - y0 + 1;
+        gap = 0;
+        for (let yy = y + 1; yy <= yMax; yy += 1) {
+          if (isLine(yy)) { bottom = yy; gap = 0; } else if (++gap > 1) break;
+        }
+        if (bottom - top + 1 > best.length) best = { length: bottom - top + 1, top, bottom };
+        y = bottom + 2;
       }
-      return bottomMost;
+      return best;
+    }
+
+    // Mesure la longueur de chaque trait, l'écart aux voisins donnant le pas local.
+    function measureTickLengths(imageData, ticks) {
+      if (!ticks.band) return ticks;
+      const { y0, y1, minContrast } = ticks.band;
+      for (let i = 0; i < ticks.length; i += 1) {
+        const prev = i > 0 ? ticks[i].x - ticks[i - 1].x : Infinity;
+        const next = i < ticks.length - 1 ? ticks[i + 1].x - ticks[i].x : Infinity;
+        const gap = Math.min(prev, next);
+        const run = estimateTickLength(imageData, ticks[i].x, y0, y1,
+          Number.isFinite(gap) ? gap / 2 : 3, minContrast);
+        ticks[i].length = run.length;
+        ticks[i].runTop = run.top;
+        ticks[i].runBottom = run.bottom;
+      }
+      return ticks;
     }
 
     function mergeCloseTicks(ticks, minDistance) {
@@ -6303,17 +6343,23 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       return merged;
     }
 
-    function estimateSpacing(ticks, ruler, mmPerTick) {
+    // Trouve le pas régulier des graduations (en px), puis identifie le type de
+    // graduation (5 mm, 1 mm, ½ mm, pouces) pour convertir ce pas en mm.
+    function estimateSpacing(ticks, ruler) {
       const positions = ticks.map(t => t.x).filter(x => x >= ruler.left && x <= ruler.right).sort((a, b) => a - b);
       if (positions.length < 6) return null;
 
       const rulerWidth = Math.max(1, ruler.right - ruler.left + 1);
       const minStep = Math.max(2.5, rulerWidth / 700);
-      const maxStep = Math.min(120, Math.max(18, rulerWidth / 8));
+      // Pas max large : une règle graduée tous les 5 mm photographiée de près
+      // peut avoir 150-300 px entre deux traits.
+      const maxStep = Math.min(400, Math.max(18, rulerWidth / 6));
       const anchors = positions.filter((_, index) => index % Math.max(1, Math.floor(positions.length / 24)) === 0);
       let best = null;
 
-      for (let step = minStep; step <= maxStep; step += 0.05) {
+      // Incrément relatif au-delà de ~33 px : même précision relative, sans
+      // exploser le nombre d'essais sur la plage élargie.
+      for (let step = minStep; step <= maxStep; step += Math.max(0.05, step * 0.0015)) {
         const tolerance = Math.max(1.05, step * 0.22);
         for (const anchor of anchors) {
           const usedSlots = new Set();
@@ -6343,59 +6389,132 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       const expectedSlots = Math.max(1, Math.round(rulerWidth / best.step));
       const density = clamp(positions.length / Math.max(8, expectedSlots * 0.55), 0, 1);
       const confidence = clamp(0.42 * fitQuality + 0.28 * best.coverage + 0.18 * best.matchRatio + 0.12 * density, 0, 1);
-      const majorAlignment = estimateMajorAlignment(ticks, ruler, best);
+      const grad = classifyGraduation(ticks, ruler, best.step, best.anchor, best.tolerance);
+      const pxPerMm = best.step / grad.mmPerStep;
 
       return {
-        stepPx: best.step, pxPerMm: best.step / mmPerTick,
-        pxPerCm: (best.step / mmPerTick) * 10, mmPerPx: mmPerTick / best.step,
-        anchor: best.anchor, majorOffset: majorAlignment.offset, majorAnchor: majorAlignment.anchor,
-        majorMatchedTicks: majorAlignment.matched, matched: best.matched,
-        estimatedTickCount: expectedSlots + 1, fitQuality, coverage: best.coverage, confidence
+        stepPx: best.step, mmPerStep: grad.mmPerStep,
+        pxPerMm, pxPerCm: pxPerMm * 10, mmPerPx: 1 / pxPerMm,
+        graduation: grad.id, graduationLabel: grad.label, unit: grad.unit,
+        graduationConfidence: grad.confidence,
+        anchor: best.anchor, majorAnchor: grad.majorAnchor, majorPx: best.step * grad.cycle,
+        majorMatchedTicks: grad.majorMatched, matched: best.matched,
+        estimatedTickCount: expectedSlots + 1, fitQuality, coverage: best.coverage,
+        // Type de graduation incertain → confiance réduite (garde-fou de l'enchaînement auto)
+        confidence: confidence * (0.5 + 0.5 * grad.confidence)
       };
     }
 
-    function estimateMajorAlignment(ticks, ruler, spacing) {
-      const visibleTicks = ticks.filter(t => t.x >= ruler.left && t.x <= ruler.right && Number.isFinite(t.length) && t.length > 0);
-      if (!visibleTicks.length) return { offset: 0, anchor: spacing.anchor, matched: 0 };
+    // Types de graduation reconnus. mmPerStep = valeur du pas fin. Sur un cycle
+    // (1 cm ou 1 pouce), classOf(s) range le trait n° s par famille de longueur :
+    // 0 = grand trait (cm / pouce), puis du plus long au plus court.
+    const GRADUATION_TYPES = [
+      { id: 'mm5',  label: 'tous les 5 mm',    unit: 'cm', mmPerStep: 5,   cycle: 2,
+        classOf: s => s },
+      { id: 'mm1',  label: 'au mm',            unit: 'cm', mmPerStep: 1,   cycle: 10,
+        classOf: s => s === 0 ? 0 : s === 5 ? 1 : 2 },
+      { id: 'mm05', label: 'au ½ mm',          unit: 'cm', mmPerStep: 0.5, cycle: 20,
+        classOf: s => s === 0 ? 0 : s === 10 ? 1 : s % 2 === 0 ? 2 : 3 },
+      { id: 'in8',  label: 'en pouces (1/8)',  unit: 'in', mmPerStep: 25.4 / 8,  cycle: 8,
+        classOf: s => s === 0 ? 0 : s === 4 ? 1 : s % 2 === 0 ? 2 : 3 },
+      { id: 'in16', label: 'en pouces (1/16)', unit: 'in', mmPerStep: 25.4 / 16, cycle: 16,
+        classOf: s => s === 0 ? 0 : s === 8 ? 1 : s % 4 === 0 ? 2 : s % 2 === 0 ? 3 : 4 },
+    ];
+    const INCH_BIC_PENALTY = 4; // clientèle française : à ajustement égal, le métrique l'emporte
 
-      const lengths = visibleTicks.map(t => t.length);
-      const strongThreshold = percentile(lengths, 86);
-      let majorTicks = visibleTicks.filter(t => t.length >= strongThreshold);
-      if (majorTicks.length < 4) {
-        const relaxedThreshold = percentile(lengths, 74);
-        majorTicks = visibleTicks.filter(t => t.length >= relaxedThreshold);
+    // Identifie le type de graduation d'après le motif des longueurs de traits
+    // le long de la grille (pas `step`) : au mm, 1 grand trait sur 10 et un moyen
+    // au milieu ; au ½ mm, 1 sur 20 ; tous les 5 mm, 1 sur 2… Chaque hypothèse
+    // (type × décalage du grand trait) est un modèle « une longueur moyenne par
+    // famille » ; on garde le meilleur BIC (ajustement pénalisé par le nombre de
+    // familles, pour ne pas préférer à tort un motif plus riche que le réel).
+    // confidence ∈ [0,1] : écart avec la meilleure hypothèse d'échelle différente.
+    function classifyGraduation(ticks, ruler, step, anchor, tolerance) {
+      const items = [];
+      for (const t of ticks) {
+        if (t.x < ruler.left || t.x > ruler.right || !(t.length > 0)) continue;
+        const slot = Math.round((t.x - anchor) / step);
+        if (Math.abs(t.x - (anchor + slot * step)) <= tolerance) items.push({ slot, len: t.length, x: t.x, w: t.width || 1 });
       }
+      // Sans motif exploitable : hypothèse historique « 1 trait = 1 mm », aucun
+      // grand trait identifié (→ vérification humaine demandée).
+      const fallback = { ...GRADUATION_TYPES[1], majorAnchor: anchor, majorMatched: 0, confidence: 0 };
+      const n = items.length;
+      if (n < 8) return fallback;
 
-      const scores = new Array(10).fill(0);
-      const counts = new Array(10).fill(0);
-      const anchorSums = new Array(10).fill(0);
-      const anchorWeights = new Array(10).fill(0);
-      const tolerance = Math.max(1.2, spacing.step * 0.32);
+      let xMin = Infinity, xMax = -Infinity, mean = 0;
+      for (const it of items) { xMin = Math.min(xMin, it.x); xMax = Math.max(xMax, it.x); mean += it.len; }
+      mean /= n;
+      let sst = 0;
+      for (const it of items) sst += (it.len - mean) ** 2;
+      // Plancher = précision réaliste de mesure d'un trait (≈1,5 px ou 4 %) : des
+      // écarts plus fins (chiffres, rééchantillonnage) ne doivent pas faire préférer
+      // un motif plus riche que le réel.
+      const noise = Math.max(1.5, 0.04 * mean);
+      const bic = (ssw, k) => n * Math.log(Math.max(ssw, n * noise * noise) / n) + k * Math.log(n);
+      const nullBic = bic(sst, 1);
+      const orderTol = 1.5 + 0.08 * mean;
+      const medWidthPx = percentile(items.map(it => it.w), 50);
 
-      for (const tick of majorTicks) {
-        const slot = Math.round((tick.x - spacing.anchor) / spacing.step);
-        const projected = spacing.anchor + slot * spacing.step;
-        const error = Math.abs(tick.x - projected);
-        if (error > tolerance * 1.75) continue;
-        const offset = positiveModulo(slot, 10);
-        const lengthWeight = tick.length / Math.max(1, strongThreshold);
-        const scoreWeight = Math.sqrt(Math.max(0.1, tick.score || 0.1));
-        const closeness = 1 - error / (tolerance * 1.75);
-        const weight = Math.max(0.05, closeness) * (0.8 + lengthWeight) * scoreWeight;
-        const cmSlot = (slot - offset) / 10;
-        const majorAnchor = tick.x - cmSlot * spacing.step * 10;
-        scores[offset] += weight;
-        anchorSums[offset] += majorAnchor * weight;
-        anchorWeights[offset] += weight;
-        counts[offset] += 1;
+      const fits = [];
+      for (const type of GRADUATION_TYPES) {
+        // Longueur de règle visible plausible (8 mm – 80 cm) sous cette hypothèse
+        const extentMm = (xMax - xMin) / step * type.mmPerStep;
+        if (extentMm < 8 || extentMm > 800) continue;
+        // Épaisseur de trait plausible : une hypothèse qui impliquerait des traits de
+        // plus de 1 mm d'épaisseur est physiquement exclue (règle au ½ mm lue « 5 mm »).
+        if (medWidthPx / step * type.mmPerStep > 1) continue;
+        let nClass = 0;
+        for (let s = 0; s < type.cycle; s++) nClass = Math.max(nClass, type.classOf(s) + 1);
+        for (let phase = 0; phase < type.cycle; phase++) {
+          const sum = new Array(nClass).fill(0), sq = new Array(nClass).fill(0), cnt = new Array(nClass).fill(0);
+          for (const it of items) {
+            const c = type.classOf(positiveModulo(it.slot - phase, type.cycle));
+            sum[c] += it.len; sq[c] += it.len * it.len; cnt[c] += 1;
+          }
+          // Un seul grand trait visible suffit pour départager les types ; le
+          // garde-fou de l'enchaînement auto exige de toute façon 3 cm lisibles.
+          if (cnt[0] < 1) continue;
+          let ssw = 0, k = 0, prevMean = Infinity, ordered = true;
+          for (let c = 0; c < nClass; c++) {
+            if (!cnt[c]) continue;
+            const m = sum[c] / cnt[c];
+            // Familles de la plus longue à la plus courte (le grand trait d'abord)
+            if (m > prevMean + orderTol) { ordered = false; break; }
+            prevMean = Math.min(prevMean, m);
+            ssw += sq[c] - sum[c] * m;
+            k += 1;
+          }
+          if (!ordered) continue;
+          fits.push({ type, phase, majorCount: cnt[0], finestShare: cnt[nClass - 1] / n,
+            bic: bic(ssw, k) + (type.unit === 'in' ? INCH_BIC_PENALTY : 0) });
+        }
       }
+      if (!fits.length) return fallback;
+      fits.sort((a, b) => a.bic - b.bic);
+      const best = fits[0];
+      const structure = clamp((nullBic - best.bic - 2) / 8, 0, 1);
+      if (structure < 0.3) return fallback;
+      const rival = fits.find(f => Math.abs(f.type.mmPerStep / best.type.mmPerStep - 1) > 0.02);
+      const margin = rival ? rival.bic - best.bic : 20;
+      const confidence = Math.min(structure, clamp((margin - 1) / 6, 0, 1));
 
-      let bestOffset = 0;
-      for (let offset = 1; offset < scores.length; offset += 1) {
-        if (scores[offset] > scores[bestOffset]) bestOffset = offset;
+      // Position du grand trait (cm / pouce) : moyenne des grands traits ramenés sur un cycle
+      const cyclePx = step * best.type.cycle;
+      const a0 = anchor + best.phase * step;
+      let anchorSum = 0, anchorCount = 0;
+      for (const it of items) {
+        if (positiveModulo(it.slot - best.phase, best.type.cycle) !== 0) continue;
+        anchorSum += it.x - Math.round((it.x - a0) / cyclePx) * cyclePx;
+        anchorCount += 1;
       }
-      if (scores[bestOffset] <= 0) return { offset: 0, anchor: spacing.anchor, matched: 0 };
-      return { offset: bestOffset, anchor: anchorSums[bestOffset] / Math.max(1, anchorWeights[bestOffset]), matched: counts[bestOffset] };
+      // Grille au ½ mm dont les demi-positions sont presque vides : c'est une règle
+      // au mm vue sur une grille deux fois trop fine. L'échelle (0,5 mm par pas) est
+      // juste ; seul le libellé affiché change.
+      const label = best.type.id === 'mm05' && best.finestShare < 0.15
+        ? { id: 'mm1', label: GRADUATION_TYPES[1].label } : {};
+      return { ...best.type, ...label, majorAnchor: anchorCount ? anchorSum / anchorCount : a0,
+        majorMatched: best.majorCount, confidence };
     }
 
     function nearestTick(ticks, targetX, tolerance) {
@@ -6409,25 +6528,29 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     }
 
     function chooseTrustedScaleSegment(ruler, ticks, spacing) {
+      // Segment de 10 mm partant d'un grand trait (cm, ou pouce sur une face en
+      // pouces) ; on y vérifie les traits attendus tous les `stepPx`.
       const gridAnchor = Number.isFinite(spacing.majorAnchor) ? spacing.majorAnchor : spacing.anchor;
-      const cmPx = spacing.stepPx * 10;
+      const segPx = spacing.pxPerMm * 10;
+      const majorPx = spacing.majorPx || segPx;
+      const nSteps = Math.floor(segPx / spacing.stepPx + 0.01);
       const inset = Math.max(6, spacing.stepPx * 0.75);
-      const firstCm = Math.ceil((ruler.left + inset - gridAnchor) / cmPx);
-      const lastCm = Math.floor((ruler.right - inset - gridAnchor - cmPx) / cmPx);
+      const firstCm = Math.ceil((ruler.left + inset - gridAnchor) / majorPx);
+      const lastCm = Math.floor((ruler.right - inset - gridAnchor - segPx) / majorPx);
       const tolerance = Math.max(1.3, spacing.stepPx * 0.36);
       const candidates = [];
 
       for (let cm = firstCm; cm <= lastCm; cm += 1) {
-        const x0 = gridAnchor + cm * cmPx;
-        const x1 = x0 + cmPx;
+        const x0 = gridAnchor + cm * majorPx;
+        const x1 = x0 + segPx;
         let score = 0, matched = 0;
-        for (let i = 0; i <= 10; i += 1) {
+        for (let i = 0; i <= nSteps; i += 1) {
           const targetX = x0 + i * spacing.stepPx;
           const nearest = nearestTick(ticks, targetX, tolerance);
           if (!nearest) continue;
           const closeness = 1 - nearest.distance / tolerance;
-          const lengthWeight = 0.55 + Math.min(1.1, nearest.tick.length / Math.max(1, ruler.bottom - ruler.top));
-          const endpointWeight = i === 0 || i === 10 ? 1.6 : i === 5 ? 1.25 : 1;
+          const lengthWeight = 0.55 + Math.min(1.1, (nearest.tick.length || 0) / Math.max(1, ruler.bottom - ruler.top));
+          const endpointWeight = i === 0 || i === nSteps ? 1.6 : 2 * i === nSteps ? 1.25 : 1;
           score += closeness * lengthWeight * endpointWeight;
           matched += 1;
         }
@@ -6524,7 +6647,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       c.lineWidth = Math.max(1, Math.round(scale));
       c.strokeStyle = "rgba(0, 220, 255, 0.75)";
       for (let i = 1; i < 10; i++) {
-        const tx  = segment.x0 + i * spacing.stepPx;
+        const tx  = segment.x0 + i * spacing.pxPerMm;
         const th  = i === 5 ? Math.round(capH * 0.75) : Math.round(capH * 0.45);
         c.beginPath();
         c.moveTo(tx, barY - th / 2); c.lineTo(tx, barY + th / 2);
@@ -6548,70 +6671,109 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     }
 
     // Scan horizontal strips to find the band with the best tick periodicity
-    // (does not require detectRuler to succeed first)
+    // (does not require detectRuler to succeed first). Renvoie aussi, dans
+    // `sides`, jusqu'à 3 bandes disjointes : les deux bords d'une règle peuvent
+    // porter des graduations différentes (mm / ½ mm, cm / pouces…).
     function detectRulerByTicks(imageData, sensitivity) {
       const { width, height } = imageData;
       const stripH = clamp(Math.round(height * 0.07), 20, 80);
       const step   = Math.max(3, Math.round(stripH * 0.35));
-
-      let bestScore = 0, bestRuler = null, bestTicks = [];
+      const strips = [];
 
       for (let y = 0; y <= height - stripH; y += step) {
-        const fakeRuler = {
+        const ruler = {
           top: y, bottom: y + stripH,
           left: 0, right: width - 1,
           confidence: 1
         };
-        const ticks = detectTicks(imageData, fakeRuler, sensitivity);
-        const score = quickTickScore(ticks);
-        if (score > bestScore) {
-          bestScore = score;
-          bestRuler = { ...fakeRuler };
-          bestTicks = ticks;
-        }
+        // On ne garde que les vrais traits (segment vertical mesurable) : un fond
+        // texturé produit beaucoup de faux « traits » réguliers mais sans longueur,
+        // qui battaient la règle.
+        const ticks = keepRealTicks(measureTickLengths(imageData, detectTicks(imageData, ruler, sensitivity)));
+        strips.push({ ruler, ticks, score: quickTickScore(ticks) });
       }
 
-      if (bestScore < 0.5 || bestTicks.length < 5) return null;
-      bestRuler.confidence = Math.min(1, bestScore / 8);
-      return { ruler: bestRuler, ticks: bestTicks };
+      strips.sort((a, b) => b.score - a.score);
+      const best = strips[0];
+      if (!best || best.score < 0.5 || best.ticks.length < 5) return null;
+      best.ruler.confidence = Math.min(1, best.score / 8);
+      const sides = [best];
+      for (const s of strips) {
+        if (sides.length >= 3) break;
+        if (s.score < best.score * 0.35 || s.ticks.length < 5) break;
+        if (sides.some(o => Math.abs(o.ruler.top - s.ruler.top) < stripH || sameTickRow(o.ticks, s.ticks))) continue;
+        s.ruler.confidence = Math.min(1, s.score / 8);
+        sides.push(s);
+      }
+      return { ruler: best.ruler, ticks: best.ticks, sides };
     }
 
-    // Correct half-tick detection: if major-tick gaps are ~2× stepPx, double the step
-    function validateSpacingByMajors(ticks, spacing, mmPerTick) {
-      if (!spacing || ticks.length < 10) return spacing;
+    // Graduations des deux bords d'une règle repérée par detectRuler.
+    function detectTickSides(imageData, ruler, sensitivity) {
+      return ['top', 'bottom'].map(edge =>
+        ({ ruler, ticks: keepRealTicks(measureTickLengths(imageData, detectTicksFromEdge(imageData, ruler, sensitivity, edge))) }));
+    }
 
-      const lengths = ticks.map(t => t.length || 0).filter(l => l > 0).sort((a, b) => a - b);
-      if (lengths.length < 5) return spacing;
-      const medLen = lengths[Math.floor(lengths.length / 2)];
+    // Écarte les faux traits (bruit, texture) : un vrai trait est un segment
+    // vertical d'au moins ~12 % de la hauteur de bande.
+    function keepRealTicks(ticks) {
+      if (!ticks.band) return ticks;
+      const minLen = Math.max(3, Math.round((ticks.band.y1 - ticks.band.y0 + 1) * 0.12));
+      const kept = ticks.filter(t => t.length >= minLen);
+      kept.band = ticks.band;
+      return kept;
+    }
 
-      const majors = ticks
-        .filter(t => (t.length || 0) > medLen * 1.4)
-        .map(t => t.x)
-        .sort((a, b) => a - b);
-      if (majors.length < 3) return spacing;
-
+    // Deux bandes voient-elles la même rangée de traits ? On compare les segments
+    // verticaux à la même abscisse (à ~3 pas près) : s'ils se recouvrent, c'est la
+    // même rangée (une règle un peu penchée est vue par plusieurs bandes). Sans
+    // zone commune pour comparer, on ne peut pas affirmer deux bords distincts.
+    function sameTickRow(ticksA, ticksB) {
+      const A = ticksA.slice().sort((a, b) => a.x - b.x), B = ticksB.slice().sort((a, b) => a.x - b.x);
       const gaps = [];
-      for (let i = 1; i < majors.length; i++) {
-        const g = majors[i] - majors[i - 1];
-        if (g > spacing.stepPx * 2.5) gaps.push(g);
+      for (let i = 1; i < A.length; i++) gaps.push(A[i].x - A[i - 1].x);
+      const win = 3 * Math.max(1, percentile(gaps, 50));
+      let comparable = 0, overlapping = 0, j = 0;
+      for (const a of A) {
+        while (j < B.length - 1 && Math.abs(B[j + 1].x - a.x) <= Math.abs(B[j].x - a.x)) j++;
+        const near = B[j];
+        if (!near || Math.abs(near.x - a.x) > win) continue;
+        comparable++;
+        if (Math.min(a.runBottom, near.runBottom) - Math.max(a.runTop, near.runTop) >= 0) overlapping++;
       }
-      if (gaps.length < 2) return spacing;
-      gaps.sort((a, b) => a - b);
-      const medGap = gaps[Math.floor(gaps.length / 2)];
-      const ratio  = medGap / spacing.stepPx;
+      return comparable < 5 || overlapping > comparable / 2;
+    }
 
-      if (ratio > 14 && ratio < 28) {
-        const newStep = spacing.stepPx * 2;
-        return {
-          ...spacing,
-          stepPx: newStep,
-          pxPerMm: newStep / mmPerTick,
-          pxPerCm: (newStep / mmPerTick) * 10,
-          mmPerPx: mmPerTick / newStep,
-          _corrected: true
-        };
+    // Évalue chaque bord candidat (pas + type de graduation) et garde le plus
+    // fiable, le métrique avant les pouces. Deux bords sûrs d'eux appartiennent
+    // à la même règle : leurs échelles doivent concorder, sinon on baisse la
+    // confiance pour forcer une vérification.
+    function pickRulerSide(sides) {
+      const results = [];
+      for (const { ruler, ticks } of sides) {
+        const spacing = estimateSpacing(ticks, ruler);
+        if (!spacing || spacing.matched < 5) continue;
+        const unitWeight = spacing.unit === 'in' ? 0.7 : 1;
+        results.push({ ruler, ticks, spacing,
+          rank: spacing.matched * spacing.confidence * (0.4 + 0.6 * spacing.graduationConfidence) * unitWeight });
       }
-      return spacing;
+      if (!results.length) return null;
+      results.sort((a, b) => b.rank - a.rank);
+      const best = results[0];
+      const sure = r => r.spacing.graduationConfidence >= 0.6 && r.spacing.majorMatchedTicks >= 3;
+      const other = results.slice(1).find(r => sure(r) && !sameTickRow(r.ticks, best.ticks));
+      if (other && sure(best)) {
+        const ratio = best.spacing.pxPerMm / other.spacing.pxPerMm;
+        if (Math.abs(ratio - 1) < 0.04) {
+          best.spacing.crossCheck = other.spacing.graduationLabel;
+          best.spacing.confidence = Math.min(1, best.spacing.confidence + 0.1);
+        } else {
+          best.spacing.crossConflict = other.spacing.graduationLabel;
+          best.spacing.confidence *= 0.6;
+        }
+      }
+      return { ruler: best.ruler, ticks: best.ticks, spacing: best.spacing,
+        score: best.spacing.matched * best.spacing.confidence };
     }
 
     // ── 3-phase angle detection helpers (ported from calibrage-regle.html) ──
@@ -6695,22 +6857,17 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       return { imageData: invertCalibImageData(oc2.getImageData(0, 0, rW, rH)), rW, rH, W, H, rad, angleDeg };
     }
 
-    function tryDetectionAtAngleCalib(angleDeg, sensitivity, mmPerTick) {
+    function tryDetectionAtAngleCalib(angleDeg, sensitivity) {
       const rotData = getRotatedDataCalib(angleDeg);
       const tickResult = detectRulerByTicks(rotData.imageData, sensitivity);
       if (tickResult) {
-        const sp = estimateSpacing(tickResult.ticks, tickResult.ruler, mmPerTick);
-        if (sp && sp.matched >= 5) {
-          return { ruler: tickResult.ruler, ticks: tickResult.ticks, spacing: sp, rotData, score: sp.matched * sp.confidence };
-        }
+        const picked = pickRulerSide(tickResult.sides);
+        if (picked) return { ...picked, rotData };
       }
       const ruler = detectRuler(rotData.imageData, sensitivity, 0);
       if (ruler) {
-        const ticks = detectTicks(rotData.imageData, ruler, sensitivity);
-        const sp = estimateSpacing(ticks, ruler, mmPerTick);
-        if (sp && sp.matched >= 5) {
-          return { ruler, ticks, spacing: sp, rotData, score: sp.matched * sp.confidence };
-        }
+        const picked = pickRulerSide(detectTickSides(rotData.imageData, ruler, sensitivity));
+        if (picked) return { ...picked, rotData };
       }
       return null;
     }
@@ -6746,7 +6903,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     // skipIfFlat : passes de secours sur mobile — si la recherche grossière (image 300 px,
     // peu coûteuse) ne voit aucune graduation sous aucun angle, on ne lance pas la détection
     // pleine image (~10 s par candidat sur téléphone).
-    async function searchRulerAtSensitivity(sensitivity, mmPerTick, fastPath, statusPrefix = '', skipIfFlat = false) {
+    async function searchRulerAtSensitivity(sensitivity, fastPath, statusPrefix = '', skipIfFlat = false) {
       const candidates = [];
       if (fastPath) {
         autoScaleStatus.textContent = statusPrefix + 'Détection des graduations…';
@@ -6776,7 +6933,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       await yieldUI();
       let best = null, fineAngle = candidates[0] ?? 0;
       for (const angle of candidates) {
-        const result = tryDetectionAtAngleCalib(angle, sensitivity, mmPerTick);
+        const result = tryDetectionAtAngleCalib(angle, sensitivity);
         if (result && (!best || result.score > best.score)) {
           best = result;
           fineAngle = angle;
@@ -6784,7 +6941,8 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         // Mobile : le 2e candidat est en général le même angle à 180° ; une
         // détection pleine image coûte ~10 s sur téléphone → on s'arrête dès qu'un
         // candidat est assez fiable pour l'enchaînement automatique.
-        if (best && FA.isMobile && best.spacing.confidence >= 0.5 && (best.spacing.majorMatchedTicks || 0) >= 3) break;
+        if (best && FA.isMobile && best.spacing.confidence >= 0.5 && (best.spacing.majorMatchedTicks || 0) >= 3
+            && best.spacing.graduationConfidence >= 0.6) break;
       }
       return { best, fineAngle };
     }
@@ -6801,7 +6959,6 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       if (!_recalibratingAfterCrop) _calibInvert = false;
 
       try {
-        const mmPerTick = 1;
         // Mobile : sans règle sur la photo, toutes les passes de secours échouent l'une
         // après l'autre (jusqu'à ~1 min). Au-delà de ce budget, on abandonne : le client
         // reprend sa photo ou l'envoie à Fontart, plutôt que d'attendre.
@@ -6812,12 +6969,12 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
 
         // Tentative principale. pxPerMm est inchangé par le recadrage
         // (rotation + crop sans redimensionnement).
-        let { best, fineAngle } = await searchRulerAtSensitivity(0.55, mmPerTick, _recalibratingAfterCrop);
+        let { best, fineAngle } = await searchRulerAtSensitivity(0.55, _recalibratingAfterCrop);
 
         // Filet de sécurité : si le fast-path post-crop (0°) échoue, on retombe
         // sur la recherche complète des 8 angles avant d'abandonner.
         if (!best && _recalibratingAfterCrop) {
-          ({ best, fineAngle } = await searchRulerAtSensitivity(0.55, mmPerTick, false));
+          ({ best, fineAngle } = await searchRulerAtSensitivity(0.55, false));
         }
 
         // Échelle de secours : autres sensibilités (règles peu contrastées),
@@ -6825,13 +6982,13 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         if (!best) {
           for (const sensitivity of [0.35, 0.75]) {
             if (!budgetLeft()) break;
-            ({ best, fineAngle } = await searchRulerAtSensitivity(sensitivity, mmPerTick, false, 'Nouvel essai – ', flatSkip));
+            ({ best, fineAngle } = await searchRulerAtSensitivity(sensitivity, false, 'Nouvel essai – ', flatSkip));
             if (best) break;
           }
         }
         if (!best && budgetLeft()) {
           _calibInvert = true;
-          ({ best, fineAngle } = await searchRulerAtSensitivity(0.55, mmPerTick, false, 'Essai règle sombre – ', flatSkip));
+          ({ best, fineAngle } = await searchRulerAtSensitivity(0.55, false, 'Essai règle sombre – ', flatSkip));
           if (!best) _calibInvert = false;
         }
         if (!best) console.log(`[calib] règle non trouvée en ${Math.round(performance.now() - tCalib)} ms`);
@@ -6855,7 +7012,6 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           return;
         }
 
-        best.spacing = validateSpacingByMajors(best.ticks, best.spacing, mmPerTick);
         const { ruler, ticks, spacing, rotData } = best;
         const { W, H, rW, rH } = rotData;
 
@@ -6863,11 +7019,14 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         // ici, mais on VERROUILLE l'échelle sur la 1re calibration (invariante au
         // recadrage). Empêche toute dérive de l'échelle (« 10 mm » faux).
         if (_recalibratingAfterCrop && _lockedPxPerMm) {
-          spacing.stepPx  = _lockedPxPerMm * mmPerTick;
+          // Le pas détecté reste valable ; seule sa valeur en mm suit l'échelle verrouillée.
+          spacing.mmPerStep = spacing.stepPx / _lockedPxPerMm;
           spacing.pxPerMm = _lockedPxPerMm;
           spacing.pxPerCm = _lockedPxPerMm * 10;
           spacing.mmPerPx = 1 / _lockedPxPerMm;
         }
+
+        ruler.body = findRulerBody(rotData.imageData, ruler, ticks, spacing);
 
         const absAngle = Math.abs(fineAngle % 180);
         const isVertical = absAngle > 45 && absAngle < 135;
@@ -6890,8 +7049,10 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
 
         const conf = Math.round(clamp(ruler.confidence * 0.35 + spacing.confidence * 0.65, 0, 1) * 100);
         const orient = isVertical ? ' (verticale)' : '';
-        const corrInfo = spacing._corrected ? ' [corrigé ×2]' : '';
-        autoScaleStatus.textContent = `Règle détectée${orient} — ${spacing.pxPerMm.toFixed(2)} px/mm · confiance ${conf} %${corrInfo}`;
+        const gradInfo = spacing.graduationConfidence > 0 ? ` · graduée ${spacing.graduationLabel}` : '';
+        const sideInfo = spacing.crossCheck ? ` (confirmé par l'autre bord, ${spacing.crossCheck})`
+          : spacing.crossConflict ? ` ⚠ l'autre bord (${spacing.crossConflict}) ne concorde pas` : '';
+        autoScaleStatus.textContent = `Règle détectée${orient}${gradInfo}${sideInfo} — ${spacing.pxPerMm.toFixed(2)} px/mm · confiance ${conf} %`;
         setStatus(`Règle calibrée à ${spacing.pxPerMm.toFixed(2)} px/mm.`);
         autoScaleAcceptBtn.disabled = false;
         calibCropBtn.style.display = '';
@@ -6919,12 +7080,16 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           // identifiées. Le cas piège « demi-graduations prises pour des cm »
           // (échelle ÷2) se reconnaît justement à un faible nombre de cm alignés,
           // même quand l'espacement régulier donne une confiance élevée.
+          // Le type de graduation (5 mm, 1 mm, ½ mm, pouces) doit aussi être reconnu
+          // sans ambiguïté : une erreur de type fausse l'échelle d'un facteur 2 à 10.
           // Seuils volontairement prudents et ajustables selon les retours terrain.
           const CALIB_MIN_CONF   = 50;   // % de confiance minimum (ajustable)
           const CALIB_MIN_MAJORS = 3;    // nb min de grandes graduations (cm) alignées (ajustable)
+          const CALIB_MIN_GRAD   = 0.6;  // confiance min sur le type de graduation (ajustable)
           const majors = spacing.majorMatchedTicks || 0;
+          const gradOk = (spacing.graduationConfidence || 0) >= CALIB_MIN_GRAD;
 
-          if (conf >= CALIB_MIN_CONF && majors >= CALIB_MIN_MAJORS) {
+          if (conf >= CALIB_MIN_CONF && majors >= CALIB_MIN_MAJORS && gradOk) {
             startAutoChain();
           } else {
             // Détection douteuse → on s'arrête et on demande une vérification humaine
@@ -6936,7 +7101,8 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
             } else {
               autoScaleStatus.textContent =
                 `⚠ Échelle à vérifier (confiance ${conf} %, ${majors} graduation(s) cm détectée(s)). ` +
-                `Comparez l'espacement orange à votre règle (1 graduation = 1 cm ?). ` +
+                (gradOk ? `` : `Type de graduation incertain (lu : ${spacing.graduationLabel}). `) +
+                `Vérifiez que le repère orange « 10 mm » couvre bien 1 cm de votre règle. ` +
                 `Si c'est faux, cliquez « Calibrer manuellement ».`;
               setStatus('Échelle incertaine : vérifiez les graduations oranges sur la règle, ' +
                 'puis « Utiliser cette calibration », ou « Calibrer manuellement ».', true);
@@ -7016,6 +7182,43 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     // RMBG sur le recadrage (l'objet remplit le cadre → contour bien plus fin)
     // et on remplace le masque, sauf si l'utilisateur a commencé à éditer.
     let _refineToken = 0;
+
+    // Part de l'image couverte par le masque au seuil donné, et part du pourtour
+    // de l'image touchée par le masque (un bijou ne touche normalement pas les bords).
+    function maskCoverage(mask, conn, w, h, thr) {
+      const inside = buildBinaryMask(mask, w, h, thr, null, null, conn);
+      let area = 0;
+      for (let i = 0; i < inside.length; i++) area += inside[i];
+      return { area: area / (w * h), border: maskEdgeFraction(inside, w, h) };
+    }
+
+    function maskEdgeFraction(inside, w, h) {
+      let edge = 0;
+      for (let x = 0; x < w; x++) edge += inside[x] + inside[(h - 1) * w + x];
+      for (let y = 0; y < h; y++) edge += inside[y * w] + inside[y * w + w - 1];
+      return edge / (2 * (w + h));
+    }
+
+    // Après le recadrage automatique, un contour juste ne touche pas les bords de
+    // la photo. S'il les touche, soit le fond a été pris pour le bijou (fond coloré,
+    // métal poli qui le reflète), soit le bijou dépasse du cadre : la surface n'est
+    // pas fiable. Mesuré sur des photos d'atelier : 0 à 7 % du pourtour pour un
+    // contour correct, 19 à 27 % dans ces deux cas.
+    const CONTOUR_EDGE_MAX = 0.10;
+    const CONTOUR_EDGE_MSG = '⚠ Le contour touche le bord de la photo : le fond a peut-être été pris pour le bijou, ' +
+      'ou le bijou dépasse du cadre. Vérifiez la zone verte (« − Retirer », curseur Détail) ou dessinez le contour manuellement.';
+    // Moteur mobile : part du contour qui a la couleur du fond (cf. carveBackgroundFromMask).
+    // Mesuré : 0 à 5 % pour un contour correct, 89 % quand le modèle a pris l'intérieur
+    // d'un jonc ouvert (du papier) pour le bijou.
+    const CONTOUR_BG_MAX = 0.40;
+    const CONTOUR_BG_MSG = '⚠ Le contour semble couvrir surtout le fond de la photo et non le bijou. ' +
+      'Vérifiez la zone verte ou dessinez le contour manuellement.';
+    // Message d'alerte si la surface mesurée n'est pas fiable, sinon null
+    const contourWarning = () =>
+      aiEdgeFraction > CONTOUR_EDGE_MAX ? CONTOUR_EDGE_MSG
+      : (aiDetectedMask?.bgShare || 0) > CONTOUR_BG_MAX ? CONTOUR_BG_MSG
+      : null;
+
     function startMaskRefinement() {
       const token = ++_refineToken;
       // Mobile avec RMBG-1.4 : une 2e inférence (1024², wasm) coûte 30 à 60 s de plus pour
@@ -7033,13 +7236,29 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         if (!aiDetectedMask) return;
         if (hybridMode || eraseMode || manualContours.length > 0 || subtractContours.length > 0) return;
         if (workspaceCard.classList.contains('hidden')) return;
-        aiDetectedMask  = interpolateMaskToSize(maskRaw, w, h);
-        excludeRulerFromMask(aiDetectedMask, w, h);
-        aiConnectedMask = computeConnectedMask(aiDetectedMask, w, h);
+        const refined = interpolateMaskToSize(maskRaw, w, h);
+        excludeRulerFromMask(refined, w, h);
+        carveBackgroundFromMask(refined, w, h);
+        const refinedConn = computeConnectedMask(refined, w, h);
+        // Quand le bijou remplit le cadre (recadrage serré, fond coloré, plusieurs
+        // pièces), le modèle peut prendre le fond pour l'objet : le masque « affiné »
+        // déborde alors jusqu'aux bords de l'image. On garde le masque pré-calculé.
+        const thr = 0.85 * Math.pow(0.01 / 0.85, +aiCorrSlider.value / 10);
+        const before = maskCoverage(aiDetectedMask, aiConnectedMask, w, h, thr);
+        const after  = maskCoverage(refined, refinedConn, w, h, thr);
+        const flooded = (after.border > before.border + 0.15 && after.area > before.area * 1.25)
+                     || (after.border > 0.5 && before.border < 0.3);
+        if (flooded) {
+          console.log('[IA] affinage rejeté (fond inclus) :', before, '→', after);
+          return;
+        }
+        aiDetectedMask  = refined;
+        aiConnectedMask = refinedConn;
         reRenderAIMask(+aiCorrSlider.value);
         if (aiMetrics && aiMetrics.areaPx > 0) {
           aiAcceptBtn.disabled = false;
-          aiStatusEl.textContent = 'Contour affiné sur l\'image recadrée ✓ Ajustez le curseur si besoin.';
+          aiStatusEl.textContent = contourWarning() ||
+            'Contour affiné sur l\'image recadrée ✓ Ajustez le curseur si besoin.';
         }
       }).catch(() => {}); // en cas d'échec, le masque pré-calculé reste affiché
     }
@@ -7066,7 +7285,9 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         top:    clamp(r.top    - cy0, 0, cropH - 1),
         bottom: clamp(r.bottom - cy0, 0, cropH - 1),
         left:   clamp(r.left   - cx0, 0, cropW - 1),
-        right:  clamp(r.right  - cx0, 0, cropW - 1) };
+        right:  clamp(r.right  - cx0, 0, cropW - 1),
+        body: r.body && { ...r.body, top: r.body.top - cy0, bottom: r.body.bottom - cy0,
+                          left: r.body.left - cx0, right: r.body.right - cx0 } };
       if (ruler.bottom - ruler.top < 4 || ruler.right - ruler.left < 20) return false;
       const ticks = (prev.ticks || [])
         .filter(t => t.x >= cx0 && t.x < cx0 + cropW)
@@ -7334,9 +7555,63 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
 
     // ── AI contour detection ───────────────────────────────────────
 
-    // Zero out the ruler band in the AI mask using calibration data
+    // Corps complet de la règle (repère redressé) : la détection ne donne que la
+    // bande des graduations ; on la prolonge vers le haut et le bas tant que les
+    // lignes gardent majoritairement la couleur de la règle (max 45 mm de chaque
+    // côté), entre les traits extrêmes ± 12 mm. Sert à retirer toute la règle du
+    // contour du bijou, pas seulement la bande graduée.
+    function findRulerBody(imageData, ruler, ticks, spacing) {
+      const { data, width, height } = imageData;
+      const pxPerMm = spacing?.pxPerMm;
+      const runTicks = ticks
+        .filter(t => t.x >= ruler.left && t.x <= ruler.right && t.length > 0 && Number.isFinite(t.runTop))
+        .sort((a, b) => a.x - b.x);
+      if (!pxPerMm || runTicks.length < 2) return null;
+      const left  = clamp(Math.round(runTicks[0].x - 12 * pxPerMm), 0, width - 1);
+      const right = clamp(Math.round(runTicks[runTicks.length - 1].x + 12 * pxPerMm), left, width - 1);
+      const xStep = Math.max(1, Math.floor((right - left + 1) / 400));
+      const px = (x, y) => { const i = (y * width + x) * 4; return [data[i], data[i + 1], data[i + 2]]; };
+
+      // Les traits sont forcément sur la règle : on part de leur étendue verticale,
+      // et la couleur de référence est prise à mi-chemin entre deux traits voisins.
+      const yA = clamp(Math.round(percentile(runTicks.map(t => t.runTop), 50)), 0, height - 1);
+      const yB = clamp(Math.round(percentile(runTicks.map(t => t.runBottom), 50)), yA, height - 1);
+      const samples = [];
+      const yStep = Math.max(1, Math.floor((yB - yA + 1) / 20));
+      for (let i = 1; i < runTicks.length; i++) {
+        const x = Math.round((runTicks[i - 1].x + runTicks[i].x) / 2);
+        for (let y = yA; y <= yB; y += yStep) samples.push(px(x, y));
+      }
+      if (!samples.length) return null;
+      const ref = [0, 1, 2].map(k => percentile(samples.map(c => c[k]), 50));
+      const tol = 32;
+      const isRulerColor = c => Math.abs(c[0] - ref[0]) < tol && Math.abs(c[1] - ref[1]) < tol && Math.abs(c[2] - ref[2]) < tol;
+      const rowFraction = y => {
+        let hit = 0, n = 0;
+        for (let x = left; x <= right; x += xStep) { if (isRulerColor(px(x, y))) hit++; n++; }
+        return hit / Math.max(1, n);
+      };
+
+      const maxGrow = Math.round(45 * pxPerMm);
+      const grow = (start, dir) => {
+        let last = start, misses = 0;
+        for (let y = start + dir; y >= 0 && y < height && Math.abs(y - start) <= maxGrow; y += dir) {
+          if (rowFraction(y) >= 0.5) { last = y; misses = 0; }
+          else if (++misses > 3) break;
+        }
+        return last;
+      };
+      return { top: grow(yA, -1), bottom: grow(yB, 1), left, right, ref, tol,
+        inverted: _calibInvert, radius: Math.max(2, Math.round(1.5 * pxPerMm)) };
+    }
+
+    // Zero out the ruler band in the AI mask using calibration data.
+    // Si le corps de la règle est connu, l'effacement par couleur suffit (il couvre
+    // aussi la bande graduée) et préserve un bijou posé sur les graduations ; sinon
+    // on efface la bande graduée entière, comme avant.
     function excludeRulerFromMask(mask, w, h) {
       if (!autoCalibration?.ruler) return;
+      if (excludeRulerBodyFromMask(mask, w, h)) return;
       const { ruler, fineAngle = 0, origW: W = w, origH: H = h, rW = W, rH = H } = autoCalibration;
       const rad  = (fineAngle || 0) * Math.PI / 180;
       const cosA = Math.cos(rad), sinA = Math.sin(rad);
@@ -7365,6 +7640,297 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           }
         }
       }
+    }
+
+    // Retire du masque le corps de la règle (zone de findRulerBody élargie de 1,5 mm) :
+    // un pixel est effacé si au moins 35 % de son voisinage (± 1,5 mm) a la couleur
+    // de la règle — ce qui emporte aussi le liseré flou du bord de la règle.
+    // Chiffres et traits, fins, partent avec la règle ; un bijou posé dessus reste
+    // (ses pixels n'ont pas la couleur de la règle).
+    function excludeRulerBodyFromMask(mask, w, h) {
+      const body = autoCalibration?.ruler?.body;
+      if (!body || tempCanvas.width !== w || tempCanvas.height !== h) return false;
+      const { fineAngle = 0, origW: W = w, origH: H = h, rW = W, rH = H } = autoCalibration;
+      const rad = (fineAngle || 0) * Math.PI / 180;
+      const cosA = Math.cos(rad), sinA = Math.sin(rad);
+      const m = body.radius;
+      const zL = body.left - m, zR = body.right + m, zT = body.top - m, zB = body.bottom + m;
+      const corners = [[zL, zT], [zR, zT], [zR, zB], [zL, zB]]
+        .map(([rx, ry]) => {
+          const dx = rx - rW / 2, dy = ry - rH / 2;
+          return [dx * cosA + dy * sinA + W / 2, -dx * sinA + dy * cosA + H / 2];
+        });
+      const x0 = Math.max(0, Math.floor(Math.min(...corners.map(c => c[0]))));
+      const x1 = Math.min(w - 1, Math.ceil(Math.max(...corners.map(c => c[0]))));
+      const y0 = Math.max(0, Math.floor(Math.min(...corners.map(c => c[1]))));
+      const y1 = Math.min(h - 1, Math.ceil(Math.max(...corners.map(c => c[1]))));
+      if (x1 <= x0 || y1 <= y0) return false;
+      const bw = x1 - x0 + 1, bh = y1 - y0 + 1;
+      const img = tempCtx.getImageData(x0, y0, bw, bh).data;
+      const { ref, tol, inverted } = body;
+
+      // Sommes cumulées 2D : pixels de la zone / pixels couleur règle
+      const zoneSum = new Int32Array((bw + 1) * (bh + 1));
+      const rulerSum = new Int32Array((bw + 1) * (bh + 1));
+      for (let by = 0; by < bh; by++) {
+        let zoneRow = 0, rulerRow = 0;
+        for (let bx = 0; bx < bw; bx++) {
+          const dx = x0 + bx - W / 2, dy = y0 + by - H / 2;
+          const rx = dx * cosA - dy * sinA + rW / 2, ry = dx * sinA + dy * cosA + rH / 2;
+          if (rx >= zL && rx <= zR && ry >= zT && ry <= zB) {
+            zoneRow++;
+            const i = (by * bw + bx) * 4;
+            let r = img[i], g = img[i + 1], b = img[i + 2];
+            if (inverted) { r = 255 - r; g = 255 - g; b = 255 - b; }
+            if (Math.abs(r - ref[0]) < tol && Math.abs(g - ref[1]) < tol && Math.abs(b - ref[2]) < tol) rulerRow++;
+          }
+          const k = (by + 1) * (bw + 1) + bx + 1;
+          zoneSum[k]  = zoneSum[k - bw - 1]  + zoneRow;
+          rulerSum[k] = rulerSum[k - bw - 1] + rulerRow;
+        }
+      }
+      const rect = (S, ax, ay, bx, by) =>
+        S[(by + 1) * (bw + 1) + bx + 1] - S[ay * (bw + 1) + bx + 1] - S[(by + 1) * (bw + 1) + ax] + S[ay * (bw + 1) + ax];
+      const rad2 = body.radius;
+      for (let by = 0; by < bh; by++) {
+        const ay = Math.max(0, by - rad2), cy = Math.min(bh - 1, by + rad2);
+        for (let bx = 0; bx < bw; bx++) {
+          const mi = (y0 + by) * w + x0 + bx;
+          if (!(mask[mi] > 0)) continue;
+          if (rect(zoneSum, bx, by, bx, by) === 0) continue; // hors zone règle
+          const ax = Math.max(0, bx - rad2), cx = Math.min(bw - 1, bx + rad2);
+          const zone = rect(zoneSum, ax, ay, cx, cy);
+          if (zone > 0 && 20 * rect(rulerSum, ax, ay, cx, cy) >= 7 * zone) mask[mi] = 0;
+        }
+      }
+      return true;
+    }
+
+    // Moteur mobile (U²-Net-p, 320 px) : il voit les pièces ajourées comme pleines
+    // (mesuré : 1,0 de probabilité dans l'ouverture d'un mousqueton), la surface est
+    // alors surestimée. On retire du masque les ouvertures : zones qui ressemblent au
+    // fond de la photo (couleurs prélevées autour du bijou), pas au métal qui les
+    // borde, entièrement entourées de métal et assez larges (disque de 1 mm de rayon).
+    // Le métal poli reflète le fond : ses reflets sont des filets, et une patte en
+    // argent sur papier blanc touche l'extérieur du bijou — tous deux conservés.
+    // Enfin on rogne le liseré de fond que le contour à 320 px laisse autour du bijou.
+    const NEIGHBOURS_4 = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    function carveBackgroundFromMask(mask, w, h) {
+      if (!window._iaLight || tempCanvas.width !== w || tempCanvas.height !== h) return 0;
+      const n = w * h;
+      const px = tempCtx.getImageData(0, 0, w, h).data;
+      // Deux niveaux : les ouvertures se reconnaissent sur le contour sûr (≥ 0,5) ; le
+      // prolongement et le liseré travaillent sur tout ce que le curseur peut inclure
+      // (hystérésis jusqu'à HYST_LOW), là où se trouve le débord.
+      const inObj = new Uint8Array(n);
+      for (let i = 0; i < n; i++) if (mask[i] >= 0.5) inObj[i] = 1;
+
+      // Fond : pixels hors du bijou, hors bande de la règle (repère redressé après
+      // recadrage), regroupés en 3 couleurs (k-moyennes) pour les ombres et textures.
+      const body = autoCalibration?.ruler?.body;
+      const skipRow = y => body && !autoCalibration.fineAngle && y >= body.top && y <= body.bottom;
+      const stride = Math.max(1, Math.floor(Math.sqrt(n / 20000)));
+      const samples = [];
+      for (let y = 0; y < h; y += stride) {
+        if (skipRow(y)) continue;
+        for (let x = 0; x < w; x += stride) {
+          const i = y * w + x;
+          if (mask[i] < HYST_LOW) samples.push([px[i * 4], px[i * 4 + 1], px[i * 4 + 2]]);
+        }
+      }
+      if (samples.length < 200) return 0;
+      const d2 = (a, b) => (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2;
+      let centers = [0, 0.5, 0.99].map(f => samples[Math.floor(f * (samples.length - 1))].slice());
+      let assign = new Int32Array(samples.length);
+      for (let it = 0; it < 8; it++) {
+        const sum = centers.map(() => [0, 0, 0, 0]);
+        samples.forEach((s, k) => {
+          let best = 0;
+          for (let c = 1; c < centers.length; c++) if (d2(s, centers[c]) < d2(s, centers[best])) best = c;
+          assign[k] = best;
+          sum[best][0] += s[0]; sum[best][1] += s[1]; sum[best][2] += s[2]; sum[best][3]++;
+        });
+        centers = centers.map((c, j) => sum[j][3] ? [sum[j][0] / sum[j][3], sum[j][1] / sum[j][3], sum[j][2] / sum[j][3]] : c);
+      }
+      // Seules les couleurs du fond proprement dit comptent : la plus fréquente, celles
+      // qui lui ressemblent (deux teintes d'un même papier) ou qui sont très présentes
+      // (≥ 35 %). Hors masque se trouvent aussi les parties du bijou que le modèle a
+      // manquées (pattes d'une grenouille en argent…) : groupe minoritaire et distinct.
+      const sizes = centers.map((_, j) => assign.reduce((a, v) => a + (v === j), 0));
+      const biggest = sizes.indexOf(Math.max(...sizes));
+      const keep = centers.map((c, j) => j === biggest || sizes[j] >= 0.35 * samples.length
+        || Math.sqrt(d2(c, centers[biggest])) < 40);
+      // Tolérance par couleur : 2,5 × la dispersion médiane du groupe (min 18)
+      const tol = centers.map((c, j) => {
+        const ds = [];
+        samples.forEach((s, k) => { if (assign[k] === j) ds.push(Math.sqrt(d2(s, c))); });
+        return Math.max(18, 2.5 * percentile(ds, 50));
+      });
+      // allGroups : inclut les teintes minoritaires (fond à l'ombre du bijou) — ne sert
+      // qu'à prolonger une ouverture déjà reconnue, jamais à en reconnaître une.
+      const bgDist = (r, g, b, allGroups = false) => {
+        let best = Infinity;
+        for (let c = 0; c < centers.length; c++) {
+          if (keep[c] || allGroups) best = Math.min(best, Math.sqrt(d2([r, g, b], centers[c])) / tol[c]);
+        }
+        return best; // < 1 : couleur du fond
+      };
+      const bgLike = new Uint8Array(n);
+      for (let i = 0; i < n; i++) {
+        if (inObj[i] && bgDist(px[i * 4], px[i * 4 + 1], px[i * 4 + 2]) < 1) bgLike[i] = 1;
+      }
+
+      // Extérieur du bijou : fond relié aux bords de l'image. Une ouverture est
+      // entourée de métal ; une zone qui touche l'extérieur (patte, reflet en bordure)
+      // n'est pas une ouverture.
+      const exterior = new Uint8Array(n);
+      const queue = new Int32Array(n);
+      let eh = 0, et = 0;
+      const seedExt = i => { if (!inObj[i] && !exterior[i]) { exterior[i] = 1; queue[et++] = i; } };
+      for (let x = 0; x < w; x++) { seedExt(x); seedExt((h - 1) * w + x); }
+      for (let y = 0; y < h; y++) { seedExt(y * w); seedExt(y * w + w - 1); }
+      while (eh < et) {
+        const i = queue[eh++], x = i % w, y = (i / w) | 0;
+        if (x > 0) seedExt(i - 1); if (x < w - 1) seedExt(i + 1);
+        if (y > 0) seedExt(i - w); if (y < h - 1) seedExt(i + w);
+      }
+
+      // Zones connexes « couleur du fond » dans le bijou ; on compare leur couleur
+      // moyenne au fond et au métal qui les borde (pixels à 3 px hors de la zone).
+      const pxPerMmNow = autoCalibration?.spacing?.pxPerMm || 0;
+      const minArea = Math.max(40, Math.round((1.5 * pxPerMmNow) ** 2));
+      // Une ouverture contient un disque d'au moins 1 mm de rayon ; un reflet est un filet.
+      const r = Math.max(3, Math.round(pxPerMmNow || 3));
+      const rd = Math.round(r * 0.7);
+      const fatOffsets = [[r, 0], [-r, 0], [0, r], [0, -r], [rd, rd], [rd, -rd], [-rd, rd], [-rd, -rd]];
+      const label = new Int32Array(n);
+      const expand = new Int32Array(n), depth = new Uint16Array(n);
+      const lum = new Float32Array(n);
+      for (let i = 0; i < n; i++) lum[i] = luma(px[i * 4], px[i * 4 + 1], px[i * 4 + 2]);
+      const EDGE_GRAD = 16; // somme des écarts de luminance à ±1 px : au-delà, arête nette
+      let removed = 0, id = 0;
+      for (let start = 0; start < n; start++) {
+        if (!bgLike[start] || label[start]) continue;
+        id++;
+        let head = 0, tail = 0, touchesExterior = false;
+        queue[tail++] = start; label[start] = id;
+        const zone = [0, 0, 0], ring = [0, 0, 0];
+        let ringN = 0;
+        while (head < tail) {
+          const i = queue[head++];
+          zone[0] += px[i * 4]; zone[1] += px[i * 4 + 1]; zone[2] += px[i * 4 + 2];
+          const x = i % w, y = (i / w) | 0;
+          for (const [dx, dy] of NEIGHBOURS_4) {
+            const nx = x + dx, ny = y + dy;
+            if (nx < 0 || ny < 0 || nx >= w || ny >= h) { touchesExterior = true; continue; }
+            const j = ny * w + nx;
+            if (exterior[j]) touchesExterior = true;
+            if (bgLike[j] && !label[j]) { label[j] = id; queue[tail++] = j; }
+            const rx = x + 3 * dx, ry = y + 3 * dy;
+            if (!bgLike[j] && rx >= 0 && ry >= 0 && rx < w && ry < h) {
+              const k = ry * w + rx;
+              if (inObj[k] && !bgLike[k]) { ring[0] += px[k * 4]; ring[1] += px[k * 4 + 1]; ring[2] += px[k * 4 + 2]; ringN++; }
+            }
+          }
+        }
+        if (tail < minArea || touchesExterior) continue;
+        let fat = 0;
+        for (let k = 0; k < tail && fat < 3; k++) {
+          const i = queue[k], x = i % w, y = (i / w) | 0;
+          if (fatOffsets.every(([dx, dy]) => {
+            const nx = x + dx, ny = y + dy;
+            return nx >= 0 && ny >= 0 && nx < w && ny < h && label[ny * w + nx] === id;
+          })) fat++;
+        }
+        if (fat < 3) continue;
+        const zm = zone.map(v => v / tail);
+        const toBg = bgDist(zm[0], zm[1], zm[2]);
+        // Pas de métal autour (zone isolée) : on ne tranche pas, on garde
+        if (ringN < 10) continue;
+        const rm = ring.map(v => v / ringN);
+        const toRing = Math.sqrt(d2(zm, rm));
+        const toBgAbs = Math.min(...centers.filter((_, j) => keep[j]).map(c => Math.sqrt(d2(zm, c))));
+        if (toBg < 1 && toRing > toBgAbs + 15) {
+          for (let k = 0; k < tail; k++) mask[queue[k]] = 0;
+          removed += tail;
+          // Prolongement (≤ 3 mm) jusqu'au bord réel de l'ouverture : le fond y est
+          // souvent à l'ombre du métal, d'une teinte parfois identique à celle du métal
+          // (argent vieilli). On avance tant que l'image reste lisse (dégradé d'ombre)
+          // et on s'arrête sur la transition nette qu'est l'arête du métal.
+          const maxDepth = Math.max(4, Math.round(3 * (pxPerMmNow || 3)));
+          let eh2 = 0, et2 = 0;
+          for (let k = 0; k < tail; k++) { expand[et2++] = queue[k]; depth[queue[k]] = 1; }
+          while (eh2 < et2) {
+            const i = expand[eh2++], x = i % w, y = (i / w) | 0;
+            if (depth[i] > maxDepth) continue;
+            for (const [dx, dy] of NEIGHBOURS_4) {
+              const nx = x + dx, ny = y + dy;
+              if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+              const j = ny * w + nx;
+              if (mask[j] < HYST_LOW || depth[j]) continue;
+              if (nx < 1 || ny < 1 || nx >= w - 1 || ny >= h - 1) continue;
+              const grad = Math.abs(lum[j + 1] - lum[j - 1]) + Math.abs(lum[j + w] - lum[j - w]);
+              if (grad < EDGE_GRAD && bgDist(px[j * 4], px[j * 4 + 1], px[j * 4 + 2], true) < 1) {
+                mask[j] = 0; removed++;
+                depth[j] = depth[i] + 1; expand[et2++] = j;
+              }
+            }
+          }
+        }
+      }
+      // Liseré extérieur : à 320 px, le contour déborde de quelques pixels tout autour
+      // du bijou. Depuis l'extérieur, on retire le fond (teintes majoritaires) tant que
+      // l'image reste lisse, en s'arrêtant à l'arête du métal (≤ 1,5 mm).
+      const maxHalo = Math.max(3, Math.round(1.5 * (pxPerMmNow || 3)));
+      // Extérieur au sens large : hors de tout ce que le curseur peut inclure
+      exterior.fill(0);
+      const outside = i => mask[i] < HYST_LOW;
+      eh = 0; et = 0;
+      const seedOut = i => { if (outside(i) && !exterior[i]) { exterior[i] = 1; queue[et++] = i; } };
+      for (let x = 0; x < w; x++) { seedOut(x); seedOut((h - 1) * w + x); }
+      for (let y = 0; y < h; y++) { seedOut(y * w); seedOut(y * w + w - 1); }
+      while (eh < et) {
+        const i = queue[eh++], x = i % w, y = (i / w) | 0;
+        if (x > 0) seedOut(i - 1); if (x < w - 1) seedOut(i + 1);
+        if (y > 0) seedOut(i - w); if (y < h - 1) seedOut(i + w);
+      }
+      let eh3 = 0, et3 = 0;
+      depth.fill(0);
+      for (let i = 0; i < n; i++) {
+        if (outside(i)) continue;
+        const x = i % w, y = (i / w) | 0;
+        if ((x > 0 && exterior[i - 1]) || (x < w - 1 && exterior[i + 1]) ||
+            (y > 0 && exterior[i - w]) || (y < h - 1 && exterior[i + w])) {
+          depth[i] = 1; expand[et3++] = i;
+        }
+      }
+      let halo = 0;
+      while (eh3 < et3) {
+        const i = expand[eh3++], x = i % w, y = (i / w) | 0;
+        if (depth[i] > maxHalo || x < 1 || y < 1 || x >= w - 1 || y >= h - 1) continue;
+        const grad = Math.abs(lum[i + 1] - lum[i - 1]) + Math.abs(lum[i + w] - lum[i - w]);
+        if (grad >= EDGE_GRAD || bgDist(px[i * 4], px[i * 4 + 1], px[i * 4 + 2]) >= 1) continue;
+        mask[i] = 0; halo++;
+        for (const [dx, dy] of NEIGHBOURS_4) {
+          const j = (y + dy) * w + x + dx;
+          if (!outside(j) && !depth[j]) { depth[j] = depth[i] + 1; expand[et3++] = j; }
+        }
+      }
+      removed += halo;
+
+      // Part du contour restant qui a la couleur du fond : élevée, le modèle a pris le
+      // fond pour le bijou (ex. l'intérieur d'un jonc ouvert) → contour douteux.
+      let inside = 0, bgInside = 0;
+      for (let i = 0; i < n; i++) {
+        if (mask[i] < 0.5) continue;
+        inside++;
+        if (bgDist(px[i * 4], px[i * 4 + 1], px[i * 4 + 2]) < 1) bgInside++;
+      }
+      mask.bgShare = inside ? bgInside / inside : 0;
+
+      if (removed) console.log(`[IA] moteur léger : ${removed} px couleur du fond retirés du contour (dont liseré ${halo})`);
+      console.log(`[IA] moteur léger : part couleur du fond dans le contour ${Math.round(100 * mask.bgShare)} %`);
+      return removed;
     }
 
     // Expansion par hystérésis : étend les régions de forte confiance vers les
@@ -7569,6 +8135,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       // l'utilisateur voie ses ajouts.
       const insideMetrics = buildBinaryMask(aiDetectedMask, w, h, thr, subtractMask, null, aiConnectedMask);
       aiMetrics = computeMaskMetrics(insideMetrics, w, h);
+      aiEdgeFraction = maskEdgeFraction(insideMetrics, w, h);
       const insideRender = addMask
         ? buildBinaryMask(aiDetectedMask, w, h, thr, subtractMask, addMask, aiConnectedMask)
         : insideMetrics;
@@ -7637,6 +8204,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           // Ruler-exclusion was applied before crop; redo it here against the
           // (transformed) calibration so anything that leaked across is zeroed.
           excludeRulerFromMask(aiDetectedMask, w, h);
+          carveBackgroundFromMask(aiDetectedMask, w, h);
           aiConnectedMask = computeConnectedMask(aiDetectedMask, w, h);
           // Affiche ce masque tout de suite, puis affine en arrière-plan avec
           // une inférence RMBG sur l'image recadrée (résolution effective bien
@@ -7684,6 +8252,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
 
           // Automatically remove the ruler band from the mask (it's not part of the object)
           excludeRulerFromMask(aiDetectedMask, w, h);
+          carveBackgroundFromMask(aiDetectedMask, w, h);
           aiConnectedMask = computeConnectedMask(aiDetectedMask, w, h);
         }
 
@@ -7705,7 +8274,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           aiAcceptBtn.disabled = true;
           setStatus('Aucun contour détecté. Déplacez le curseur vers Silhouette pour élargir la détection.');
         } else {
-          aiStatusEl.textContent = 'Contour détecté. Ajustez le curseur si besoin.';
+          aiStatusEl.textContent = contourWarning() || 'Contour détecté. Ajustez le curseur si besoin.';
           aiAcceptBtn.disabled = false;
           aiCompleteBtn.style.display  = '';
           aiSubtractBtn.style.display  = '';
@@ -7732,6 +8301,11 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
             if (abortAtStart !== _pipelineAbort) return;
           }
           _refineToken++;                 // plus d'affinage après le calcul du prix
+          // Contour douteux (bord de la photo, ou surtout du fond) : pas de prix automatique
+          if (contourWarning()) {
+            showMobileFallback('Contour incertain : le fond a peut-être été pris pour le bijou, ou le bijou dépasse de la photo.', 'contour');
+            return;
+          }
           manualMode = false;
           setStage('ai-detect');          // état cohérent si l'utilisateur revient « Ajuster »
           hidePipelineLoader();
