@@ -1677,7 +1677,7 @@
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/12.10.0/firebase-app.js";
     import { getAuth, onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, updateProfile, sendEmailVerification, sendPasswordResetEmail, confirmPasswordReset, reload, applyActionCode, setPersistence, indexedDBLocalPersistence, browserLocalPersistence, browserSessionPersistence, inMemoryPersistence } from "https://www.gstatic.com/firebasejs/12.10.0/firebase-auth.js";
-    import { getFirestore, doc, setDoc, getDoc, collection, query, where, getDocs, addDoc, serverTimestamp, orderBy, limit, startAfter, updateDoc, deleteDoc, runTransaction, increment, writeBatch } from "https://www.gstatic.com/firebasejs/12.10.0/firebase-firestore.js";
+    import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager, getDocsFromCache, doc, setDoc, getDoc, collection, query, where, getDocs, addDoc, serverTimestamp, orderBy, limit, startAfter, updateDoc, deleteDoc, runTransaction, increment, writeBatch } from "https://www.gstatic.com/firebasejs/12.10.0/firebase-firestore.js";
 
     const firebaseConfig = {
       apiKey: "AIzaSyDRLgbcZXP0ezEDPgq_ZYdgrTppWCxYt98",
@@ -1690,7 +1690,25 @@
 
     const app = initializeApp(firebaseConfig);
     const auth = getAuth(app);
-    const db = getFirestore(app);
+    // Cache Firestore conservé sur l'appareil (IndexedDB) : profil, articles et panier
+    // déjà consultés restent lisibles hors connexion ou sur réseau lent, et s'affichent
+    // tout de suite (cf. getDocsCacheThenServer). Repli sur le cache mémoire habituel
+    // si le navigateur refuse le stockage (navigation privée…).
+    let db;
+    try {
+      db = initializeFirestore(app, { localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }) });
+    } catch (e) {
+      console.warn('[Firestore] cache persistant indisponible :', e?.message || e);
+      db = getFirestore(app);
+    }
+    // Affiche d'abord la copie locale (instantané), puis la version à jour du serveur.
+    async function getDocsCacheThenServer(q, render) {
+      try {
+        const cached = await getDocsFromCache(q);
+        if (!cached.empty) render(cached, true);
+      } catch {}
+      render(await getDocs(q), false);
+    }
 
     // Exposé pour le système de notation (module séparé sans accès aux imports Firestore)
     window._fb = { db, auth, doc, getDoc, setDoc, runTransaction, serverTimestamp };
@@ -3291,9 +3309,16 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
               where('userId', '==', user.uid),
               orderBy('reference')
             );
-            const snap = await getDocs(q);
-            if (token !== _loadArticlesToken) return;
-            _allArticlesCache = snap.docs;
+            // Copie locale affichée tout de suite, puis version serveur
+            await getDocsCacheThenServer(q, snap => {
+              if (token !== _loadArticlesToken) return;
+              _allArticlesCache = snap.docs;
+              _hasNextPage = false;
+              _articlesLoaded = true;
+              _renderArticleRows(_allArticlesCache);
+              _updatePaginationControls();
+            });
+            return;
           }
           docsToRender = _allArticlesCache;
           _hasNextPage = false;
@@ -3309,14 +3334,18 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
             limit(ARTICLES_PAGE_SIZE + 1), // +1 pour détecter s'il y a une page suivante
           ];
           if (cursor) constraints.push(startAfter(cursor));
-          const snap = await getDocs(query(collection(db, 'articles'), ...constraints));
-          if (token !== _loadArticlesToken) return;
-          _hasNextPage = snap.docs.length > ARTICLES_PAGE_SIZE;
-          docsToRender = snap.docs.slice(0, ARTICLES_PAGE_SIZE);
-          if (_hasNextPage && _currentPage >= _pageCursors.length - 1) {
-            _pageCursors[_currentPage + 1] = docsToRender[docsToRender.length - 1];
-          }
-          _articlesLoaded = true;
+          // Copie locale affichée tout de suite, puis version serveur (qui fixe le
+          // curseur de la page suivante d'après les données à jour)
+          await getDocsCacheThenServer(query(collection(db, 'articles'), ...constraints), snap => {
+            if (token !== _loadArticlesToken) return;
+            _hasNextPage = snap.docs.length > ARTICLES_PAGE_SIZE;
+            const docs = snap.docs.slice(0, ARTICLES_PAGE_SIZE);
+            if (_hasNextPage) _pageCursors[_currentPage + 1] = docs[docs.length - 1];
+            _articlesLoaded = true;
+            _renderArticleRows(docs);
+            _updatePaginationControls();
+          });
+          return;
         }
 
         _renderArticleRows(docsToRender);
@@ -3364,7 +3393,18 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           orderBy('createdAt', 'desc'),
           limit(50)
         );
-        const snap = await getDocs(q);
+        // Copie locale affichée tout de suite, puis version serveur
+        await getDocsCacheThenServer(q, snap => renderCart(snap));
+      } catch (err) {
+        cartTableBody.innerHTML = '<tr><td colspan="8">Impossible de charger le panier (index manquant).</td></tr>';
+        cartCard.classList.remove('hidden');
+        cartTotal.textContent = '0 €';
+        setAuthStatus('Impossible de charger le panier (index manquant).', true);
+      }
+    }
+
+    function renderCart(snap) {
+        cartTableBody.innerHTML = '';
         const validateOrderBtn = document.getElementById('validateOrderBtn');
         if (snap.empty) {
           cartTableBody.innerHTML = '<tr><td colspan="8">Panier vide.</td></tr>';
@@ -3426,12 +3466,6 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
             }
           });
         });
-      } catch (err) {
-        cartTableBody.innerHTML = '<tr><td colspan="8">Impossible de charger le panier (index manquant).</td></tr>';
-        cartCard.classList.remove('hidden');
-        cartTotal.textContent = '0 €';
-        setAuthStatus('Impossible de charger le panier (index manquant).', true);
-      }
     }
 
     async function loadAccount() {
@@ -6040,6 +6074,14 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       return Math.min(max, Math.max(min, value));
     }
 
+    // max(r,g,b) − min(r,g,b) sans Math.max/Math.min (appelé pour chaque pixel)
+    function chroma3(r, g, b) {
+      let hi = r, lo = r;
+      if (g > hi) hi = g; else if (g < lo) lo = g;
+      if (b > hi) hi = b; else if (b < lo) lo = b;
+      return hi - lo;
+    }
+
     function luma(r, g, b) {
       return 0.2126 * r + 0.7152 * g + 0.0722 * b;
     }
@@ -6115,7 +6157,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           const i = (y * width + x) * 4;
           const r = data[i], g = data[i + 1], b = data[i + 2];
           const lum = luma(r, g, b);
-          const chroma = Math.max(r, g, b) - Math.min(r, g, b);
+          const chroma = chroma3(r, g, b);
           if ((lum > 145 && chroma < 70) || (lum > 190 && chroma < 105)) light += 1;
           lumSum += lum;
           total += 1;
@@ -6191,7 +6233,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           const i = (y * width + x) * 4;
           const r = data[i], g = data[i + 1], b = data[i + 2];
           const lum = luma(r, g, b);
-          const chroma = Math.max(r, g, b) - Math.min(r, g, b);
+          const chroma = chroma3(r, g, b);
           if ((lum > 145 && chroma < 85) || lum > 205) light += 1;
           total += 1;
         }
@@ -6273,7 +6315,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         const row = y * width;
         for (let x = x0; x <= x1; x++) {
           const l = L[row + x];
-          lumSum[x] += l; lumMin[x] = Math.min(lumMin[x], l);
+          lumSum[x] += l; if (l < lumMin[x]) lumMin[x] = l;
           if (l < darkLimit) {
             score[x] += 0.7 + (darkLimit - l) / darkDiv;
             if (y <= topLimit) topDark[x]++;
@@ -6940,14 +6982,22 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       return invertCalibImageData(oc2.getImageData(0, 0, rW, rH));
     }
 
+    // Mémorisé par image (l'affinage réévaluait les angles déjà notés en phase 1)
     function scoreAngleCalib(angleDeg, sensitivity) {
+      const small = getSmallCalibImage();
+      const key = `${angleDeg}|${sensitivity}|${_calibInvert}`;
+      small.scores ||= new Map();
+      if (small.scores.has(key)) return small.scores.get(key);
       const id = getSmallRotatedCalib(angleDeg);
       const tickResult = detectRulerByTicks(id, sensitivity);
-      if (tickResult) return quickTickScore(tickResult.ticks);
-      const ruler = detectRuler(id, sensitivity, 0);
-      if (!ruler) return 0;
-      const ticks = detectTicks(id, ruler, sensitivity);
-      return quickTickScore(ticks) * 0.5;
+      let score;
+      if (tickResult) score = quickTickScore(tickResult.ticks);
+      else {
+        const ruler = detectRuler(id, sensitivity, 0);
+        score = ruler ? quickTickScore(detectTicks(id, ruler, sensitivity)) * 0.5 : 0;
+      }
+      small.scores.set(key, score);
+      return score;
     }
 
     function refineAngleCalib(coarseAngle, sensitivity) {
