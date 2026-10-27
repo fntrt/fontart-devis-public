@@ -6211,13 +6211,16 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       const x0 = clamp(ruler.left  + 2, 0, width - 1);
       const x1 = clamp(ruler.right - 2, x0, width - 1);
 
-      const lumSamples = [];
       const xStep = Math.max(1, Math.floor((x1 - x0 + 1) / 900));
       const yStep = Math.max(1, Math.floor((y1 - y0 + 1) / 80));
+      // Tableau typé trié nativement (bien plus rapide qu'un tri avec comparateur, même
+      // ordre) et un seul tri pour les deux percentiles.
+      const sortedSamples = new Float64Array(Math.floor((y1 - y0) / yStep + 1) * Math.floor((x1 - x0) / xStep + 1));
+      let ns = 0;
       for (let y = y0; y <= y1; y += yStep) {
-        for (let x = x0; x <= x1; x += xStep) lumSamples.push(L[y * width + x]);
+        for (let x = x0; x <= x1; x += xStep) sortedSamples[ns++] = L[y * width + x];
       }
-      const sortedSamples = lumSamples.sort((a, b) => a - b); // un seul tri pour les deux percentiles
+      sortedSamples.sort();
       const darkBase   = percentileSorted(sortedSamples, 5);
       const brightBase = percentileSorted(sortedSamples, 78);
       const darkLimit  = clamp(darkBase + (brightBase - darkBase) * (0.28 + sensitivity * 0.08), 50, 155);
@@ -6263,9 +6266,9 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       }
 
       const smooth  = movingAverage(columnScore, 1);
-      const active  = smooth.slice(x0, x1 + 1);
-      const base    = percentile(active, 62);
-      const high    = percentile(active, 98);
+      const active  = Float64Array.from(smooth.slice(x0, x1 + 1)).sort();
+      const base    = percentileSorted(active, 62);
+      const high    = percentileSorted(active, 98);
       const threshold     = Math.max(0.95, base + (high - base) * (0.1 - (sensitivity - 0.5) * 0.05));
       const maxGroupWidth = Math.max(8, Math.round((x1 - x0 + 1) * 0.014));
       const ticks = [];
@@ -6407,35 +6410,62 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       // peut avoir 150-300 px entre deux traits.
       const maxStep = Math.min(400, Math.max(18, rulerWidth / 6));
       const anchors = positions.filter((_, index) => index % Math.max(1, Math.floor(positions.length / 24)) === 0);
-      let best = null;
+      const N = positions.length;
 
       // Incrément relatif au-delà de ~33 px : même précision relative, sans
       // exploser le nombre d'essais sur la plage élargie.
-      for (let step = minStep; step <= maxStep; step += Math.max(0.05, step * 0.0015)) {
+      const steps = [];
+      for (let step = minStep; step <= maxStep; step += Math.max(0.05, step * 0.0015)) steps.push(step);
+
+      // Score d'un couple (pas, origine). Abandon anticipé, sans effet sur le résultat :
+      // dès que le meilleur score encore atteignable (positions restantes toutes
+      // parfaites) passe sous `floor`, ce couple ne peut plus gagner.
+      const evaluate = (step, anchor, floor) => {
         const tolerance = Math.max(1.05, step * 0.22);
+        const minSlot = Math.floor((ruler.left - anchor) / step);
+        const maxSlot = Math.ceil((ruler.right - anchor) / step);
+        const totalSlots = Math.max(1, maxSlot - minSlot + 1);
+        // positions triées → numéros de case croissants : compter les cases
+        // distinctes suffit (bien plus rapide qu'un Set, même résultat)
+        let usedSlots = 0, lastSlot = NaN;
+        let matched = 0, fit = 0;
+        for (let k = 0; k < N; k++) {
+          const position = positions[k];
+          const slot = Math.round((position - anchor) / step);
+          const projected = anchor + slot * step;
+          const error = Math.abs(position - projected);
+          if (error <= tolerance) {
+            matched += 1; fit += 1 - error / tolerance;
+            if (slot !== lastSlot) { usedSlots++; lastSlot = slot; }
+          }
+          if ((k & 15) === 15 && floor > 0) {
+            const rest = N - k - 1;
+            const bound = (fit + rest) * Math.pow(Math.min(1, (usedSlots + rest) / totalSlots), 0.78)
+                        * Math.pow((matched + rest) / N, 1.15);
+            if (bound < floor) return null;
+          }
+        }
+        const coverage = usedSlots / totalSlots;
+        const matchRatio = matched / N;
+        const score = fit * Math.pow(coverage, 0.78) * Math.pow(matchRatio, 1.15);
+        return { step, anchor, score, matched, fit, coverage, matchRatio, tolerance };
+      };
+
+      // 1er passage rapide (un pas sur 8, candidats de la liste complète) : donne un
+      // score de référence pour élaguer le passage complet, qui choisit le même
+      // gagnant (premier score maximal) que l'évaluation exhaustive.
+      let floor = 0;
+      for (let s = 0; s < steps.length; s += 8) {
         for (const anchor of anchors) {
-          // positions triées → numéros de case croissants : compter les cases
-          // distinctes suffit (bien plus rapide qu'un Set, même résultat)
-          let usedSlots = 0, lastSlot = NaN;
-          let matched = 0, fit = 0;
-          for (const position of positions) {
-            const slot = Math.round((position - anchor) / step);
-            const projected = anchor + slot * step;
-            const error = Math.abs(position - projected);
-            if (error <= tolerance) {
-              matched += 1; fit += 1 - error / tolerance;
-              if (slot !== lastSlot) { usedSlots++; lastSlot = slot; }
-            }
-          }
-          const minSlot = Math.floor((ruler.left - anchor) / step);
-          const maxSlot = Math.ceil((ruler.right - anchor) / step);
-          const totalSlots = Math.max(1, maxSlot - minSlot + 1);
-          const coverage = usedSlots / totalSlots;
-          const matchRatio = matched / positions.length;
-          const score = fit * Math.pow(coverage, 0.78) * Math.pow(matchRatio, 1.15);
-          if (!best || score > best.score) {
-            best = { step, anchor, score, matched, fit, coverage, matchRatio, tolerance };
-          }
+          const r = evaluate(steps[s], anchor, floor);
+          if (r && r.score > floor) floor = r.score;
+        }
+      }
+      let best = null;
+      for (const step of steps) {
+        for (const anchor of anchors) {
+          const r = evaluate(step, anchor, best ? Math.max(best.score, floor) : floor);
+          if (r && (!best || r.score > best.score)) best = r;
         }
       }
 
@@ -6996,6 +7026,8 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         // Mobile : le 2e candidat est en général le même angle à 180° ; une
         // détection pleine image coûte ~10 s sur téléphone → on s'arrête dès qu'un
         // candidat est assez fiable pour l'enchaînement automatique.
+        // (Pas sur ordinateur : garder le meilleur des deux candidats y stabilise
+        // l'orientation retenue, donc le recadrage et le contour.)
         if (best && FA.isMobile && best.spacing.confidence >= 0.5 && (best.spacing.majorMatchedTicks || 0) >= 3
             && best.spacing.graduationConfidence >= 0.6) break;
       }
@@ -7559,7 +7591,9 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         if (FA.isMobile && transferCalibrationToCrop(prevCalib, cx0, cy0, cropW, cropH)) {
           // Mobile : la règle est déjà connue dans le repère redressé ; le recadrage est
           // une simple translation → on transpose la calibration au lieu de relancer
-          // 7 s de détection (mesuré 14 s pour les 2 passes sur un Galaxy).
+          // 7 s de détection (mesuré 14 s pour les 2 passes sur un Galaxy). Sur
+          // ordinateur on garde la re-détection : la transposer change un peu certains
+          // contours, sans gain de précision mesuré.
           acceptAutoCalibration();
           showPipelineLoader('contour', 'Préparation du contour…',
             'Application du masque sur l\'image recadrée');
@@ -7853,8 +7887,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     // argent sur papier blanc touche l'extérieur du bijou — tous deux conservés. Des
     // pierres blanches sur fond blanc scintillent alors que le fond est lisse : conservées.
     // Enfin on rogne le liseré de fond que le contour à 320 px laisse autour du bijou.
-    const NEIGHBOURS_4 = [[1, 0], [-1, 0], [0, 1], [0, -1]];
-    function carveBackgroundFromMask(mask, w, h) {
+    const NEIGHBOURS_4 = [[1, 0], [-1, 0], [0, 1], [0, -1]];    function carveBackgroundFromMask(mask, w, h) {
       if (tempCanvas.width !== w || tempCanvas.height !== h) return 0;
       const n = w * h;
       const px = tempCtx.getImageData(0, 0, w, h).data;
