@@ -1579,7 +1579,7 @@
           <tbody id="funnelStatsBody"></tbody>
         </table>
       </div>
-      <p class="hint" id="funnelStatsSummary" style="margin-top:8px;"></p>
+      <p class="hint" id="funnelStatsSummary" style="margin-top:8px; white-space:pre-line;"></p>
     </div>
 
     <div class="card hidden" id="aideCard">
@@ -1702,11 +1702,24 @@
     // à Fontart, IA passée à la main (ordinateur), invite d'installation de l'appli.
     const EXTRA_EVENTS = ['mobile_impasse', 'impasse_regle', 'impasse_lente', 'impasse_contour', 'impasse_erreur',
                           'photo_envoyee', 'ia_passee', 'pwa_installee', 'pwa_refusee'];
-    const STAT_EVENTS = [...FUNNEL_EVENTS, ...EXTRA_EVENTS];
+    // Qualité de l'analyse photo, comptée à CHAQUE photo (un client chiffre souvent
+    // plusieurs pièces par visite) : issue de la lecture de la règle, type de graduation
+    // lu, alertes sur le contour IA.
+    const QUALITY_EVENTS = ['regle_auto', 'regle_verif', 'regle_absente',
+                            'grad_1mm', 'grad_05mm', 'grad_5mm', 'grad_pouce',
+                            'contour_bord', 'contour_fond', 'affinage_rejete'];
+    const STAT_EVENTS = [...FUNNEL_EVENTS, ...EXTRA_EVENTS, ...QUALITY_EVENTS];
     const _trackedEvents = new Set();
+    // Pages de test (serveur local) : rien n'est écrit dans les statistiques réelles,
+    // les événements sont seulement gardés dans window.__statsLocales.
+    const _statsLocales = /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
     window.trackEvent = function trackEvent(name) {
-      if (!STAT_EVENTS.includes(name) || _trackedEvents.has(name)) return;
-      _trackedEvents.add(name);
+      if (!STAT_EVENTS.includes(name)) return;
+      if (!QUALITY_EVENTS.includes(name)) {
+        if (_trackedEvents.has(name)) return;
+        _trackedEvents.add(name);
+      }
+      if (_statsLocales) { (window.__statsLocales ||= []).push(name); return; }
       const day = new Date().toISOString().slice(0, 10);
       // Une écriture par événement (les règles Firestore n'acceptent qu'un
       // compteur modifié à la fois). Échec silencieux : ne jamais gêner l'UX.
@@ -1766,7 +1779,13 @@
             `Impasses par motif (14 j) : règle ${totals.impasse_regle} · trop long ${totals.impasse_lente} · ` +
             `contour ${totals.impasse_contour} · erreur ${totals.impasse_erreur}. ` +
             `IA passée à la main (ordinateur) : ${totals.ia_passee}. ` +
-            `Appli : ${totals.pwa_installee} installation(s), ${totals.pwa_refusee} refus.`;
+            `Appli : ${totals.pwa_installee} installation(s), ${totals.pwa_refusee} refus.\n` +
+            `Analyse des photos (par photo, 14 j) — règle : ${totals.regle_auto} lue automatiquement · ` +
+            `${totals.regle_verif} à vérifier · ${totals.regle_absente} non trouvée. ` +
+            `Graduations lues : au mm ${totals.grad_1mm} · au ½ mm ${totals.grad_05mm} · ` +
+            `tous les 5 mm ${totals.grad_5mm} · pouces ${totals.grad_pouce}. ` +
+            `Contour IA : ${totals.contour_bord} alerte(s) « touche le bord » · ` +
+            `${totals.contour_fond} « surtout du fond » · ${totals.affinage_rejete} affinage(s) rejeté(s).`;
         }
       } catch (err) {
         body.innerHTML = `<tr><td colspan="${nCols}" style="text-align:center; color:var(--danger);">Erreur : ${escapeHtml(err?.message || err)}</td></tr>`;
@@ -3905,6 +3924,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     let _rulerDetected          = false; // true only when auto-calibration successfully finds a ruler
     let _recalibratingAfterCrop = false; // true when runAutoCalibration is re-run on the cropped image
     let _lockedPxPerMm          = null;  // échelle verrouillée de la 1re calibration (invariante au recadrage)
+    let _lockedGraduation       = null;  // type de graduation lu à la 1re calibration (idem)
     let _backgroundRMBGPromise  = null;  // RMBG starts in parallel with calibration to save time
     let _backgroundRMBGImage    = null;  // sourceImage reference for which the background RMBG was started
     let autoCalibOverlay = null;  // HTMLCanvasElement — cached "10 mm" overlay
@@ -4990,6 +5010,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       _rulerDetected          = false;
       _recalibratingAfterCrop = false;
       _lockedPxPerMm          = null;
+      _lockedGraduation       = null;
       _precomputedAIMask      = null;
       _backgroundRMBGPromise  = null;
       _backgroundRMBGImage    = null;
@@ -6012,6 +6033,30 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       return sorted[lo] + (sorted[hi] - sorted[lo]) * (index - lo);
     }
 
+    // percentile() sur un tableau déjà trié (même interpolation, sans recopie ni tri)
+    function percentileSorted(sorted, p) {
+      if (!sorted.length) return 0;
+      const index = clamp((p / 100) * (sorted.length - 1), 0, sorted.length - 1);
+      const lo = Math.floor(index);
+      const hi = Math.ceil(index);
+      if (lo === hi) return sorted[lo];
+      return sorted[lo] + (sorted[hi] - sorted[lo]) * (index - lo);
+    }
+
+    // Luminance de chaque pixel, calculée une fois par image : la recherche de règle
+    // parcourt chaque ligne plusieurs fois (bandes qui se chevauchent, deux bords).
+    const _lumaPlanes = new WeakMap();
+    function lumaPlane(imageData) {
+      let plane = _lumaPlanes.get(imageData);
+      if (!plane) {
+        const { data, width, height } = imageData;
+        plane = new Float64Array(width * height);
+        for (let p = 0, i = 0; p < plane.length; p++, i += 4) plane[p] = luma(data[i], data[i + 1], data[i + 2]);
+        _lumaPlanes.set(imageData, plane);
+      }
+      return plane;
+    }
+
     function maxAround(values, center, radius) {
       let max = 0;
       for (let x = center - radius; x <= center + radius; x += 1) {
@@ -6161,7 +6206,8 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     // Cœur commun de la détection de graduations sur une bande [y0, y1] de la
     // règle (anciennement dupliqué entre detectTicksFromEdge et detectTicks).
     function detectTicksInBand(imageData, ruler, sensitivity, y0, y1) {
-      const { data, width } = imageData;
+      const { width } = imageData;
+      const L = lumaPlane(imageData);
       const x0 = clamp(ruler.left  + 2, 0, width - 1);
       const x1 = clamp(ruler.right - 2, x0, width - 1);
 
@@ -6169,13 +6215,11 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       const xStep = Math.max(1, Math.floor((x1 - x0 + 1) / 900));
       const yStep = Math.max(1, Math.floor((y1 - y0 + 1) / 80));
       for (let y = y0; y <= y1; y += yStep) {
-        for (let x = x0; x <= x1; x += xStep) {
-          const i = (y * width + x) * 4;
-          lumSamples.push(luma(data[i], data[i + 1], data[i + 2]));
-        }
+        for (let x = x0; x <= x1; x += xStep) lumSamples.push(L[y * width + x]);
       }
-      const darkBase   = percentile(lumSamples, 5);
-      const brightBase = percentile(lumSamples, 78);
+      const sortedSamples = lumSamples.sort((a, b) => a - b); // un seul tri pour les deux percentiles
+      const darkBase   = percentileSorted(sortedSamples, 5);
+      const brightBase = percentileSorted(sortedSamples, 78);
       const darkLimit  = clamp(darkBase + (brightBase - darkBase) * (0.28 + sensitivity * 0.08), 50, 155);
 
       const columnScore = new Array(width).fill(0);
@@ -6184,21 +6228,28 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       const topPresence = new Array(width).fill(0);
       const topLimit    = y0 + Math.min(14, Math.max(6, Math.round((y1 - y0 + 1) * 0.32)));
 
-      for (let x = x0; x <= x1; x++) {
-        let score = 0, topDark = 0, lumSum = 0, lumMin = 255, count = 0;
-        for (let y = y0; y <= y1; y++) {
-          const i = (y * width + x) * 4;
-          const l = luma(data[i], data[i + 1], data[i + 2]);
-          lumSum += l; lumMin = Math.min(lumMin, l); count++;
+      // Parcours ligne par ligne (mémoire contiguë) ; chaque colonne cumule ses valeurs
+      // dans le même ordre (y croissant) que l'ancien parcours colonne par colonne.
+      const lumSum = new Float64Array(width), lumMin = new Float64Array(width).fill(255);
+      const score = new Float64Array(width), topDark = new Int32Array(width);
+      const darkDiv = Math.max(1, darkLimit);
+      for (let y = y0; y <= y1; y++) {
+        const row = y * width;
+        for (let x = x0; x <= x1; x++) {
+          const l = L[row + x];
+          lumSum[x] += l; lumMin[x] = Math.min(lumMin[x], l);
           if (l < darkLimit) {
-            score += 0.7 + (darkLimit - l) / Math.max(1, darkLimit);
-            if (y <= topLimit) topDark++;
+            score[x] += 0.7 + (darkLimit - l) / darkDiv;
+            if (y <= topLimit) topDark[x]++;
           }
         }
-        columnScore[x] = score;
-        columnAvg[x]   = lumSum / Math.max(1, count);
-        columnMin[x]   = lumMin;
-        topPresence[x] = topDark;
+      }
+      const count = Math.max(1, y1 - y0 + 1);
+      for (let x = x0; x <= x1; x++) {
+        columnScore[x] = score[x];
+        columnAvg[x]   = lumSum[x] / count;
+        columnMin[x]   = lumMin[x];
+        topPresence[x] = topDark[x];
       }
 
       const contrastRadius = Math.max(4, Math.round((x1 - x0 + 1) / 180));
@@ -6282,13 +6333,14 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     // il est suivi au-delà jusqu'à son extrémité réelle : la longueur ne dépend pas
     // de la position de la bande sur la règle.
     function estimateTickLength(imageData, center, y0, y1, halfGap, minContrast) {
-      const { data, width, height } = imageData;
+      const { width, height } = imageData;
+      const L = lumaPlane(imageData);
       const cx = Math.round(center);
       const d = Math.max(2, Math.round(halfGap));
       const xl = clamp(cx - d, 0, width - 1), xr = clamp(cx + d, 0, width - 1);
       const maxExt = 3 * (y1 - y0 + 1);
       const yMin = Math.max(0, y0 - maxExt), yMax = Math.min(height - 1, y1 + maxExt);
-      const lumAt = (x, y) => { const i = (y * width + x) * 4; return luma(data[i], data[i + 1], data[i + 2]); };
+      const lumAt = (x, y) => L[y * width + x];
       const isLine = y => {
         let lumC = 255;
         for (let dx = -1; dx <= 1; dx += 1) lumC = Math.min(lumC, lumAt(clamp(cx + dx, 0, width - 1), y));
@@ -6362,20 +6414,23 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       for (let step = minStep; step <= maxStep; step += Math.max(0.05, step * 0.0015)) {
         const tolerance = Math.max(1.05, step * 0.22);
         for (const anchor of anchors) {
-          const usedSlots = new Set();
+          // positions triées → numéros de case croissants : compter les cases
+          // distinctes suffit (bien plus rapide qu'un Set, même résultat)
+          let usedSlots = 0, lastSlot = NaN;
           let matched = 0, fit = 0;
           for (const position of positions) {
             const slot = Math.round((position - anchor) / step);
             const projected = anchor + slot * step;
             const error = Math.abs(position - projected);
             if (error <= tolerance) {
-              matched += 1; fit += 1 - error / tolerance; usedSlots.add(slot);
+              matched += 1; fit += 1 - error / tolerance;
+              if (slot !== lastSlot) { usedSlots++; lastSlot = slot; }
             }
           }
           const minSlot = Math.floor((ruler.left - anchor) / step);
           const maxSlot = Math.ceil((ruler.right - anchor) / step);
           const totalSlots = Math.max(1, maxSlot - minSlot + 1);
-          const coverage = usedSlots.size / totalSlots;
+          const coverage = usedSlots / totalSlots;
           const matchRatio = matched / positions.length;
           const score = fit * Math.pow(coverage, 0.78) * Math.pow(matchRatio, 1.15);
           if (!best || score > best.score) {
@@ -6996,6 +7051,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         if (abortAtStart !== _pipelineAbort) return; // « Passer l'IA » cliqué pendant la recherche
 
         if (!best) {
+          if (!_recalibratingAfterCrop) window.trackEvent?.('regle_absente');
           autoScaleStatus.textContent = 'Règle non détectée. Calibrez manuellement ou revenez en arrière.';
           _pendingAutoPipeline = false; // give up the auto-chain
           if (_recalibratingAfterCrop) {
@@ -7024,6 +7080,8 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           spacing.pxPerMm = _lockedPxPerMm;
           spacing.pxPerCm = _lockedPxPerMm * 10;
           spacing.mmPerPx = 1 / _lockedPxPerMm;
+          // Idem pour le type de graduation (souvent moins lisible sur le recadrage)
+          if (_lockedGraduation) Object.assign(spacing, _lockedGraduation);
         }
 
         ruler.body = findRulerBody(rotData.imageData, ruler, ticks, spacing);
@@ -7088,8 +7146,12 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           const CALIB_MIN_GRAD   = 0.6;  // confiance min sur le type de graduation (ajustable)
           const majors = spacing.majorMatchedTicks || 0;
           const gradOk = (spacing.graduationConfidence || 0) >= CALIB_MIN_GRAD;
+          const calibOk = conf >= CALIB_MIN_CONF && majors >= CALIB_MIN_MAJORS && gradOk;
+          window.trackEvent?.(calibOk ? 'regle_auto' : 'regle_verif');
+          const gradEvent = { mm1: 'grad_1mm', mm05: 'grad_05mm', mm5: 'grad_5mm', in8: 'grad_pouce', in16: 'grad_pouce' }[spacing.graduation];
+          if (gradOk && gradEvent) window.trackEvent?.(gradEvent);
 
-          if (conf >= CALIB_MIN_CONF && majors >= CALIB_MIN_MAJORS && gradOk) {
+          if (calibOk) {
             startAutoChain();
           } else {
             // Détection douteuse → on s'arrête et on demande une vérification humaine
@@ -7218,6 +7280,16 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       aiEdgeFraction > CONTOUR_EDGE_MAX ? CONTOUR_EDGE_MSG
       : (aiDetectedMask?.bgShare || 0) > CONTOUR_BG_MAX ? CONTOUR_BG_MSG
       : null;
+    // Idem, en comptant l'alerte dans les statistiques (une fois par photo)
+    let _contourWarnImg = null;
+    function noteContourWarning() {
+      const msg = contourWarning();
+      if (msg && _contourWarnImg !== sourceImage) {
+        _contourWarnImg = sourceImage;
+        window.trackEvent?.(msg === CONTOUR_EDGE_MSG ? 'contour_bord' : 'contour_fond');
+      }
+      return msg;
+    }
 
     function startMaskRefinement() {
       const token = ++_refineToken;
@@ -7250,6 +7322,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
                      || (after.border > 0.5 && before.border < 0.3);
         if (flooded) {
           console.log('[IA] affinage rejeté (fond inclus) :', before, '→', after);
+          window.trackEvent?.('affinage_rejete');
           return;
         }
         aiDetectedMask  = refined;
@@ -7257,7 +7330,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         reRenderAIMask(+aiCorrSlider.value);
         if (aiMetrics && aiMetrics.areaPx > 0) {
           aiAcceptBtn.disabled = false;
-          aiStatusEl.textContent = contourWarning() ||
+          aiStatusEl.textContent = noteContourWarning() ||
             'Contour affiné sur l\'image recadrée ✓ Ajustez le curseur si besoin.';
         }
       }).catch(() => {}); // en cas d'échec, le masque pré-calculé reste affiché
@@ -7479,6 +7552,9 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         // Stash the cropped mask so runAIDetection skips a second RMBG call
         _precomputedAIMask = croppedMask;
         _lockedPxPerMm     = lockedPxPerMm;
+        const ps = prevCalib?.spacing;
+        _lockedGraduation  = ps ? { graduation: ps.graduation, graduationLabel: ps.graduationLabel,
+                                    graduationConfidence: ps.graduationConfidence, unit: ps.unit } : null;
 
         if (FA.isMobile && transferCalibrationToCrop(prevCalib, cx0, cy0, cropW, cropH)) {
           // Mobile : la règle est déjà connue dans le repère redressé ; le recadrage est
@@ -7609,9 +7685,15 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     // Si le corps de la règle est connu, l'effacement par couleur suffit (il couvre
     // aussi la bande graduée) et préserve un bijou posé sur les graduations ; sinon
     // on efface la bande graduée entière, comme avant.
+    // Enfin, les morceaux de contour isolés posés sur la règle (gros chiffres imprimés,
+    // trop épais pour l'effacement par couleur) sont retirés en entier.
     function excludeRulerFromMask(mask, w, h) {
       if (!autoCalibration?.ruler) return;
-      if (excludeRulerBodyFromMask(mask, w, h)) return;
+      if (!excludeRulerBodyFromMask(mask, w, h)) excludeRulerBandFromMask(mask, w, h);
+      dropRulerComponents(mask, w, h);
+    }
+
+    function excludeRulerBandFromMask(mask, w, h) {
       const { ruler, fineAngle = 0, origW: W = w, origH: H = h, rW = W, rH = H } = autoCalibration;
       const rad  = (fineAngle || 0) * Math.PI / 180;
       const cosA = Math.cos(rad), sinA = Math.sin(rad);
@@ -7640,6 +7722,61 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           }
         }
       }
+    }
+
+    // Retire les petits morceaux de contour séparés du bijou situés surtout (≥ 60 %) dans
+    // la zone de la règle. Le plus grand morceau (le bijou) n'est jamais retiré ; un bijou
+    // posé en partie sur la règle reste donc entier. La zone part de la bande graduée et
+    // s'étend sur 40 mm du côté opposé au bijou (le bijou est posé à côté de la règle) :
+    // elle couvre les gros chiffres imprimés même si la couleur de la règle (acier à
+    // reflets) n'a pas permis d'en mesurer toute la largeur.
+    function dropRulerComponents(mask, w, h) {
+      const { ruler, spacing, fineAngle = 0, origW: W = w, origH: H = h, rW = W, rH = H } = autoCalibration;
+      const body = ruler?.body;
+      if (!body || !spacing?.pxPerMm) return;
+      const rad = (fineAngle || 0) * Math.PI / 180;
+      const cosA = Math.cos(rad), sinA = Math.sin(rad);
+      const rotY = i => { const dx = (i % w) - W / 2, dy = ((i / w) | 0) - H / 2; return dx * sinA + dy * cosA + rH / 2; };
+      const rotX = i => { const dx = (i % w) - W / 2, dy = ((i / w) | 0) - H / 2; return dx * cosA - dy * sinA + rW / 2; };
+      const n = w * h;
+      const label = new Int32Array(n), queue = new Int32Array(n);
+      const comps = [];
+      for (let s = 0; s < n; s++) {
+        if (label[s] || mask[s] < HYST_LOW) continue;
+        const id = comps.length + 1;
+        let head = 0, tail = 0, sumY = 0;
+        label[s] = id; queue[tail++] = s;
+        while (head < tail) {
+          const i = queue[head++];
+          sumY += rotY(i);
+          const x = i % w;
+          if (x > 0 && !label[i - 1] && mask[i - 1] >= HYST_LOW) { label[i - 1] = id; queue[tail++] = i - 1; }
+          if (x < w - 1 && !label[i + 1] && mask[i + 1] >= HYST_LOW) { label[i + 1] = id; queue[tail++] = i + 1; }
+          if (i >= w && !label[i - w] && mask[i - w] >= HYST_LOW) { label[i - w] = id; queue[tail++] = i - w; }
+          if (i < n - w && !label[i + w] && mask[i + w] >= HYST_LOW) { label[i + w] = id; queue[tail++] = i + w; }
+        }
+        comps.push({ size: tail, meanY: sumY / tail, onRuler: 0 });
+      }
+      if (comps.length < 2) return;
+      let largest = 0;
+      comps.forEach((c, k) => { if (c.size > comps[largest].size) largest = k; });
+      const bandTop = Math.min(body.top, ruler.top), bandBottom = Math.max(body.bottom, ruler.bottom);
+      const reach = 40 * spacing.pxPerMm, pad = 2 * spacing.pxPerMm;
+      const jewelAbove = comps[largest].meanY < (bandTop + bandBottom) / 2;
+      const zoneTop = jewelAbove ? bandTop - pad : bandBottom - reach;
+      const zoneBottom = jewelAbove ? bandTop + reach : bandBottom + pad;
+      for (let i = 0; i < n; i++) {
+        if (!label[i]) continue;
+        const ry = rotY(i), rx = rotX(i);
+        if (rx >= body.left && rx <= body.right && ry >= zoneTop && ry <= zoneBottom) comps[label[i] - 1].onRuler++;
+      }
+      // Petits morceaux seulement (≤ 25 % du bijou) : des chiffres, pas une autre pièce
+      const drop = comps.map((c, k) => k !== largest && c.onRuler >= 0.6 * c.size
+        && c.size <= 0.25 * comps[largest].size);
+      if (!drop.some(Boolean)) return;
+      let removed = 0;
+      for (let i = 0; i < n; i++) if (label[i] && drop[label[i] - 1]) { mask[i] = 0; removed++; }
+      console.log(`[IA] règle : ${drop.filter(Boolean).length} morceau(x) de contour posé(s) sur la règle retiré(s) (${removed} px)`);
     }
 
     // Retire du masque le corps de la règle (zone de findRulerBody élargie de 1,5 mm) :
@@ -7706,17 +7843,19 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       return true;
     }
 
-    // Moteur mobile (U²-Net-p, 320 px) : il voit les pièces ajourées comme pleines
-    // (mesuré : 1,0 de probabilité dans l'ouverture d'un mousqueton), la surface est
-    // alors surestimée. On retire du masque les ouvertures : zones qui ressemblent au
+    // Les modèles IA voient souvent les pièces ajourées comme pleines : le moteur mobile
+    // (U²-Net-p, 320 px) toujours (1,0 de probabilité dans l'ouverture d'un mousqueton),
+    // RMBG-1.4 sur ordinateur pour les petites ouvertures (trou de serrure, vides entre
+    // maillons). La surface est alors surestimée. On retire du masque les ouvertures : zones qui ressemblent au
     // fond de la photo (couleurs prélevées autour du bijou), pas au métal qui les
     // borde, entièrement entourées de métal et assez larges (disque de 1 mm de rayon).
     // Le métal poli reflète le fond : ses reflets sont des filets, et une patte en
-    // argent sur papier blanc touche l'extérieur du bijou — tous deux conservés.
+    // argent sur papier blanc touche l'extérieur du bijou — tous deux conservés. Des
+    // pierres blanches sur fond blanc scintillent alors que le fond est lisse : conservées.
     // Enfin on rogne le liseré de fond que le contour à 320 px laisse autour du bijou.
     const NEIGHBOURS_4 = [[1, 0], [-1, 0], [0, 1], [0, -1]];
     function carveBackgroundFromMask(mask, w, h) {
-      if (!window._iaLight || tempCanvas.width !== w || tempCanvas.height !== h) return 0;
+      if (tempCanvas.width !== w || tempCanvas.height !== h) return 0;
       const n = w * h;
       const px = tempCtx.getImageData(0, 0, w, h).data;
       // Deux niveaux : les ouvertures se reconnaissent sur le contour sûr (≥ 0,5) ; le
@@ -7816,10 +7955,14 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         queue[tail++] = start; label[start] = id;
         const zone = [0, 0, 0], ring = [0, 0, 0];
         let ringN = 0;
+        let gradSum = 0;
         while (head < tail) {
           const i = queue[head++];
           zone[0] += px[i * 4]; zone[1] += px[i * 4 + 1]; zone[2] += px[i * 4 + 2];
           const x = i % w, y = (i / w) | 0;
+          if (x > 0 && y > 0 && x < w - 1 && y < h - 1) {
+            gradSum += Math.abs(lum[i + 1] - lum[i - 1]) + Math.abs(lum[i + w] - lum[i - w]);
+          }
           for (const [dx, dy] of NEIGHBOURS_4) {
             const nx = x + dx, ny = y + dy;
             if (nx < 0 || ny < 0 || nx >= w || ny >= h) { touchesExterior = true; continue; }
@@ -7850,7 +7993,10 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         const rm = ring.map(v => v / ringN);
         const toRing = Math.sqrt(d2(zm, rm));
         const toBgAbs = Math.min(...centers.filter((_, j) => keep[j]).map(c => Math.sqrt(d2(zm, c))));
-        if (toBg < 1 && toRing > toBgAbs + 15) {
+        // Le fond vu par une ouverture est lisse (contraste local moyen mesuré : 4,7 à
+        // 10,8) ; des pierres blanches ou une perle sur fond blanc scintillent (15,6 à 17,9).
+        const smooth = gradSum / tail < 13;
+        if (toBg < 1 && toRing > toBgAbs + 15 && smooth) {
           for (let k = 0; k < tail; k++) mask[queue[k]] = 0;
           removed += tail;
           // Prolongement (≤ 3 mm) jusqu'au bord réel de l'ouverture : le fond y est
@@ -7928,8 +8074,8 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       }
       mask.bgShare = inside ? bgInside / inside : 0;
 
-      if (removed) console.log(`[IA] moteur léger : ${removed} px couleur du fond retirés du contour (dont liseré ${halo})`);
-      console.log(`[IA] moteur léger : part couleur du fond dans le contour ${Math.round(100 * mask.bgShare)} %`);
+      if (removed) console.log(`[IA] contour : ${removed} px couleur du fond retirés du contour (dont liseré ${halo})`);
+      console.log(`[IA] contour : part couleur du fond dans le contour ${Math.round(100 * mask.bgShare)} %`);
       return removed;
     }
 
@@ -8274,7 +8420,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           aiAcceptBtn.disabled = true;
           setStatus('Aucun contour détecté. Déplacez le curseur vers Silhouette pour élargir la détection.');
         } else {
-          aiStatusEl.textContent = contourWarning() || 'Contour détecté. Ajustez le curseur si besoin.';
+          aiStatusEl.textContent = noteContourWarning() || 'Contour détecté. Ajustez le curseur si besoin.';
           aiAcceptBtn.disabled = false;
           aiCompleteBtn.style.display  = '';
           aiSubtractBtn.style.display  = '';

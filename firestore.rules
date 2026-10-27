@@ -171,7 +171,11 @@ service cloud.firestore {
       return ['visite_outil', 'devis_demarre', 'prix_affiche',
               'compte_cree', 'ajout_panier', 'commande_validee',
               'mobile_impasse', 'impasse_regle', 'impasse_lente', 'impasse_contour', 'impasse_erreur',
-              'photo_envoyee', 'ia_passee', 'pwa_installee', 'pwa_refusee'];
+              'photo_envoyee', 'ia_passee', 'pwa_installee', 'pwa_refusee',
+              // Qualité de l'analyse photo (comptée à chaque photo)
+              'regle_auto', 'regle_verif', 'regle_absente',
+              'grad_1mm', 'grad_05mm', 'grad_5mm', 'grad_pouce',
+              'contour_bord', 'contour_fond', 'affinage_rejete'];
     }
     match /funnelStats/{day} {
       allow read: if estAdmin();
