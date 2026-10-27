@@ -998,12 +998,18 @@
       <button onclick="navTo('accountCard')" id="nav-accountCard"><span class="nav-ico" aria-hidden="true">👤</span><span class="nav-lbl">Mon compte</span><span class="nav-short">Compte</span></button>
       <button onclick="navTo('aideCard')" id="nav-aideCard"><span class="nav-ico" aria-hidden="true">❔</span><span class="nav-lbl">Aide</span><span class="nav-short">Aide</span></button>
       <button onclick="navTo('adminCard')" id="nav-adminCard" style="display:none;"><span class="nav-ico" aria-hidden="true">⚙️</span><span class="nav-lbl">Admin</span><span class="nav-short">Admin</span></button>
-      <button id="nav-loginBtn" onclick="openAuthModal()" style="margin-left:auto; background:rgba(255,255,255,0.15); color:#fff; border:1px solid rgba(255,255,255,0.3); border-radius:6px; padding:8px 16px; font-size:0.85rem; white-space:nowrap;"><span class="nav-ico" aria-hidden="true">🔑</span><span class="nav-lbl">Se connecter</span><span class="nav-short">Connexion</span></button>
+      <button id="nav-loginBtn" onclick="openAuthModal()" style="visibility:hidden; margin-left:auto; background:rgba(255,255,255,0.15); color:#fff; border:1px solid rgba(255,255,255,0.3); border-radius:6px; padding:8px 16px; font-size:0.85rem; white-space:nowrap;"><span class="nav-ico" aria-hidden="true">🔑</span><span class="nav-lbl">Se connecter</span><span class="nav-short">Connexion</span></button>
       <div id="authBar" style="margin-left:auto; display:none; align-items:center; gap:10px;">
         <span id="authUser" style="color:rgba(255,255,255,0.75); font-size:0.85rem;"></span>
 <button id="authSignOutBtn" class="secondary" type="button" style="padding:6px 14px; font-size:0.82rem;">Se déconnecter</button>
       </div>
     </nav>
+    <script>
+      // « Se connecter » reste masqué le temps que Firebase relise la session mémorisée
+      // (sinon un client déjà connecté le voit et croit devoir se reconnecter). Filet de
+      // sécurité si Firebase ne répond pas : affiché au bout de 4 s.
+      setTimeout(() => { const b = document.getElementById('nav-loginBtn'); if (b) b.style.visibility = ''; }, 4000);
+    </script>
 
     <!-- Badge note moyenne — masqué ici, affiché sur fontart.fr/service-dorure-bijoux -->
     <div id="ratingBadge" style="display:none !important;">
@@ -3617,6 +3623,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     })();
 
     onAuthStateChanged(auth, (user) => {
+      document.getElementById('nav-loginBtn')?.style.removeProperty('visibility');
       if (!user) {
         if (isResettingPassword) return; // Ne pas écraser le formulaire de reset
         needsProfile = false;
@@ -3630,9 +3637,28 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         return;
       }
 
+      // Session mémorisée d'un compte déjà vérifié : affiché connecté tout de suite, le
+      // profil se charge ensuite. Avant, « Se connecter » restait affiché 1 à 3 s (plus
+      // sur téléphone) et un clic pendant ce temps ouvrait la fenêtre de connexion.
+      if (user.emailVerified && !isRegistering) {
+        currentUser = user;
+        updateNavForAuth(true);
+        if (authUser) authUser.textContent = user.email || '';
+      }
+      restoreAccount(user, 0);
+    });
+
+    // Chargement du profil du compte connecté. Une erreur passagère (réseau pas encore
+    // prêt au réveil du téléphone, Firestore « offline ») est réessayée au lieu d'ouvrir
+    // la fenêtre de connexion : la session, elle, est toujours valable.
+    const RESTORE_RETRY_MS = [2000, 5000, 10000];
+    const isTransientError = err => ['unavailable', 'deadline-exceeded', 'failed-precondition', 'auth/network-request-failed']
+      .includes(err?.code) || /offline|network/i.test(err?.message || '');
+    function restoreAccount(user, attempt) {
       setAuthStatus('Chargement du compte...');
       (async () => {
         try {
+          if (auth.currentUser !== user) return; // déconnecté entre-temps
           // Toujours recharger pour obtenir l'état emailVerified à jour
           try { await reload(user); } catch {}
 
@@ -3710,15 +3736,22 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           }
 
           needsProfile = true;
+          currentUser = null; updateNavForAuth(false); // annule l'affichage « connecté » anticipé
           openAuthModal();
           showRegister(true);
           setAuthStatus('Profil incomplet. Merci de compléter les champs puis cliquer sur "Créer un compte".', true);
         } catch (err) {
+          if (isTransientError(err) && attempt < RESTORE_RETRY_MS.length) {
+            console.warn('[Auth] profil indisponible, nouvel essai :', err?.code || err?.message);
+            setTimeout(() => restoreAccount(user, attempt + 1), RESTORE_RETRY_MS[attempt]);
+            return;
+          }
+          currentUser = null; updateNavForAuth(false); // annule l'affichage « connecté » anticipé
           openAuthModal();
           setAuthStatus(err?.message || 'Accès impossible. Vérifiez Firestore.', true);
         }
       })();
-    });
+    }
   </script>
 
     <script>
