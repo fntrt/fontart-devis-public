@@ -1,0 +1,23 @@
+# Dépôt PUBLIC (GitHub Pages) : rien de confidentiel ici.
+
+# Scripts admin Firebase / ERP : clé de compte de service (accès total à la base),
+# tarifs clients, sauvegardes et exports de données clients
+import-erp/
+
+# Inqom (compta) : identifiants OAuth de production et journaux
+inqom-config.json
+inqom-imports-log.json
+inqom-api-skill/
+
+# Rapports locaux
+renommage-rapport.json
+
+# Réglages locaux de Claude Code
+.claude/settings.local.json
+.claude/worktrees/
+
+# Secrets génériques
+*.env
+.env*
+service-account*.json
+*-credentials.json

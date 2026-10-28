@@ -13,39 +13,108 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // ── Notes utilisateurs (1 note par compte) ──
+    // Admin : adresse vérifiée obligatoire (un compte non vérifié ne prouve pas
+    // la possession de la boîte mail).
+    function estAdmin() {
+      return request.auth != null
+          && request.auth.token.email == 'guillaume@fontart.fr'
+          && request.auth.token.email_verified == true;
+    }
+
+    // ── Notes utilisateurs (1 note par compte, adresse vérifiée) ──
+    // La note et le résumé global s'écrivent dans la même transaction
+    // (saveUserRating) : chacune des deux écritures n'est acceptée que si le
+    // résumé après écriture = résumé avant − ancienne note + nouvelle note.
+    // Impossible donc de gonfler le résumé (JSON-LD public) sans vraie note.
+    function resumeNotesCoherent(uid) {
+      let note   = /databases/$(database)/documents/ratings/$(uid);
+      let resume = /databases/$(database)/documents/ratingsSummary/global;
+      let avant  = exists(resume) ? get(resume).data : {};
+      let apres  = getAfter(resume).data;
+      let ancienne = exists(note) ? get(note).data.rating : 0;
+      return existsAfter(note) && existsAfter(resume)
+          && apres.keys().hasOnly(['totalScore', 'count'])
+          && apres.totalScore == avant.get('totalScore', 0) - ancienne + getAfter(note).data.rating
+          && apres.count == avant.get('count', 0) + (exists(note) ? 0 : 1);
+    }
     match /ratings/{userId} {
       allow read: if request.auth != null && request.auth.uid == userId;
       allow create, update: if request.auth != null
                             && request.auth.uid == userId
-                            && request.resource.data.rating is number
-                            && request.resource.data.rating >= 1
-                            && request.resource.data.rating <= 5;
+                            && request.auth.token.email_verified == true
+                            && request.resource.data.keys().hasOnly(['rating', 'timestamp', 'userId'])
+                            && request.resource.data.userId == userId
+                            && request.resource.data.rating in [1, 2, 3, 4, 5]
+                            && resumeNotesCoherent(userId);
     }
 
     // ── Résumé global des notes : lecture publique (badge + SEO JSON-LD) ──
     match /ratingsSummary/{docId} {
       allow read: if true;
-      allow write: if request.auth != null;
+      allow write: if estAdmin();
+      allow create, update: if docId == 'global'
+                            && request.auth != null
+                            && request.auth.token.email_verified == true
+                            && resumeNotesCoherent(request.auth.uid);
     }
 
     // ── Comptes utilisateurs ──
+    // Données personnelles (adresse, téléphone, SIRET) : lisibles par le titulaire
+    // et l'admin uniquement.
+    // Code client : on ne peut s'attribuer qu'un code réservé à son nom dans
+    // clientCodes (sinon un compte pourrait prendre le code d'un client à tarif
+    // spécifique, ex. 411GAS1, et lire/appliquer son tarif). Il ne change plus ensuite.
+    // Champs de gestion (type de client, règlement, TVA…) : valeurs par défaut à
+    // la création, puis modifiables par l'admin seulement (repris dans l'ERP).
+    function codeClientAMoi(code) {
+      return code is string
+          && get(/databases/$(database)/documents/clientCodes/$(code)).data.get('uid', null) == request.auth.uid;
+    }
+    function champsGestion() {
+      return ['typeClient', 'typeFacturation', 'modeReglement', 'delaiReglement',
+              'tva', 'tauxTva', 'afficherNumeroBLFactures', 'afficherTarifsBL',
+              'devise', 'conditionsTVA', 'pays', 'compteClient'];
+    }
+    // Doit correspondre à CLIENT_DEFAULTS dans quote-page.html
+    function champsGestionParDefaut(d) {
+      return d.get('typeClient', 'Professionnel') == 'Professionnel'
+          && d.get('typeFacturation', 'Façon') == 'Façon'
+          && d.get('modeReglement', 'Virement bancaire') == 'Virement bancaire'
+          && d.get('delaiReglement', 'Paiement Comptant') == 'Paiement Comptant'
+          && d.get('tva', 'Oui') == 'Oui'
+          && d.get('tauxTva', '20') == '20'
+          && d.get('afficherNumeroBLFactures', 'Oui') == 'Oui'
+          && d.get('afficherTarifsBL', 'Oui') == 'Oui'
+          && d.get('devise', 'EUR') == 'EUR'
+          && d.get('conditionsTVA', 'N° TVA') == 'N° TVA'
+          && d.get('pays', '') == ''
+          && d.get('compteClient', '') == '';
+    }
     match /users/{uid} {
-      allow read: if request.auth != null;
+      allow read: if estAdmin() || (request.auth != null && request.auth.uid == uid);
       allow create: if request.auth != null
                     && request.auth.uid == uid
-                    && request.resource.data.clientCode is string;
+                    && codeClientAMoi(request.resource.data.clientCode)
+                    && champsGestionParDefaut(request.resource.data);
       allow update: if request.auth != null
                     && request.auth.uid == uid
-                    && request.resource.data.clientCode == resource.data.clientCode;
+                    && (request.resource.data.get('clientCode', null) == resource.data.get('clientCode', null)
+                        || (resource.data.get('clientCode', '') == ''
+                            && codeClientAMoi(request.resource.data.clientCode)))
+                    && !request.resource.data.diff(resource.data).affectedKeys().hasAny(champsGestion());
       allow delete: if request.auth != null && request.auth.uid == uid;
     }
 
     // ── Codes client (unicité garantie côté règles) ──
+    // Un client ne réserve que des codes au format généré par l'outil (411 + 4
+    // lettres), à son nom (uid). Les codes ERP (411ALM, 411GAS1…) sont créés par
+    // les scripts admin. Pas de lecture en liste (énumération des clients).
     match /clientCodes/{code} {
       allow create: if request.auth != null
-                    && !exists(/databases/$(database)/documents/clientCodes/$(code));
-      allow read: if request.auth != null;
+                    && code.matches('^411[A-Z]{4}$')
+                    && request.resource.data.keys().hasOnly(['uid', 'createdAt'])
+                    && request.resource.data.uid == request.auth.uid;
+      allow get: if request.auth != null;
     }
 
     // ── Devis (journal d'audit : écriture seule côté client) ──
@@ -80,9 +149,18 @@ service cloud.firestore {
     }
 
     // ── Commandes (propriétaire uniquement) ──
-    match /orders/{doc} {
-      allow read, write: if request.auth != null && request.auth.uid == resource.data.userId;
-      allow create: if request.auth != null && request.auth.uid == request.resource.data.userId;
+    // Création seule, en statut « pending », avec son identifiant (orderId) et la
+    // date serveur. Ensuite le client ne peut plus la modifier ni la supprimer
+    // (prix, statut) : le suivi se fait côté Fontart (Admin SDK).
+    match /orders/{orderId} {
+      allow read: if request.auth != null && request.auth.uid == resource.data.userId;
+      allow create: if request.auth != null
+                    && request.resource.data.keys().hasOnly(['userId', 'orderId', 'orderedAt', 'status', 'items'])
+                    && request.resource.data.userId == request.auth.uid
+                    && request.resource.data.orderId == orderId
+                    && request.resource.data.orderedAt == request.time
+                    && request.resource.data.status == 'pending'
+                    && request.resource.data.items is list;
     }
 
     // ── Sessions (création seule, lecture interdite côté client) ──
@@ -97,18 +175,36 @@ service cloud.firestore {
     // Écriture :
     //  - admin : tout (barème depuis l'onglet Admin) ;
     //  - client connecté : seulement les cours dans config/metalRates (le premier
-    //    client de la journée les rafraîchit), champs connus uniquement, et un cours
-    //    ne peut pas varier de plus de -20 % / +25 % d'un coup (évite qu'un compte
-    //    malveillant fausse les prix de tout le monde).
-    function estAdmin() {
-      return request.auth != null && request.auth.token.email == 'guillaume@fontart.fr';
+    //    client de la journée les rafraîchit). Pour chaque métal modifié :
+    //      · cours dans la plage plausible (comme COURS_PLAGE dans quote-page.html) ;
+    //      · au plus un rafraîchissement par 20 h ;
+    //      · ±10 % par rapport au cours stocké (±25 % s'il a plus de 7 jours) ;
+    //      · date du cours = vraie date AAAA-MM-JJ des 4 derniers jours (une date
+    //        future figerait le cache pour tout le monde) ; horodatage serveur.
+    //    Un compte malveillant ne peut donc décaler les prix que de 10 % par jour
+    //    au pire (solution définitive : cours écrits par une tâche planifiée admin).
+    function dateCoursRecente(jour) {
+      let p = jour.split('-');
+      let d = timestamp.date(int(p[0]), int(p[1]), int(p[2]));
+      return d > request.time - duration.value(4, 'd') && d < request.time + duration.value(1, 'd');
     }
-    function coursPlausible(m) {
+    function variationCoursOk(m, n, a) {
+      return !(m in a)
+          || (!((m + 'UpdatedAt') in a) || request.time > a[m + 'UpdatedAt'] + duration.value(7, 'd')
+                ? n[m] >= a[m] * 0.75 && n[m] <= a[m] * 1.25
+                : request.time > a[m + 'UpdatedAt'] + duration.value(20, 'h')
+                  && n[m] >= a[m] * 0.9 && n[m] <= a[m] * 1.1);
+    }
+    function coursRafraichi(m, mini, maxi) {
       let n = request.resource.data;
-      return !(m in n)
-          || (n[m] is number && n[m] > 0
-              && (resource == null || !(m in resource.data)
-                  || (n[m] >= resource.data[m] * 0.8 && n[m] <= resource.data[m] * 1.25)));
+      let a = resource == null ? {} : resource.data;
+      return !n.diff(a).affectedKeys().hasAny([m, m + 'Date', m + 'UpdatedAt'])
+          || (n.get(m, null) is number && n[m] >= mini && n[m] <= maxi
+              && n.get(m + 'UpdatedAt', null) == request.time
+              && n.get(m + 'Date', null) is string
+              && n[m + 'Date'].matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+              && dateCoursRecente(n[m + 'Date'])
+              && variationCoursOk(m, n, a));
     }
     match /config/{docId} {
       allow read: if true;
@@ -118,8 +214,8 @@ service cloud.firestore {
                             && request.resource.data.keys().hasOnly(
                                  ['gold', 'goldDate', 'goldUpdatedAt',
                                   'silver', 'silverDate', 'silverUpdatedAt'])
-                            && coursPlausible('gold')
-                            && coursPlausible('silver');
+                            && coursRafraichi('gold', 20000, 500000)
+                            && coursRafraichi('silver', 200, 10000);
     }
 
     // ── Tarifs spécifiques par client (ex. A.M.O. GAS : pricingClients/411GAS1) ──
@@ -127,9 +223,9 @@ service cloud.firestore {
     // document, et par l'admin. Écrit uniquement par le script admin
     // import-erp/init-tarif-client.js (Admin SDK, contourne les règles).
     match /pricingClients/{code} {
-      allow read: if request.auth != null
-                  && (request.auth.token.email == 'guillaume@fontart.fr'
-                      || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.clientCode.upper() == code);
+      allow read: if estAdmin()
+                  || (request.auth != null
+                      && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.clientCode.upper() == code);
       allow write: if false;
     }
 

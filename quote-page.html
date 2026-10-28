@@ -2135,7 +2135,8 @@
             if (snap.exists()) {
               throw new Error('Code déjà utilisé');
             }
-            tx.set(codeRef, { createdAt: serverTimestamp() });
+            // uid : les règles Firestore n'acceptent dans users/{uid} qu'un code réservé à son nom
+            tx.set(codeRef, { uid: auth.currentUser.uid, createdAt: serverTimestamp() });
           });
           return candidate;
         } catch (err) {
@@ -3137,19 +3138,23 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           };
         });
 
+        // Commande + panier vidé en une seule écriture : tout ou rien (pas de commande
+        // en double si la connexion coupe au milieu). orderId fixé dès la création :
+        // les règles interdisent de modifier une commande ensuite.
         console.log('[Commande] Écriture dans Firestore orders...');
-        const ref = await addDoc(collection(db, 'orders'), {
+        const ref = doc(collection(db, 'orders'));
+        const batch = writeBatch(db);
+        batch.set(ref, {
           userId:    user.uid,
+          orderId:   ref.id,
           orderedAt: serverTimestamp(),
           status:    'pending',
           items
         });
-        await updateDoc(ref, { orderId: ref.id });
+        snap.docs.forEach(d => batch.delete(d.ref));
+        await batch.commit();
         console.log('[Commande] Commande créée :', ref.id);
         window.trackEvent?.('commande_validee');
-
-        // Vider le panier
-        await Promise.all(snap.docs.map(d => deleteDoc(doc(db, 'cartItems', d.id))));
         await loadCartItems();
 
         FA.openOverlay(document.getElementById('orderModal'));
@@ -3563,18 +3568,8 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         shippingPostal: (accountShippingPostal?.value || '').trim(),
         shippingCity: (accountShippingCity?.value || '').trim(),
         shippingSame: !!accountSameAddress?.checked,
-        typeClient: CLIENT_DEFAULTS.typeClient,
-        typeFacturation: CLIENT_DEFAULTS.typeFacturation,
-        modeReglement: CLIENT_DEFAULTS.modeReglement,
-        delaiReglement: CLIENT_DEFAULTS.delaiReglement,
-        tva: CLIENT_DEFAULTS.tva,
-        tauxTva: CLIENT_DEFAULTS.tauxTva,
-        afficherNumeroBLFactures: CLIENT_DEFAULTS.afficherNumeroBLFactures,
-        afficherTarifsBL: CLIENT_DEFAULTS.afficherTarifsBL,
-        devise: CLIENT_DEFAULTS.devise,
-        conditionsTVA: CLIENT_DEFAULTS.conditionsTVA,
-        pays: CLIENT_DEFAULTS.pays,
-        compteClient: CLIENT_DEFAULTS.compteClient,
+        // Champs de gestion (CLIENT_DEFAULTS) : écrits à l'inscription, ensuite réservés
+        // à l'admin (règles Firestore) — ne pas les renvoyer ici.
         updatedAt: serverTimestamp()
       };
       try {
@@ -3805,39 +3800,8 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
             return;
           }
 
-          const email = user.email || '';
-          if (email) {
-            const q = query(collection(db, 'users'), where('email', '==', email));
-            const result = await getDocs(q);
-            if (!result.empty) {
-              const data = result.docs[0].data();
-              await setDoc(doc(db, 'users', user.uid), data, { merge: true });
-              needsProfile = false;
-              currentUser = user;
-              closeAuthModal();
-              updateNavForAuth(true);
-              if (authUser) authUser.textContent = user.email || '';
-              showRegister(false);
-              logSession(user);
-              loadArticles();
-              loadCartItems();
-              loadAccount();
-              if (!PRICING) {
-                try {
-                  const pSnap = await getDoc(doc(db, 'config', 'pricing'));
-                  if (pSnap.exists()) PRICING = pSnap.data();
-                } catch (e) { console.warn('Pricing reload after login failed:', e.message); }
-              }
-              if (pendingCartItem) {
-                const item = pendingCartItem;
-                pendingCartItem = null;
-                setTimeout(() => addToCart(item), 200);
-              }
-              if (window._pendingPhotoRequest) setTimeout(() => window.envoyerPhotoAFontart?.(), 200);
-              return;
-            }
-          }
-
+          // Pas de profil pour ce compte : il le complète (les profils des autres comptes,
+          // même à la même adresse, ne sont pas lisibles — règles Firestore).
           needsProfile = true;
           authLog('profil introuvable : fenêtre « compléter le profil »');
           currentUser = null; updateNavForAuth(false); // annule l'affichage « connecté » anticipé
@@ -5238,15 +5202,9 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           throw err;
         }
       };
-      try {
-        return await tryFetch(url);
-      } catch (err) {
-        try {
-          return await tryFetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`);
-        } catch (err2) {
-          return await tryFetch(`https://r.jina.ai/http://${url.replace(/^https?:\/\//, '')}`);
-        }
-      }
+      // Pas de relais tiers (allorigins, jina) : un relais pourrait renvoyer un cours
+      // arbitraire, ensuite partagé à tous les visiteurs via config/metalRates.
+      return await tryFetch(url);
     }
 
     function selectLbmaFixing(data) {
@@ -5317,7 +5275,9 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         try { localStorage.setItem(cacheKey, c.eurPerKg.toFixed(2)); localStorage.setItem(cacheTsKey, c.date); } catch (_) {}
       };
 
-      if (stocke && Date.now() - new Date(stocke.date + 'T12:00:00Z').getTime() < 36 * 3600 * 1000) {
+      // Âge du cours stocké : une date dans le futur (donnée faussée) n'est pas « fraîche »
+      const ageStocke = stocke ? Date.now() - new Date(stocke.date + 'T12:00:00Z').getTime() : NaN;
+      if (ageStocke > -24 * 3600 * 1000 && ageStocke < 36 * 3600 * 1000) {
         _afficherCours(metal, inputEl, stocke, false);
         garderSurAppareil(stocke);
         return;

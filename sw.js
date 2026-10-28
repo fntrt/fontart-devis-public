@@ -1,7 +1,7 @@
 /* Service worker — Font'Art Devis (PWA)
  * · quote-page.html : réseau d'abord (toujours à jour, revalidation ETag), cache en secours (hors ligne)
  * · runtime ONNX (jsDelivr), modèle U²-Net-p, icônes, vidéos : cache d'abord (gros fichiers immuables)
- * · Firebase / Firestore / cours de l'or / Hugging Face : réseau uniquement (transformers.js a son propre cache)
+ * · Firebase / Firestore / Hugging Face : réseau uniquement (transformers.js a son propre cache)
  * Changer VERSION à chaque déploiement qui doit purger les anciens caches. */
 const VERSION = 'fontart-devis-v1';
 const STATIC  = `${VERSION}-static`;
@@ -34,7 +34,6 @@ self.addEventListener('activate', (event) => {
 const NETWORK_ONLY = [
   'firestore.googleapis.com', 'identitytoolkit.googleapis.com', 'securetoken.googleapis.com',
   'www.gstatic.com', 'firebaseapp.com', 'huggingface.co', 'hf.co',
-  'allorigins.win', 'r.jina.ai',
 ];
 const CACHE_FIRST = ['cdn.jsdelivr.net', 'fonts.gstatic.com'];
 
