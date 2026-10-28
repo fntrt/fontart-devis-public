@@ -1831,6 +1831,7 @@
         try {
           await setPersistence(auth, mode);
           console.log('[Auth] Persistance : ' + nom);
+          window._authPersistence = nom;
           return;
         } catch {}
       }
@@ -2403,6 +2404,7 @@
     });
 
     signOutBtn?.addEventListener('click', async () => {
+      try { localStorage.removeItem('fa-dernier-compte'); } catch {}
       await signOut(auth);
     });
 
@@ -3176,6 +3178,8 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     // ── Log de session ────────────────────────────────────────────────────────
     let _sessionLogged = false;
     async function logSession(user) {
+      // Témoin pour le diagnostic de connexion : « ce navigateur avait un compte connecté »
+      try { localStorage.setItem('fa-dernier-compte', user.email || user.uid); } catch {}
       if (_sessionLogged) return;
       _sessionLogged = true;
       try {
@@ -3656,7 +3660,50 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       }
     })();
 
+    // ── Diagnostic de connexion (?diag=connexion) ──
+    // Affiche ce qui se passe à l'ouverture : la session était-elle encore dans le
+    // navigateur, Firebase l'a-t-il restaurée, le stockage a-t-il été effacé…
+    const _authT0 = performance.now();
+    let _authFirst = null;
+    async function showAuthDiag() {
+      const lines = [];
+      const add = (k, v) => lines.push(`${k} : ${v}`);
+      add('Adresse', location.origin + location.pathname);
+      add('Dans une page fontart.fr (iframe)', window !== window.top ? `oui (${location.ancestorOrigins?.[0] || '?'})` : 'non');
+      add('Appli installée', matchMedia('(display-mode: standalone)').matches ? 'oui' : 'non');
+      add('Navigateur', navigator.userAgent);
+      add('Mode de mémorisation', window._authPersistence || '(pas encore fixé)');
+      let temoin = null;
+      try { temoin = localStorage.getItem('fa-dernier-compte'); } catch (e) { temoin = 'stockage refusé'; }
+      add('Témoin « compte connecté » laissé la dernière fois', temoin || 'aucun');
+      let sessionFirebase = '?';
+      try {
+        sessionFirebase = await new Promise(res => {
+          const rq = indexedDB.open('firebaseLocalStorageDb');
+          rq.onerror = () => res('base illisible');
+          rq.onsuccess = () => {
+            const dbi = rq.result;
+            if (!dbi.objectStoreNames.contains('firebaseLocalStorage')) { res('base vide'); return; }
+            const g = dbi.transaction('firebaseLocalStorage').objectStore('firebaseLocalStorage').getAllKeys();
+            g.onsuccess = () => res(g.result.some(k => String(k).startsWith('firebase:authUser')) ? 'présente' : 'absente');
+            g.onerror = () => res('illisible');
+          };
+        });
+      } catch (e) { sessionFirebase = 'indisponible'; }
+      add('Session Firebase dans le navigateur', sessionFirebase);
+      add('Compte restauré à l\'ouverture', _authFirst ? (_authFirst.user || 'aucun') + ` (en ${_authFirst.ms} ms)` : '?');
+      try { add('Stockage protégé contre l\'effacement', (await navigator.storage?.persisted?.()) ? 'oui' : 'non'); } catch {}
+      const box = document.createElement('div');
+      box.style.cssText = 'position:fixed; left:8px; right:8px; bottom:8px; z-index:100000; background:#111; color:#eee; font:12px/1.5 monospace; padding:12px; border-radius:8px; white-space:pre-wrap; max-height:60vh; overflow:auto;';
+      box.textContent = 'Diagnostic de connexion — faites une capture d\'écran\n\n' + lines.join('\n');
+      document.body.appendChild(box);
+    }
+
     onAuthStateChanged(auth, (user) => {
+      if (_authFirst === null) {
+        _authFirst = { user: user?.email || null, ms: Math.round(performance.now() - _authT0) };
+        if (new URLSearchParams(location.search).get('diag') === 'connexion') setTimeout(showAuthDiag, 1500);
+      }
       document.getElementById('nav-loginBtn')?.style.removeProperty('visibility');
       if (!user) {
         if (isResettingPassword) return; // Ne pas écraser le formulaire de reset
