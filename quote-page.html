@@ -1838,6 +1838,16 @@
       console.warn('[Auth] setPersistence échoué, persistance par défaut.');
     })();
 
+    // Journal des événements de connexion sur cet appareil (20 derniers), affiché par
+    // ?diag=connexion : permet de comprendre une déconnexion après coup.
+    function authLog(msg) {
+      try {
+        const log = JSON.parse(localStorage.getItem('fa-journal-connexion') || '[]');
+        log.push(new Date().toLocaleString('fr-FR') + ' — ' + msg);
+        localStorage.setItem('fa-journal-connexion', JSON.stringify(log.slice(-20)));
+      } catch {}
+    }
+
     const authGate    = document.getElementById('authGate');
     const authModal   = document.getElementById('authModal');
     const appContainer = document.getElementById('appContainer');
@@ -2405,6 +2415,7 @@
 
     signOutBtn?.addEventListener('click', async () => {
       try { localStorage.removeItem('fa-dernier-compte'); } catch {}
+      authLog('déconnexion (bouton « Se déconnecter »)');
       await signOut(auth);
     });
 
@@ -3664,7 +3675,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     // Affiche ce qui se passe à l'ouverture : la session était-elle encore dans le
     // navigateur, Firebase l'a-t-il restaurée, le stockage a-t-il été effacé…
     const _authT0 = performance.now();
-    let _authFirst = null;
+    let _authFirst = null, _hadUser = false;
     async function showAuthDiag() {
       const lines = [];
       const add = (k, v) => lines.push(`${k} : ${v}`);
@@ -3692,6 +3703,9 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       } catch (e) { sessionFirebase = 'indisponible'; }
       add('Session Firebase dans le navigateur', sessionFirebase);
       add('Compte restauré à l\'ouverture', _authFirst ? (_authFirst.user || 'aucun') + ` (en ${_authFirst.ms} ms)` : '?');
+      let journal = [];
+      try { journal = JSON.parse(localStorage.getItem('fa-journal-connexion') || '[]'); } catch {}
+      add('Journal des connexions sur cet appareil', journal.length ? '\n  ' + journal.join('\n  ') : 'vide');
       try { add('Stockage protégé contre l\'effacement', (await navigator.storage?.persisted?.()) ? 'oui' : 'non'); } catch {}
       const box = document.createElement('div');
       box.style.cssText = 'position:fixed; left:8px; right:8px; bottom:8px; z-index:100000; background:#111; color:#eee; font:12px/1.5 monospace; padding:12px; border-radius:8px; white-space:pre-wrap; max-height:60vh; overflow:auto;';
@@ -3702,8 +3716,15 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
     onAuthStateChanged(auth, (user) => {
       if (_authFirst === null) {
         _authFirst = { user: user?.email || null, ms: Math.round(performance.now() - _authT0) };
+        let temoin = null;
+        try { temoin = localStorage.getItem('fa-dernier-compte'); } catch {}
+        if (user) authLog('ouverture : session restaurée (' + (user.email || '') + ')');
+        else if (temoin) authLog('ouverture : AUCUNE session, alors que ' + temoin + ' était connecté');
         if (new URLSearchParams(location.search).get('diag') === 'connexion') setTimeout(showAuthDiag, 1500);
+      } else if (!user && _hadUser) {
+        authLog('session perdue pendant l\'utilisation');
       }
+      if (user) _hadUser = true;
       document.getElementById('nav-loginBtn')?.style.removeProperty('visibility');
       if (!user) {
         if (isResettingPassword) return; // Ne pas écraser le formulaire de reset
@@ -3741,10 +3762,11 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         try {
           if (auth.currentUser !== user) return; // déconnecté entre-temps
           // Toujours recharger pour obtenir l'état emailVerified à jour
-          try { await reload(user); } catch {}
+          try { await reload(user); } catch (e) { authLog('erreur au rechargement du compte : ' + (e?.code || e?.message)); }
 
           // Ne pas interrompre un flux d'inscription en cours
           if (!user.emailVerified && !isRegistering) {
+            authLog('déconnexion : e-mail non vérifié');
             await signOut(auth);
             resendVerifBtn?.classList.remove('hidden');
             setAuthStatus('Veuillez vérifier votre adresse email avant de vous connecter. Consultez votre boîte mail.', true);
@@ -3817,6 +3839,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
           }
 
           needsProfile = true;
+          authLog('profil introuvable : fenêtre « compléter le profil »');
           currentUser = null; updateNavForAuth(false); // annule l'affichage « connecté » anticipé
           openAuthModal();
           showRegister(true);
@@ -3827,6 +3850,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
             setTimeout(() => restoreAccount(user, attempt + 1), RESTORE_RETRY_MS[attempt]);
             return;
           }
+          authLog('erreur au chargement du profil : ' + (err?.code || err?.message));
           currentUser = null; updateNavForAuth(false); // annule l'affichage « connecté » anticipé
           openAuthModal();
           setAuthStatus(err?.message || 'Accès impossible. Vérifiez Firestore.', true);
@@ -7160,6 +7184,22 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         // l'orientation retenue, donc le recadrage et le contour.)
         if (best && FA.isMobile && best.spacing.confidence >= 0.5 && (best.spacing.majorMatchedTicks || 0) >= 3
             && best.spacing.graduationConfidence >= 0.6) break;
+      }
+
+      // Lecture pas sûre : l'angle vient d'une image réduite (300 px) où un écart de 1°
+      // ne se voit pas, alors qu'en pleine résolution il étale les traits d'une règle de
+      // 15 cm sur ~25 px et fait échouer la lecture des graduations. On réessaie à ±1°
+      // puis ±2° en pleine résolution et on garde le premier angle qui donne une lecture
+      // sûre. Les photos déjà lues avec certitude ne passent pas ici (résultat inchangé).
+      const sure = r => r && r.spacing.confidence >= 0.5 && (r.spacing.majorMatchedTicks || 0) >= 3
+        && r.spacing.graduationConfidence >= 0.6;
+      if (best && !sure(best)) {
+        autoScaleStatus.textContent = statusPrefix + 'Ajustement fin de l\'angle…';
+        await yieldUI();
+        for (const delta of [-1, 1, -2, 2]) {
+          const result = tryDetectionAtAngleCalib(fineAngle + delta, sensitivity);
+          if (sure(result)) { best = result; fineAngle += delta; break; }
+        }
       }
       return { best, fineAngle };
     }
