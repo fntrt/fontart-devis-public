@@ -4927,7 +4927,8 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
 
       const weight = parseWeight();
       if (!weight || weight <= 0) {
-        setStatus('Poids invalide.', true);
+        setStatus('Poids manquant : indiquez le poids de la pièce en grammes (champ « Poids » du formulaire), puis recliquez.', true);
+        try { weightInput.scrollIntoView({ block: 'center' }); weightInput.focus({ preventScroll: true }); } catch (e) {}
         return;
       }
 
@@ -5469,7 +5470,7 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
       }
     }
 
-    let _serialFrames = 0, _serialRawChunks = 0;
+    let _serialFrames = 0, _serialRawChunks = 0, _scaleLast = NaN, _scaleSame = 0;
     function parseScaleLine(line) {
       _serialFrames++;
       if (_serialFrames <= 20) console.log('[balance] trame :', JSON.stringify(line));
@@ -5482,15 +5483,22 @@ document.getElementById('validateOrderBtn')?.addEventListener('click', async () 
         const numStr = match[0].replace(/\s+/g, '');
         const weight = parseFloat(numStr);
         if (!isNaN(weight)) {
-          // Mise à jour de l'affichage dans le champ du poids
-          weightInput.value = weight.toFixed(2);
-          // Dispatch de l'évènement 'input' pour recalculer automatiquement les dépendances et activer/désactiver le bouton de chargement de photo
-          weightInput.dispatchEvent(new Event('input'));
-          
           // Vérification de la stabilité (souvent US pour unstable, ST pour stable)
           const isStable = !line.includes('US') && !line.includes('unstable');
+          // Le champ ne retient qu'un poids posé : stable, non nul, et identique sur
+          // 3 trames de suite. Retirer la pièce pour la photographier (plateau à 0,
+          // valeurs de transition) ne doit pas effacer le poids déjà relevé.
+          _scaleSame = isStable && Math.abs(weight - _scaleLast) < 0.015 ? _scaleSame + 1 : 0;
+          _scaleLast = weight;
+          const retenu = weight > 0.005 && _scaleSame >= 2;
+          if (retenu && weightInput.value !== weight.toFixed(2)) {
+            weightInput.value = weight.toFixed(2);
+            // Dispatch de l'évènement 'input' pour recalculer automatiquement les dépendances et activer/désactiver le bouton de chargement de photo
+            weightInput.dispatchEvent(new Event('input'));
+          }
           const stabilityText = isStable ? 'stable' : 'en mouvement';
-          updateSerialUI(true, `Balance : connectée. Poids : ${weight.toFixed(2)} g (${stabilityText})`, !isStable);
+          const garde = weight <= 0.005 && parseWeight() > 0 ? ` — poids retenu : ${weightInput.value} g` : '';
+          updateSerialUI(true, `Balance : connectée. Poids : ${weight.toFixed(2)} g (${stabilityText})${garde}`, !isStable);
         }
       } else {
         updateSerialUI(true, `Balance : connectée mais trame non comprise : « ${line.trim().slice(0, 40)} »`);
